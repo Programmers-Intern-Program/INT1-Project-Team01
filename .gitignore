@@ -39,3 +39,4 @@ out/
 ### Custom ###
 test.mv.db
 test.trace.db
+.env
