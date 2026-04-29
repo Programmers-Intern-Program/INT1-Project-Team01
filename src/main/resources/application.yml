@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: ai-office
+  output:
+    ansi:
+      enabled: always
+
+  datasource:
+    url: jdbc:h2:./test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+    hikari:
+      auto-commit: false
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+        highlight_sql: true
+        use_sql_comments: true
+    show-sql: true
+    open-in-view: false
+
+logging:
+  level:
+    back: INFO
