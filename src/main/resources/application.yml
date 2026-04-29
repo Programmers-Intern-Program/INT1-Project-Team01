@@ -4,6 +4,8 @@ spring:
   output:
     ansi:
       enabled: always
+  config:
+    import: optional:file:.env[.properties]
 
   datasource:
     url: jdbc:h2:./test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
@@ -24,6 +26,20 @@ spring:
         use_sql_comments: true
     show-sql: true
     open-in-view: false
+
+custom:
+  jwt:
+    secret-key: ${CUSTOM_JWT_SECRET_KEY:team01-ai-office-default-secret-key-team01-ai-office-default}
+    access-token-expiration-seconds: ${CUSTOM_JWT_ACCESS_EXPIRATION_SECONDS:172800}
+    refresh-token-expiration-seconds: ${CUSTOM_JWT_REFRESH_EXPIRATION_SECONDS:604800}
+  oauth:
+    google:
+      client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+      token-info-base-url: ${GOOGLE_TOKEN_INFO_BASE_URL:https://oauth2.googleapis.com}
+  cors:
+    allowed-origin-patterns:
+      - http://localhost:3000
+      - http://localhost:5173
 
 logging:
   level:
