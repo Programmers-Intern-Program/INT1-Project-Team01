@@ -27,11 +27,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class WorkspaceServiceImpl implements WorkspaceService {
-    private static final String MEMBER_NOT_FOUND_MESSAGE = "회원이 존재하지 않습니다.";
-    private static final String WORKSPACE_NOT_FOUND_MESSAGE = "워크스페이스가 존재하지 않습니다.";
-    private static final String WORKSPACE_ACCESS_DENIED_MESSAGE = "워크스페이스 접근 권한이 없습니다.";
-    private static final String WORKSPACE_ADMIN_REQUIRED_MESSAGE = "워크스페이스 관리자 권한이 필요합니다.";
-    private static final String LAST_ADMIN_CHANGE_MESSAGE = "워크스페이스의 마지막 관리자는 변경하거나 제거할 수 없습니다.";
 
     private final MemberRepository memberRepository;
     private final WorkspaceRepository workspaceRepository;
@@ -55,7 +50,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     public List<WorkspaceSummaryInfoRes> listMyWorkspaces(long memberId) {
         getMemberOrThrow(memberId);
-        return workspaceMemberRepository.findAllByMemberId(memberId).stream()
+        return workspaceMemberRepository.findAllByMemberIdWithWorkspace(memberId).stream()
                 .sorted(Comparator.comparing(workspaceMember -> workspaceMember.getWorkspace().getId()))
                 .map(this::toWorkspaceSummaryResponse)
                 .toList();
@@ -116,14 +111,15 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return memberRepository.findById(memberId).orElseThrow(() -> new ServiceException(
                 CommonErrorCode.NOT_FOUND,
                 "[WorkspaceServiceImpl#getMemberOrThrow] member not found by id",
-                MEMBER_NOT_FOUND_MESSAGE));
+                "회원이 존재하지 않습니다."
+        ));
     }
 
     private Workspace getWorkspaceOrThrow(long workspaceId) {
         return workspaceRepository.findById(workspaceId).orElseThrow(() -> new ServiceException(
                 CommonErrorCode.NOT_FOUND,
                 "[WorkspaceServiceImpl#getWorkspaceOrThrow] workspace not found by id",
-                WORKSPACE_NOT_FOUND_MESSAGE));
+                "워크스페이스가 존재하지 않습니다."));
     }
 
     private WorkspaceMember requireMember(long workspaceId, long memberId) {
@@ -132,7 +128,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 () -> new ServiceException(
                         CommonErrorCode.FORBIDDEN,
                         "[WorkspaceServiceImpl#requireMember] workspace membership not found",
-                        WORKSPACE_ACCESS_DENIED_MESSAGE));
+                        "워크스페이스 접근 권한이 없습니다."));
     }
 
     private WorkspaceMember requireAdmin(long workspaceId, long memberId) {
@@ -141,7 +137,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
             throw new ServiceException(
                     CommonErrorCode.FORBIDDEN,
                     "[WorkspaceServiceImpl#requireAdmin] workspace member is not admin",
-                    WORKSPACE_ADMIN_REQUIRED_MESSAGE);
+                    "워크스페이스 관리자 권한이 필요합니다.");
         }
 
         return workspaceMember;
@@ -158,7 +154,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
             throw new ServiceException(
                     CommonErrorCode.BAD_REQUEST_STATE,
                     "[WorkspaceServiceImpl#validateLastAdminIsKept] last admin cannot be changed or removed",
-                    LAST_ADMIN_CHANGE_MESSAGE);
+                    "워크스페이스의 마지막 관리자는 변경하거나 제거할 수 없습니다.");
         }
     }
 
@@ -180,8 +176,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspace.getName(),
                 workspace.getDescription(),
                 workspaceMember.getRole(),
-                0,
-                0,
+                0,  // TODO: openclaw 연동 시 실제 agent 수로 수정
+                0, // TODO: openclaw 연동 시 실제 task 수로 수정
                 workspace.getCreatedAt());
     }
 
