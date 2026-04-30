@@ -1,7 +1,9 @@
 package back.domain.workspace.controller;
 
+import java.net.URI;
 import java.util.List;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -44,10 +46,10 @@ public class WorkspaceController {
             @Valid @RequestBody CreateWorkspaceReq request) {
         long memberId = resolveAuthenticatedMemberId(authenticatedMember);
         WorkspaceInfoRes response = workspaceService.create(memberId, request);
-        return ResponseEntity.ok(
+        return ResponseEntity.status(HttpStatus.CREATED).body(
                 new RsData<>(
                         response,
-                        "워크스페이스가 생성되었습니다."
+                "워크스페이스가 생성되었습니다."
                 )
         );
     }
