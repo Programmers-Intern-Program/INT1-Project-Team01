@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.enums.WorkspaceMemberRole;
@@ -13,7 +15,8 @@ public interface WorkspaceMemberRepository extends JpaRepository<WorkspaceMember
 
     boolean existsByWorkspaceIdAndMemberId(Long workspaceId, Long memberId);
 
-    List<WorkspaceMember> findAllByMemberId(Long memberId);
+    @Query("SELECT wm FROM WorkspaceMember wm JOIN FETCH wm.workspace WHERE wm.member.id = :memberId")
+    List<WorkspaceMember> findAllByMemberIdWithWorkspace(@Param("memberId") Long memberId);
 
     List<WorkspaceMember> findAllByWorkspaceId(Long workspaceId);
 
