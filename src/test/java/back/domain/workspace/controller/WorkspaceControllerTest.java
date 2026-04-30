@@ -65,7 +65,7 @@ class WorkspaceControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"테스트\",\"description\":\"설명\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.name").value("테스트"));
     }
 
