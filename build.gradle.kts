@@ -34,6 +34,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
 
 	// --- JWT ---
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -42,7 +43,7 @@ dependencies {
 
 	// --- DB ---
 	implementation("org.springframework.boot:spring-boot-h2console")
-	runtimeOnly("com.h2database:h2")          // 운영 DB 전환 전까지 임시
+	runtimeOnly("com.h2database:h2")
 	runtimeOnly("org.postgresql:postgresql")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 
@@ -55,13 +56,15 @@ dependencies {
 	compileOnly("org.projectlombok:lombok")
 	annotationProcessor("org.projectlombok:lombok")
 
-	// --- SpotBugs (spotbugsMain 태스크용) ---
+	// --- SpotBugs ---
 	compileOnly("com.github.spotbugs:spotbugs-annotations:4.8.6")
 
 	// --- Test ---
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
+	testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
 	testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
