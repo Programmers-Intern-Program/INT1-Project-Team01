@@ -92,7 +92,7 @@ class WorkspaceServiceImplTest {
     void listMyWorkspaces_success() {
         // given
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
-        given(workspaceMemberRepository.findAllByMemberId(1L)).willReturn(List.of(adminWorkspaceMember));
+        given(workspaceMemberRepository.findAllByMemberIdWithWorkspace(1L)).willReturn(List.of(adminWorkspaceMember));
 
         // when
         List<WorkspaceSummaryInfoRes> result = workspaceService.listMyWorkspaces(1L);
