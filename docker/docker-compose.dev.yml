@@ -26,9 +26,11 @@ services:
       - ../.env
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-dev:5432/${DEV_PPOSTGRES_DB}
-      SPRING_DATASOURCE_USERNAME: ${DEV_PPOSTGRES_USER}
-      SPRING_DATASOURCE_PASSWORD: ${DEV_PPOSTGRES_PASSWORD}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-dev:5432/${DEV_POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${DEV_POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DEV_POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
       JWT_SECRET: ${CUSTOM_JWT_SECRET_KEY}
     depends_on:
       - postgres-dev
