@@ -29,7 +29,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${PROD_POSTGRES_PASSWORD}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
-      JWT_SECRET: ${PROD_JWT_SECRET}
+      CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
     depends_on:
       - postgres-prod
     expose:
@@ -47,7 +47,7 @@ services:
       - ../.env
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-prod:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-prod:5432/${PROD_POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${PROD_POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${PROD_POSTGRES_PASSWORD}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
