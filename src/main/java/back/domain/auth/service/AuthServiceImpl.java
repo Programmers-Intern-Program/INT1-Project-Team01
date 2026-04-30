@@ -10,6 +10,7 @@ import back.domain.member.repository.MemberRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.security.JwtTokenProvider;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.Arrays;
 import java.util.Locale;
 
+@SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "스프링 DI 컨테이너가 주입하는 빈이므로 외부 변조 위험 없음")
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
