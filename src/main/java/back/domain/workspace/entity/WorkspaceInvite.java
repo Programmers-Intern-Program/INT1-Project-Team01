@@ -102,6 +102,10 @@ public class WorkspaceInvite extends BaseEntity {
         this.acceptedAt = LocalDateTime.now();
     }
 
+    public void revoke() {
+        this.revokedAt = LocalDateTime.now();
+    }
+
     private static Workspace requireWorkspace(Workspace workspace) {
         if (workspace == null) {
             throw new IllegalArgumentException("workspace must not be null");
