@@ -16,9 +16,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import back.domain.workspace.controller.docs.WorkspaceControllerDocs;
+import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
+import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -36,10 +39,11 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/api/v1/workspaces")
 @Validated
 @RequiredArgsConstructor
-public class WorkspaceController {
+public class WorkspaceController implements WorkspaceControllerDocs {
     private final WorkspaceService workspaceService;
 
     // Workspace 생성
+    @Override
     @PostMapping
     public ResponseEntity<RsData<WorkspaceInfoRes>> create(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
@@ -55,6 +59,7 @@ public class WorkspaceController {
     }
 
     // Workspace 다건(목록) 조회
+    @Override
     @GetMapping
     public ResponseEntity<RsData<List<WorkspaceSummaryInfoRes>>> listMine(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember) {
@@ -68,6 +73,7 @@ public class WorkspaceController {
     }
 
     // Workspace 단건(상세) 조회
+    @Override
     @GetMapping("/{workspaceId}")
     public ResponseEntity<RsData<WorkspaceInfoRes>> getWorkspace(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember, @PathVariable long workspaceId) {
@@ -81,6 +87,7 @@ public class WorkspaceController {
     }
 
     // Workspace 수정 (name, description)
+    @Override
     @PatchMapping("/{workspaceId}")
     public ResponseEntity<RsData<WorkspaceInfoRes>> updateWorkspace(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
@@ -96,6 +103,7 @@ public class WorkspaceController {
     }
 
     // Workspace 멤버 목록 조회
+    @Override
     @GetMapping("/{workspaceId}/members")
     public ResponseEntity<RsData<List<WorkspaceMemberInfoRes>>> listMembers(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember, @PathVariable long workspaceId) {
@@ -109,6 +117,7 @@ public class WorkspaceController {
     }
 
     // Workspace 멤버 역할 변경
+    @Override
     @PatchMapping("/{workspaceId}/members/{memberId}")
     public ResponseEntity<RsData<Void>> changeMemberRole(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
@@ -123,6 +132,7 @@ public class WorkspaceController {
     }
 
     // Workspace 멤버 삭제
+    @Override
     @DeleteMapping("/{workspaceId}/members/{memberId}")
     public ResponseEntity<RsData<Void>> removeMember(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
@@ -133,6 +143,20 @@ public class WorkspaceController {
         return ResponseEntity.ok(
                 new RsData<>("워크스페이스 멤버 삭제 성공")
         );
+    }
+
+    // Workspace 초대 링크 생성
+    @Override
+    @PostMapping("/{workspaceId}/invites")
+    public ResponseEntity<RsData<WorkspaceInviteInfoRes>> createInviteLink(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
+            @PathVariable long workspaceId,
+            @Valid @RequestBody CreateWorkspaceInviteReq request) {
+        long requesterId = resolveAuthenticatedMemberId(authenticatedMember);
+        WorkspaceInviteInfoRes response = workspaceService.createInviteLink(workspaceId, requesterId, request);
+
+        return ResponseEntity.created(URI.create("/api/v1/invites/" + response.token()))
+                .body(new RsData<>(response, "초대 링크가 생성되었습니다."));
     }
 
     private long resolveAuthenticatedMemberId(AuthenticatedMember authenticatedMember) {
