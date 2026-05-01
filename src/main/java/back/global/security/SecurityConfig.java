@@ -40,6 +40,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll().requestMatchers(
                                 "/error",
+                                "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/oauth2/**",
@@ -51,6 +52,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/google/login")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/token/refresh")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/invites/*")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout")
                         .authenticated()

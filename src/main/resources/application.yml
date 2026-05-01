@@ -40,6 +40,14 @@ custom:
     allowed-origin-patterns:
       - http://localhost:3000
       - http://localhost:5173
+  invite:
+    base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:8080/api/v1/invites}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
 
 logging:
   level:
