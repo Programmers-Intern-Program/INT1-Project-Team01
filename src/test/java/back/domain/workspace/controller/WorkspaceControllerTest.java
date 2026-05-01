@@ -1,5 +1,6 @@
 package back.domain.workspace.controller;
 
+import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -165,5 +166,27 @@ class WorkspaceControllerTest {
         mockMvc.perform(delete("/api/v1/workspaces/1/members/2")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("초대 링크 생성 성공")
+    void createInviteLink_success() throws Exception {
+        // given
+        WorkspaceInviteInfoRes response = new WorkspaceInviteInfoRes(
+                1L,
+                "invite-token",
+                "http://localhost:3000/invites/invite-token",
+                LocalDateTime.now().plusDays(7));
+        given(workspaceService.createInviteLink(anyLong(), anyLong(), any())).willReturn(response);
+
+        // when & then
+        mockMvc.perform(post("/api/v1/workspaces/1/invites")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expiresInDays\":7,\"role\":\"MEMBER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.inviteId").value(1L))
+                .andExpect(jsonPath("$.data.token").value("invite-token"))
+                .andExpect(jsonPath("$.data.inviteUrl").value("http://localhost:3000/invites/invite-token"));
     }
 }

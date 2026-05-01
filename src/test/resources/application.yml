@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+    show-sql: false
+    open-in-view: false
+
+custom:
+  jwt:
+    secret-key: ${CUSTOM_JWT_SECRET_KEY:team01-ai-office-default-secret-key-team01-ai-office-default}
+    access-token-expiration-seconds: ${CUSTOM_JWT_ACCESS_EXPIRATION_SECONDS:172800}
+    refresh-token-expiration-seconds: ${CUSTOM_JWT_REFRESH_EXPIRATION_SECONDS:604800}
+  oauth:
+    google:
+      client-id: ${GOOGLE_OAUTH_CLIENT_ID:test-client-id}
+      token-info-base-url: ${GOOGLE_TOKEN_INFO_BASE_URL:https://oauth2.googleapis.com}
+  cors:
+    allowed-origin-patterns:
+      - http://localhost:3000
+      - http://localhost:5173
+  invite:
+    base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:8080/api/v1/invites}
+
+logging:
+  level:
+    back: WARN
+    org.hibernate: WARN
