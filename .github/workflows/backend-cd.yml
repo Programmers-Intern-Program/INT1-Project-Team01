@@ -1,0 +1,28 @@
+name: Backend Blue-Green Deploy
+
+on:
+  push:
+    branches:
+      - develop
+      - seulgi_feat/IT-24 #임시 확인용
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to OCI server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/app/INT1-Project-Team01
+            git fetch origin
+            git checkout develop
+            git pull origin develop
+            chmod +x scripts/deploy-bluegreen.sh
+            ./scripts/deploy-bluegreen.sh develop
+            curl -f http://localhost/api/v1/health
