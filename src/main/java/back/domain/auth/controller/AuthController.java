@@ -1,5 +1,6 @@
 package back.domain.auth.controller;
 
+import back.domain.auth.controller.docs.AuthControllerDocs;
 import back.domain.auth.dto.request.GoogleLoginRequest;
 import back.domain.auth.dto.request.LogoutAuthRequest;
 import back.domain.auth.dto.request.RefreshAuthTokenRequest;
@@ -24,20 +25,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 @Validated
 @RequiredArgsConstructor
-public class AuthController{
+public class AuthController implements AuthControllerDocs {
     private final AuthService authService;
 
+    @Override
     @PostMapping("/google/login")
     public ResponseEntity<RsData<GoogleLoginResponse>> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
         return ResponseEntity.ok(new RsData<>(authService.loginWithGoogle(request.idToken()), "로그인 성공"));
     }
 
+    @Override
     @PostMapping("/token/refresh")
     public ResponseEntity<RsData<RefreshAuthTokenResponse>> refresh(
             @Valid @RequestBody RefreshAuthTokenRequest request) {
         return ResponseEntity.ok(new RsData<>(authService.refresh(request.refreshToken()), "토큰 재발급 성공"));
     }
 
+    @Override
     @PostMapping("/logout")
     public ResponseEntity<RsData<Void>> logout(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,

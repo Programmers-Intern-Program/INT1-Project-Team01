@@ -1,30 +1,17 @@
 spring:
-  application:
-    name: ai-office
-  output:
-    ansi:
-      enabled: always
-  config:
-    import: optional:file:.env[.properties]
-
   datasource:
-    url: jdbc:h2:./test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
     driver-class-name: org.h2.Driver
     username: sa
     password:
-    hikari:
-      auto-commit: false
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
-        format_sql: true
-        highlight_sql: true
-        use_sql_comments: true
-    show-sql: true
+    show-sql: false
     open-in-view: false
 
 custom:
@@ -34,7 +21,7 @@ custom:
     refresh-token-expiration-seconds: ${CUSTOM_JWT_REFRESH_EXPIRATION_SECONDS:604800}
   oauth:
     google:
-      client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+      client-id: ${GOOGLE_OAUTH_CLIENT_ID:test-client-id}
       token-info-base-url: ${GOOGLE_TOKEN_INFO_BASE_URL:https://oauth2.googleapis.com}
   cors:
     allowed-origin-patterns:
@@ -43,12 +30,7 @@ custom:
   invite:
     base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:8080/api/v1/invites}
 
-springdoc:
-  api-docs:
-    enabled: true
-  swagger-ui:
-    enabled: true
-
 logging:
   level:
-    back: INFO
+    back: WARN
+    org.hibernate: WARN

@@ -2,9 +2,12 @@ package back.domain.workspace.service;
 
 import java.util.List;
 
+import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
+import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
+import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -90,4 +93,36 @@ public interface WorkspaceService {
      * @throws ServiceException 마지막 ADMIN을 제거하려는 경우 (BAD_REQUEST_STATE)
      */
     void removeMember(long workspaceId, long targetMemberId, long requesterId);
+
+    /**
+     * 워크스페이스 초대 링크를 생성합니다.
+     *
+     * @param workspaceId  대상 워크스페이스 ID
+     * @param requesterId  요청자의 회원 ID
+     * @param request      초대 링크 생성 요청 DTO
+     * @return 생성된 초대 링크 정보
+     * @throws ServiceException 워크스페이스가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
+     */
+    WorkspaceInviteInfoRes createInviteLink(long workspaceId, long requesterId, CreateWorkspaceInviteReq request);
+
+    /**
+     * 초대 토큰으로 초대 대상 Workspace 정보를 조회합니다.
+     *
+     * @param token 초대 토큰
+     * @return 초대 대상 Workspace와 초대 상태 정보
+     * @throws ServiceException 초대 토큰이 존재하지 않는 경우 (NOT_FOUND)
+     */
+    WorkspaceInvitePreviewRes getInviteInfo(String token);
+
+    /**
+     * 초대 토큰을 수락해 요청자를 Workspace 멤버로 등록합니다.
+     *
+     * @param token    초대 토큰
+     * @param memberId 수락 요청자의 회원 ID
+     * @throws ServiceException 초대 토큰 또는 회원이 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 초대가 만료, 사용, 폐기된 경우 (BAD_REQUEST_STATE 또는 CONFLICT)
+     * @throws ServiceException 이미 Workspace 멤버인 경우 (CONFLICT)
+     */
+    void acceptInvite(String token, long memberId);
 }
