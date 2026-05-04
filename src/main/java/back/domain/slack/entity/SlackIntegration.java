@@ -1,12 +1,10 @@
 package back.domain.slack.entity;
 
+import back.domain.workspace.entity.Workspace;
 import back.global.jpa.entity.BaseEntity;
 import back.global.security.crypto.TinkCryptoConverter;
-import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,18 +17,13 @@ import lombok.NoArgsConstructor;
  * 보안 요구사항에 따라 중요 토큰 정보는 {@code TinkCryptoConverter}를 통해 데이터베이스에 암호화되어 저장되며,
  * 애플리케이션 내에서는 평문으로 복호화되어 다루어집니다.
  *
- * <p><b>상속 정보:</b><br>
- * {@code BaseEntity}를 상속받아 {@code id}, {@code createdAt}, {@code updatedAt} 필드를 기본으로 가집니다.
- *
- * <p><b>주요 생성자:</b><br>
- * {@code SlackIntegration(...)} <br>
- * 롬복의 {@code @Builder}를 통해 생성되며, 연동에 필요한 필수 정보(Workspace ID, Slack Team ID, Slack Channel ID,
- * Bot Token, Signing Secret, 등록자 ID)를 매개변수로 받습니다. <br>
- *
  * @author minhee
  * @see back.global.security.crypto.TinkCryptoConverter
  * @since 2026-04-30
  */
+@SuppressFBWarnings(
+        value = {"EI_EXPOSE_REP"},
+        justification = "JPA 연관 엔티티 반환은 Spring 컨텍스트에서 관리됨")
 @Entity
 @Table(name = "slack_integrations", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"slack_team_id", "slack_channel_id"})
@@ -39,8 +32,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SlackIntegration extends BaseEntity {
 
-    @Column(nullable = false)
-    private Long workspaceId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "workspace_id", nullable = false)
+    private Workspace workspace;
 
     @Column(nullable = false, length = 100)
     private String slackTeamId;
@@ -60,9 +54,9 @@ public class SlackIntegration extends BaseEntity {
     private Long createdByMemberId;
 
     @Builder
-    public SlackIntegration(Long workspaceId, String slackTeamId, String slackChannelId,
+    public SlackIntegration(Workspace workspace, String slackTeamId, String slackChannelId,
                             String botToken, String signingSecret, Long createdByMemberId) {
-        this.workspaceId = workspaceId;
+        this.workspace = workspace;
         this.slackTeamId = slackTeamId;
         this.slackChannelId = slackChannelId;
         this.botToken = botToken;

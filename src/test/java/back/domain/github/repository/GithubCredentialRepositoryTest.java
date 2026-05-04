@@ -1,8 +1,13 @@
 package back.domain.github.repository;
 
 import back.domain.github.entity.GithubCredential;
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.security.crypto.TinkCryptoConverter;
 import back.global.security.crypto.TinkCryptoUtil;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +29,21 @@ class GithubCredentialRepositoryTest {
     private GithubCredentialRepository repository;
 
     @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private Workspace workspace;
+
+    @BeforeEach
+    void setUp() {
+        Member member = memberRepository.save(Member.createUser("sub", "test@test.com", "홍길동"));
+        workspace = workspaceRepository.save(Workspace.create("테스트 워크스페이스", "설명", member));
+    }
 
     @Test
     @DisplayName("엔티티에 평문 GitHub PAT를 넣고 저장하면, 실제 DB 컬럼에는 암호화되어 저장된다.")
@@ -33,7 +52,7 @@ class GithubCredentialRepositoryTest {
         String plainToken = "ghp_real-plain-github-token-for-test123";
 
         GithubCredential credential = GithubCredential.builder()
-                .workspaceId(1L)
+                .workspace(workspace)
                 .displayName("BE-Server-Access")
                 .token(plainToken)
                 .createdByMemberId(100L)
@@ -42,10 +61,10 @@ class GithubCredentialRepositoryTest {
         // when
         GithubCredential savedCredential = repository.saveAndFlush(credential);
 
-        // then 1: 어플리케이션(JPA) 레벨에서는 평문으로 정상 조회
+        // then 1: 애플리케이션(JPA) 레벨에서는 평문으로 정상 조회
         assertThat(savedCredential.getToken()).isEqualTo(plainToken);
 
-        // then 2: Native Query로 실제 DB 테이블을 직접 조회하면 평문이 아님을 증명 (DoD 충족)
+        // then 2: Native Query로 실제 DB 컬럼을 직접 조회하면 평문이 아님을 증명
         String rawDbToken = jdbcTemplate.queryForObject(
                 "SELECT token_encrypted FROM github_credentials WHERE id = ?",
                 String.class,
@@ -53,6 +72,6 @@ class GithubCredentialRepositoryTest {
         );
 
         assertThat(rawDbToken).isNotNull();
-        assertThat(rawDbToken).isNotEqualTo(plainToken); // DB에는 평문이 아님을 확인
+        assertThat(rawDbToken).isNotEqualTo(plainToken);
     }
 }

@@ -4,6 +4,8 @@ import back.domain.github.dto.request.GithubCredentialCreateReq;
 import back.domain.github.dto.response.GithubCredentialInfoRes;
 import back.domain.github.entity.GithubCredential;
 import back.domain.github.repository.GithubCredentialRepository;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class GithubCredentialServiceImpl implements GithubCredentialService {
 
     private final GithubCredentialRepository githubCredentialRepository;
+    private final WorkspaceRepository workspaceRepository;
 
     @Override
     @Transactional
@@ -22,6 +25,13 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
 
         // TODO: Workspace 검증 로직 호출 (ADMIN인지 확인) [IT-9]
         // 예: workspaceValidator.checkWorkspaceAdminPermission(workspaceId, memberId);
+
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[GithubCredentialServiceImpl#createGithubCredential] workspace not found by id: " + workspaceId,
+                        "워크스페이스가 존재하지 않습니다."
+                ));
 
         if (githubCredentialRepository.existsByWorkspaceIdAndDisplayName(workspaceId, req.displayName())) {
             throw new ServiceException(
@@ -32,7 +42,7 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
         }
 
         GithubCredential credential = GithubCredential.builder()
-                .workspaceId(workspaceId)
+                .workspace(workspace)
                 .displayName(req.displayName())
                 .token(req.token())
                 .createdByMemberId(memberId)

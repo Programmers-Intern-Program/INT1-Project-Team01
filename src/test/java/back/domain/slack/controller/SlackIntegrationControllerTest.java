@@ -6,7 +6,6 @@ import back.domain.slack.service.SlackIntegrationService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.security.AuthenticatedMember;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

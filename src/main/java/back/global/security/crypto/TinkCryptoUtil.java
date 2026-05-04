@@ -61,7 +61,11 @@ public final class TinkCryptoUtil {
 
     public String encrypt(String plainText) {
         if (plainText == null || plainText.isBlank()) {
-            return null;
+            throw new ServiceException(
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "[TinkCryptoUtil#encrypt] plainText must not be null or blank",
+                    "데이터 암호화 처리 중 시스템 오류가 발생했습니다."
+            );
         }
         try {
             byte[] cipherTextBytes = aead.encrypt(plainText.getBytes(StandardCharsets.UTF_8), new byte[0]);

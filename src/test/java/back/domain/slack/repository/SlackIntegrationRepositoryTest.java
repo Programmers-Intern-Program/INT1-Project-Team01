@@ -1,8 +1,13 @@
 package back.domain.slack.repository;
 
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
 import back.domain.slack.entity.SlackIntegration;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.security.crypto.TinkCryptoConverter;
 import back.global.security.crypto.TinkCryptoUtil;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +29,21 @@ class SlackIntegrationRepositoryTest {
     private SlackIntegrationRepository repository;
 
     @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private Workspace workspace;
+
+    @BeforeEach
+    void setUp() {
+        Member member = memberRepository.save(Member.createUser("sub", "test@test.com", "홍길동"));
+        workspace = workspaceRepository.save(Workspace.create("테스트 워크스페이스", "설명", member));
+    }
 
     @Test
     @DisplayName("엔티티에 평문 토큰을 넣고 저장하면, 실제 DB 컬럼에는 암호화되어 저장된다.")
@@ -34,7 +53,7 @@ class SlackIntegrationRepositoryTest {
         String plainSigningSecret = "real-signing-secret";
 
         SlackIntegration integration = SlackIntegration.builder()
-                .workspaceId(1L)
+                .workspace(workspace)
                 .slackTeamId("T12345")
                 .slackChannelId("C12345")
                 .botToken(plainBotToken)
