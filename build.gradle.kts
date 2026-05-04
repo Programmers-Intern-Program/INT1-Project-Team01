@@ -65,10 +65,15 @@ dependencies {
 	testImplementation("org.springframework.security:spring-security-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
 	testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+	testImplementation("org.springframework.boot:spring-boot-webmvc-test")
+	testImplementation("org.springframework.boot:spring-boot-data-jpa-test")
 
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
+
+	// --- Security / Crypto ---
+	implementation("com.google.crypto.tink:tink:1.12.0")
 }
 
 tasks.withType<Test> {
