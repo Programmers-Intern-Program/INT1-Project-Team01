@@ -11,13 +11,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
-import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
+import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
+import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
-import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 import back.domain.workspace.entity.Workspace;
@@ -43,6 +44,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final WorkspaceInviteRepository workspaceInviteRepository;
+    private final InviteEmailService inviteEmailService;
 
     @Value("${custom.invite.base-url}")
     private String inviteBaseUrl;
@@ -52,9 +54,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Transactional
     public WorkspaceInfoRes create(long memberId, CreateWorkspaceReq request) {
         Member creator = getMemberOrThrow(memberId);
-        Workspace workspace = workspaceRepository.save(
-                Workspace.create(request.name(), request.description(), creator)
-        );
+        Workspace workspace =
+                workspaceRepository.save(Workspace.create(request.name(), request.description(), creator));
         WorkspaceMember workspaceMember =
                 workspaceMemberRepository.save(WorkspaceMember.create(workspace, creator, WorkspaceMemberRole.ADMIN));
 
@@ -132,14 +133,18 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         LocalDateTime expiresAt = LocalDateTime.now().plusDays(resolveExpiresInDays(request));
         String token = generateUniqueInviteToken();
 
-        WorkspaceInvite workspaceInvite = workspaceInviteRepository.save(
-                WorkspaceInvite.create(workspace, token, role, createdByMember, expiresAt));
+        WorkspaceInvite workspaceInvite = WorkspaceInvite.create(workspace, token, role, createdByMember, expiresAt);
+        workspaceInvite.requestEmailDelivery(request.targetEmail());
+        workspaceInvite = workspaceInviteRepository.save(workspaceInvite);
+        String inviteUrl = buildInviteUrl(workspaceInvite.getToken());
+        sendInviteEmailIfNeeded(workspace, createdByMember, workspaceInvite, inviteUrl, request.targetEmail());
 
         return new WorkspaceInviteInfoRes(
                 workspaceInvite.getId(),
                 workspaceInvite.getToken(),
-                buildInviteUrl(workspaceInvite.getToken()),
-                workspaceInvite.getExpiresAt());
+                inviteUrl,
+                workspaceInvite.getExpiresAt()
+        );
     }
 
     // Workspace 초대 조회 (비로그인 가능)
@@ -164,6 +169,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         Member member = getMemberOrThrow(memberId);
         WorkspaceInvite workspaceInvite = getInviteOrThrow(token);
         validateInviteCanBeAccepted(workspaceInvite);
+        validateInviteTargetEmailIfNeeded(workspaceInvite, member);
 
         Workspace workspace = workspaceInvite.getWorkspace();
         if (workspaceMemberRepository.existsByWorkspaceIdAndMemberId(workspace.getId(), memberId)) {
@@ -174,26 +180,34 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         }
 
         workspaceMemberRepository.save(WorkspaceMember.create(workspace, member, workspaceInvite.getRole()));
-        workspaceInvite.accept(member);
+        if (workspaceInvite.hasTargetEmail()) {
+            workspaceInvite.accept(member);
+        }
     }
 
     // ========= util =========
 
+    // memberId로 회원을 조회하고, 없으면 예외를 던진다
     private Member getMemberOrThrow(long memberId) {
-        return memberRepository.findById(memberId).orElseThrow(() -> new ServiceException(
-                CommonErrorCode.NOT_FOUND,
-                "[WorkspaceServiceImpl#getMemberOrThrow] member not found by id",
-                "회원이 존재하지 않습니다."
-        ));
+        return memberRepository
+                .findById(memberId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[WorkspaceServiceImpl#getMemberOrThrow] member not found by id",
+                        "회원이 존재하지 않습니다."));
     }
 
+    // workspaceId로 워크스페이스를 조회하고, 없으면 예외를 던진다
     private Workspace getWorkspaceOrThrow(long workspaceId) {
-        return workspaceRepository.findById(workspaceId).orElseThrow(() -> new ServiceException(
-                CommonErrorCode.NOT_FOUND,
-                "[WorkspaceServiceImpl#getWorkspaceOrThrow] workspace not found by id",
-                "워크스페이스가 존재하지 않습니다."));
+        return workspaceRepository
+                .findById(workspaceId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[WorkspaceServiceImpl#getWorkspaceOrThrow] workspace not found by id",
+                        "워크스페이스가 존재하지 않습니다."));
     }
 
+    // 토큰으로 초대를 조회하고, 없거나 토큰이 blank면 예외를 던진다
     private WorkspaceInvite getInviteOrThrow(String token) {
         if (token == null || token.isBlank()) {
             throw new ServiceException(
@@ -202,21 +216,26 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                     "초대 링크가 존재하지 않습니다.");
         }
 
-        return workspaceInviteRepository.findByToken(token.trim()).orElseThrow(() -> new ServiceException(
-                CommonErrorCode.NOT_FOUND,
-                "[WorkspaceServiceImpl#getInviteOrThrow] invite not found by token",
-                "초대 링크가 존재하지 않습니다."));
+        return workspaceInviteRepository
+                .findByToken(token.trim())
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[WorkspaceServiceImpl#getInviteOrThrow] invite not found by token",
+                        "초대 링크가 존재하지 않습니다."));
     }
 
+    // 워크스페이스 멤버십을 검증하고, 멤버가 아니면 예외를 던진다
     private WorkspaceMember requireMember(long workspaceId, long memberId) {
         getWorkspaceOrThrow(workspaceId);
-        return workspaceMemberRepository.findByWorkspaceIdAndMemberId(workspaceId, memberId).orElseThrow(
-                () -> new ServiceException(
+        return workspaceMemberRepository
+                .findByWorkspaceIdAndMemberId(workspaceId, memberId)
+                .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.FORBIDDEN,
                         "[WorkspaceServiceImpl#requireMember] workspace membership not found",
                         "워크스페이스 접근 권한이 없습니다."));
     }
 
+    // ADMIN 권한을 검증하고, ADMIN이 아니면 예외를 던진다
     private WorkspaceMember requireAdmin(long workspaceId, long memberId) {
         WorkspaceMember workspaceMember = requireMember(workspaceId, memberId);
         if (workspaceMember.getRole() != WorkspaceMemberRole.ADMIN) {
@@ -229,6 +248,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return workspaceMember;
     }
 
+    // 마지막 ADMIN을 변경하거나 제거하려 할 때 예외를 던진다
     private void validateLastAdminIsKept(WorkspaceMember targetMember, WorkspaceMemberRole nextRole) {
         if (targetMember.getRole() != WorkspaceMemberRole.ADMIN || nextRole == WorkspaceMemberRole.ADMIN) {
             return;
@@ -244,6 +264,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         }
     }
 
+    // Workspace 엔티티를 WorkspaceInfoRes DTO로 변환한다
     private WorkspaceInfoRes toWorkspaceResponse(Workspace workspace, WorkspaceMemberRole myRole) {
         return new WorkspaceInfoRes(
                 workspace.getId(),
@@ -255,6 +276,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspace.getUpdatedAt());
     }
 
+    // WorkspaceMember 엔티티를 WorkspaceSummaryInfoRes DTO로 변환한다
     private WorkspaceSummaryInfoRes toWorkspaceSummaryResponse(WorkspaceMember workspaceMember) {
         Workspace workspace = workspaceMember.getWorkspace();
         return new WorkspaceSummaryInfoRes(
@@ -262,11 +284,12 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspace.getName(),
                 workspace.getDescription(),
                 workspaceMember.getRole(),
-                0,  // TODO: openclaw 연동 시 실제 agent 수로 수정
+                0, // TODO: openclaw 연동 시 실제 agent 수로 수정
                 0, // TODO: openclaw 연동 시 실제 task 수로 수정
                 workspace.getCreatedAt());
     }
 
+    // WorkspaceMember 엔티티를 WorkspaceMemberInfoRes DTO로 변환한다
     private WorkspaceMemberInfoRes toWorkspaceMemberResponse(WorkspaceMember workspaceMember) {
         Member member = workspaceMember.getMember();
         return new WorkspaceMemberInfoRes(
@@ -277,6 +300,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspaceMember.getJoinedAt());
     }
 
+    // 초대 만료일을 결정한다. null이면 기본값(7일)을 반환한다
     private int resolveExpiresInDays(CreateWorkspaceInviteReq request) {
         if (request.expiresInDays() == null) {
             return DEFAULT_INVITE_EXPIRES_IN_DAYS;
@@ -284,6 +308,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return request.expiresInDays();
     }
 
+    // 중복되지 않는 초대 토큰을 생성한다. 최대 시도 횟수 초과 시 예외를 던진다
     private String generateUniqueInviteToken() {
         for (int attempt = 0; attempt < MAX_TOKEN_GENERATION_ATTEMPTS; attempt++) {
             String token = UUID.randomUUID().toString();
@@ -298,6 +323,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 "초대 링크 생성에 실패했습니다.");
     }
 
+    // 초대 토큰을 기반으로 수락 URL을 생성한다
     private String buildInviteUrl(String token) {
         String normalizedBaseUrl = inviteBaseUrl == null || inviteBaseUrl.isBlank()
                 ? "http://localhost:8080/api/v1/invites"
@@ -308,6 +334,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return normalizedBaseUrl + "/" + token + "/accept";
     }
 
+    // 초대 수락 가능 여부를 검증하고, 불가능한 상태면 예외를 던진다
     private void validateInviteCanBeAccepted(WorkspaceInvite workspaceInvite) {
         WorkspaceInviteStatus status = workspaceInvite.getStatus(LocalDateTime.now());
         if (status == WorkspaceInviteStatus.PENDING) {
@@ -332,5 +359,44 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 CommonErrorCode.BAD_REQUEST_STATE,
                 "[WorkspaceServiceImpl#validateInviteCanBeAccepted] invite revoked",
                 "폐기된 초대 링크입니다.");
+    }
+
+    // 이메일 초대인 경우 수락자의 이메일이 초대 대상과 일치하는지 검증한다
+    private void validateInviteTargetEmailIfNeeded(WorkspaceInvite workspaceInvite, Member member) {
+        if (!workspaceInvite.hasTargetEmail()) {
+            return;
+        }
+
+        if (workspaceInvite.getTargetEmail().equalsIgnoreCase(member.getEmail())) {
+            return;
+        }
+
+        throw new ServiceException(
+                CommonErrorCode.FORBIDDEN,
+                "[WorkspaceServiceImpl#validateInviteTargetEmailIfNeeded] invite target email does not match member email",
+                "초대 대상 이메일과 로그인한 회원 이메일이 일치하지 않습니다.");
+    }
+
+    // targetEmail이 존재할 때만 초대 이메일을 비동기 발송
+    private void sendInviteEmailIfNeeded(
+            Workspace workspace,
+            Member createdByMember,
+            WorkspaceInvite workspaceInvite,
+            String inviteUrl,
+            String targetEmail) {
+        if (targetEmail == null || targetEmail.isBlank()) {
+            return;
+        }
+
+        inviteEmailService.sendAsync(new InviteEmailCommand(
+                workspace.getId(),
+                workspace.getName(),
+                workspaceInvite.getId(),
+                inviteUrl,
+                workspaceInvite.getRole(),
+                workspaceInvite.getExpiresAt(),
+                createdByMember.getId(),
+                createdByMember.getName(),
+                targetEmail.trim()));
     }
 }
