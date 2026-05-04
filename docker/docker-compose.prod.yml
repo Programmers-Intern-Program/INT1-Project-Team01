@@ -1,3 +1,25 @@
+x-backend-common: &backend-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  restart: unless-stopped
+  env_file:
+    - ../.env
+  environment:
+    SPRING_PROFILES_ACTIVE: prod
+    SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-prod:5432/${PROD_POSTGRES_DB}
+    SPRING_DATASOURCE_USERNAME: ${PROD_POSTGRES_USER}
+    SPRING_DATASOURCE_PASSWORD: ${PROD_POSTGRES_PASSWORD}
+    SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+    SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+    CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
+  depends_on:
+    - postgres-prod
+  expose:
+    - "8080"
+  networks:
+    - team01-prod-network
+
 services:
   postgres-prod:
     image: postgres:16
@@ -15,50 +37,12 @@ services:
       - team01-prod-network
 
   backend-blue:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    <<: *backend-common
     container_name: team01-backend-blue
-    restart: unless-stopped
-    env_file:
-      - ../.env
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-prod:5432/${PROD_POSTGRES_DB}
-      SPRING_DATASOURCE_USERNAME: ${PROD_POSTGRES_USER}
-      SPRING_DATASOURCE_PASSWORD: ${PROD_POSTGRES_PASSWORD}
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
-      CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
-    depends_on:
-      - postgres-prod
-    expose:
-      - "8080"
-    networks:
-      - team01-prod-network
 
   backend-green:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    <<: *backend-common
     container_name: team01-backend-green
-    restart: unless-stopped
-    env_file:
-      - ../.env
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-prod:5432/${PROD_POSTGRES_DB}
-      SPRING_DATASOURCE_USERNAME: ${PROD_POSTGRES_USER}
-      SPRING_DATASOURCE_PASSWORD: ${PROD_POSTGRES_PASSWORD}
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
-      CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
-    depends_on:
-      - postgres-prod
-    expose:
-      - "8080"
-    networks:
-      - team01-prod-network
 
   nginx-prod:
     image: nginx:latest

@@ -17,11 +17,17 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew bootJar --no-daemon
 
+RUN mkdir -p /app/out && \
+    JAR_FILE=$(find /app -type f -name "*.jar" ! -name "*plain.jar" | head -n 1) && \
+    echo "Selected jar: $JAR_FILE" && \
+    test -n "$JAR_FILE" && \
+    cp "$JAR_FILE" /app/out/app.jar
+
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
-COPY --from=builder /app/build/libs/*.jar app.jar
+COPY --from=builder /app/out/app.jar app.jar
 
 EXPOSE 8080
 

@@ -61,22 +61,28 @@ echo "Docker network: $NETWORK"
 # 5. 새 컨테이너 health check
 echo "backend-$NEXT health check 시작"
 
-for i in {1..30}
-do
-  if docker run --rm --network "$NETWORK" curlimages/curl:8.10.1 \
-    -fsS "http://backend-$NEXT:8080$HEALTH_PATH"; then
+MAX_RETRY=30
+
+for i in $(seq 1 $MAX_RETRY); do
+  STATUS=$(docker run --rm --network "$NETWORK" curlimages/curl:8.10.1 \
+    -o /dev/null \
+    -w "%{http_code}" \
+    -s "http://backend-$NEXT:8080$HEALTH_PATH" || echo "000")
+
+  if [ "$STATUS" = "200" ]; then
     echo ""
     echo "backend-$NEXT health check 성공"
     break
   fi
 
-  echo "health check 재시도 중... ($i/30)"
-  sleep 2
+  echo "health check 재시도 중... ($i/$MAX_RETRY), status=$STATUS"
 
-  if [ "$i" -eq 30 ]; then
+  if [ "$i" -eq "$MAX_RETRY" ]; then
     echo "health check 실패. Nginx 전환 없이 배포 중단"
     exit 1
   fi
+
+  sleep 2
 done
 
 # 6. Nginx upstream 변경
@@ -87,6 +93,10 @@ cp nginx/prod-$NEXT.conf nginx/prod.conf
 # 7. Nginx 설정 검증 후 reload
 docker exec team01-nginx-prod nginx -t
 docker exec team01-nginx-prod nginx -s reload
+
+
+echo "기존 컨테이너 종료: backend-$CURRENT"
+$COMPOSE stop backend-$CURRENT
 
 echo "======================================"
 echo "Blue/Green 배포 완료"

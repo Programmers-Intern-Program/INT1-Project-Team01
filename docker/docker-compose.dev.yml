@@ -31,7 +31,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DEV_POSTGRES_PASSWORD}
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
-      JWT_SECRET: ${CUSTOM_JWT_SECRET_KEY}
+      CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
     depends_on:
       - postgres-dev
     expose:
