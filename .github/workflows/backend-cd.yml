@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - develop
-      - seulgi_feat/IT-24 #임시 확인용
   workflow_dispatch:
 
 jobs:
