@@ -1,4 +1,4 @@
-name: Backend Blue-Green Deploy
+name: Backend CD
 
 on:
   push:
