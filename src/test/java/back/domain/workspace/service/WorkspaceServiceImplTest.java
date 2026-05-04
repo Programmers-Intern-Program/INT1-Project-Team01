@@ -4,8 +4,10 @@ import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
+import back.domain.workspace.dto.request.ExtendWorkspaceInviteReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
+import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
@@ -24,7 +26,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -47,9 +48,10 @@ class WorkspaceServiceImplTest {
     @Mock private WorkspaceRepository workspaceRepository;
     @Mock private WorkspaceMemberRepository workspaceMemberRepository;
     @Mock private WorkspaceInviteRepository workspaceInviteRepository;
+    @Mock private InviteEmailService inviteEmailService;
 
-    @InjectMocks
     private WorkspaceServiceImpl workspaceService;
+    private WorkspaceAccessValidator workspaceAccessValidator;
 
     private Member member;
     private Workspace workspace;
@@ -64,6 +66,15 @@ class WorkspaceServiceImplTest {
         ReflectionTestUtils.setField(workspace, "id", 1L);
 
         adminWorkspaceMember = WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN);
+
+        workspaceAccessValidator = new WorkspaceAccessValidator(workspaceRepository, workspaceMemberRepository);
+        workspaceService = new WorkspaceServiceImpl(
+                memberRepository,
+                workspaceRepository,
+                workspaceMemberRepository,
+                workspaceInviteRepository,
+                inviteEmailService,
+                workspaceAccessValidator);
     }
 
     @Test
@@ -307,6 +318,159 @@ class WorkspaceServiceImplTest {
     }
 
     @Test
+    @DisplayName("내가 보낸 초대 목록 조회 성공 - status 없으면 PENDING 기본 조회")
+    void listMySentInvites_success() {
+        // given
+        WorkspaceInvite pendingInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(pendingInvite, "id", 1L);
+        WorkspaceInvite acceptedInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(acceptedInvite, "id", 2L);
+        acceptedInvite.accept(member);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findAllByWorkspaceIdAndCreatedByMemberIdOrderByIdDesc(1L, 1L))
+                .willReturn(List.of(acceptedInvite, pendingInvite));
+
+        // when
+        List<WorkspaceInviteManagementRes> result = workspaceService.listMySentInvites(1L, 1L, null);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).inviteId()).isEqualTo(1L);
+        assertThat(result.get(0).status()).isEqualTo(WorkspaceInviteStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 목록 조회 성공 - PENDING 초대만 조회")
+    void listMySentInvites_pendingStatus_filtersPendingOnly() {
+        // given
+        WorkspaceInvite pendingInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(pendingInvite, "id", 1L);
+        WorkspaceInvite acceptedInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(acceptedInvite, "id", 2L);
+        acceptedInvite.accept(member);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findAllByWorkspaceIdAndCreatedByMemberIdOrderByIdDesc(1L, 1L))
+                .willReturn(List.of(acceptedInvite, pendingInvite));
+
+        // when
+        List<WorkspaceInviteManagementRes> result =
+                workspaceService.listMySentInvites(1L, 1L, "PENDING");
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).inviteId()).isEqualTo(1L);
+        assertThat(result.get(0).status()).isEqualTo(WorkspaceInviteStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 목록 조회 성공 - ACCEPTED 초대만 조회")
+    void listMySentInvites_acceptedStatus_filtersAcceptedOnly() {
+        // given
+        WorkspaceInvite pendingInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(pendingInvite, "id", 1L);
+        WorkspaceInvite acceptedInvite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(acceptedInvite, "id", 2L);
+        acceptedInvite.accept(member);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findAllByWorkspaceIdAndCreatedByMemberIdOrderByIdDesc(1L, 1L))
+                .willReturn(List.of(acceptedInvite, pendingInvite));
+
+        // when
+        List<WorkspaceInviteManagementRes> result =
+                workspaceService.listMySentInvites(1L, 1L, " accepted ");
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).inviteId()).isEqualTo(2L);
+        assertThat(result.get(0).status()).isEqualTo(WorkspaceInviteStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 목록 조회 실패 - status가 enum에 없으면 예외")
+    void listMySentInvites_invalidStatus_throwsException() {
+        // given
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.listMySentInvites(1L, 1L, "unknown"))
+                .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 삭제 성공 - 초대 링크 폐기")
+    void deleteInvite_success() {
+        // given
+        WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(invite, "id", 1L);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findByIdAndWorkspaceIdAndCreatedByMemberId(1L, 1L, 1L))
+                .willReturn(Optional.of(invite));
+
+        // when
+        workspaceService.deleteInvite(1L, 1L, 1L);
+
+        // then
+        assertThat(invite.getRevokedAt()).isNotNull();
+        assertThat(invite.getStatus(LocalDateTime.now())).isEqualTo(WorkspaceInviteStatus.REVOKED);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 삭제 실패 - 이미 수락된 초대")
+    void deleteInvite_acceptedInvite_throwsException() {
+        // given
+        WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(invite, "id", 1L);
+        invite.accept(member);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findByIdAndWorkspaceIdAndCreatedByMemberId(1L, 1L, 1L))
+                .willReturn(Optional.of(invite));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.deleteInvite(1L, 1L, 1L))
+                .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 연장 성공")
+    void extendInvite_success() {
+        // given
+        WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
+        ReflectionTestUtils.setField(invite, "id", 1L);
+        LocalDateTime beforeExpiresAt = invite.getExpiresAt();
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.findByIdAndWorkspaceIdAndCreatedByMemberId(1L, 1L, 1L))
+                .willReturn(Optional.of(invite));
+
+        // when
+        WorkspaceInviteManagementRes result =
+                workspaceService.extendInvite(1L, 1L, 1L, new ExtendWorkspaceInviteReq(3));
+
+        // then
+        assertThat(result.expiresAt()).isAfter(beforeExpiresAt);
+        assertThat(invite.getExpiresAt()).isAfterOrEqualTo(beforeExpiresAt.plusDays(3));
+    }
+
+    @Test
     @DisplayName("초대 조회 성공")
     void getInviteInfo_success() {
         // given
@@ -326,8 +490,8 @@ class WorkspaceServiceImplTest {
     }
 
     @Test
-    @DisplayName("초대 수락 성공")
-    void acceptInvite_success() {
+    @DisplayName("초대 수락 성공 - targetEmail이 없으면 공개 링크로 여러 명 참여 가능")
+    void acceptInvite_openInvite_doesNotConsumeInvite() {
         // given
         WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
 
@@ -340,8 +504,45 @@ class WorkspaceServiceImplTest {
 
         // then
         verify(workspaceMemberRepository).save(any(WorkspaceMember.class));
+        assertThat(invite.getAcceptedAt()).isNull();
+        assertThat(invite.getAcceptedByMember()).isNull();
+        assertThat(invite.getStatus(LocalDateTime.now())).isEqualTo(WorkspaceInviteStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("초대 수락 성공 - targetEmail이 있으면 해당 이메일 회원 1명만 참여 가능")
+    void acceptInvite_targetEmailInvite_consumesInvite() {
+        // given
+        WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
+        invite.requestEmailDelivery("test@test.com");
+
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(workspaceInviteRepository.findByToken("token")).willReturn(Optional.of(invite));
+        given(workspaceMemberRepository.existsByWorkspaceIdAndMemberId(1L, 1L)).willReturn(false);
+
+        // when
+        workspaceService.acceptInvite("token", 1L);
+
+        // then
+        verify(workspaceMemberRepository).save(any(WorkspaceMember.class));
         assertThat(invite.getAcceptedAt()).isNotNull();
         assertThat(invite.getAcceptedByMember()).isEqualTo(member);
+        assertThat(invite.getStatus(LocalDateTime.now())).isEqualTo(WorkspaceInviteStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("초대 수락 실패 - targetEmail 초대는 다른 이메일 회원이 수락할 수 없음")
+    void acceptInvite_targetEmailMismatch_throwsException() {
+        // given
+        WorkspaceInvite invite = createInvite(LocalDateTime.now().plusDays(7));
+        invite.requestEmailDelivery("invitee@test.com");
+
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(workspaceInviteRepository.findByToken("token")).willReturn(Optional.of(invite));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.acceptInvite("token", 1L))
+                .isInstanceOf(ServiceException.class);
     }
 
     @Test
