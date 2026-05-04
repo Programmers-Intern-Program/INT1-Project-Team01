@@ -3,6 +3,7 @@ package back.domain.workspace.service;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -14,10 +15,12 @@ import back.domain.member.repository.MemberRepository;
 import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
+import back.domain.workspace.dto.request.ExtendWorkspaceInviteReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
+import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -148,6 +151,49 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         );
     }
 
+    // 사용자가 보낸 Workspace 초대 목록 조회
+    @Override
+    public List<WorkspaceInviteManagementRes> listMySentInvites(
+            long workspaceId,
+            long requesterId,
+            String status) {
+        workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
+        WorkspaceInviteStatus statusFilter = parseInviteStatus(status);
+        return workspaceInviteRepository
+                .findAllByWorkspaceIdAndCreatedByMemberIdOrderByIdDesc(workspaceId, requesterId)
+                .stream()
+                .filter(workspaceInvite -> workspaceInvite.getStatus(LocalDateTime.now()) == statusFilter)
+                .map(this::toWorkspaceInviteManagementResponse)
+                .toList();
+    }
+
+    // Workspace 초대 삭제(폐기)
+    @Override
+    @Transactional
+    public void deleteInvite(long workspaceId, long inviteId, long requesterId) {
+        workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
+        WorkspaceInvite workspaceInvite = getSentInviteOrThrow(workspaceId, inviteId, requesterId);
+        validateInviteCanBeDeleted(workspaceInvite);
+        workspaceInvite.revoke();
+    }
+
+    // Workspace 초대 만료일 연장
+    @Override
+    @Transactional
+    public WorkspaceInviteManagementRes extendInvite(
+            long workspaceId,
+            long inviteId,
+            long requesterId,
+            ExtendWorkspaceInviteReq request) {
+        workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
+        WorkspaceInvite workspaceInvite = getSentInviteOrThrow(workspaceId, inviteId, requesterId);
+        validateInviteCanBeExtended(workspaceInvite);
+
+        int additionalDays = request.additionalDays() == null ? DEFAULT_INVITE_EXPIRES_IN_DAYS : request.additionalDays();
+        workspaceInvite.extendExpiresAt(additionalDays);
+        return toWorkspaceInviteManagementResponse(workspaceInvite);
+    }
+
     // Workspace 초대 조회 (비로그인 가능)
     @Override
     public WorkspaceInvitePreviewRes getInviteInfo(String token) {
@@ -215,6 +261,16 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                         "초대 링크가 존재하지 않습니다."));
     }
 
+    // 초대 ID로 내가 보낸 초대를 조회하고, 없으면 예외를 던진다
+    private WorkspaceInvite getSentInviteOrThrow(long workspaceId, long inviteId, long requesterId) {
+        return workspaceInviteRepository
+                .findByIdAndWorkspaceIdAndCreatedByMemberId(inviteId, workspaceId, requesterId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[WorkspaceServiceImpl#getSentInviteOrThrow] sent invite not found",
+                        "초대 링크가 존재하지 않습니다."));
+    }
+
     // 마지막 ADMIN을 변경하거나 제거하려 할 때 예외를 던진다
     private void validateLastAdminIsKept(WorkspaceMember targetMember, WorkspaceMemberRole nextRole) {
         if (targetMember.getRole() != WorkspaceMemberRole.ADMIN || nextRole == WorkspaceMemberRole.ADMIN) {
@@ -267,6 +323,24 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspaceMember.getJoinedAt());
     }
 
+    // WorkspaceInvite 엔티티를 초대 관리 응답 DTO로 변환한다
+    private WorkspaceInviteManagementRes toWorkspaceInviteManagementResponse(WorkspaceInvite workspaceInvite) {
+        return new WorkspaceInviteManagementRes(
+                workspaceInvite.getId(),
+                workspaceInvite.getToken(),
+                buildInviteUrl(workspaceInvite.getToken()),
+                workspaceInvite.getRole(),
+                workspaceInvite.getTargetEmail(),
+                workspaceInvite.getEmailStatus(),
+                workspaceInvite.getCreatedByMember().getId(),
+                workspaceInvite.getCreatedByMember().getName(),
+                workspaceInvite.getExpiresAt(),
+                workspaceInvite.getStatus(LocalDateTime.now()),
+                workspaceInvite.getEmailSentAt(),
+                workspaceInvite.getAcceptedAt(),
+                workspaceInvite.getRevokedAt());
+    }
+
     // 초대 만료일을 결정한다. null이면 기본값(7일)을 반환한다
     private int resolveExpiresInDays(CreateWorkspaceInviteReq request) {
         if (request.expiresInDays() == null) {
@@ -301,6 +375,23 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return normalizedBaseUrl + "/" + token + "/accept";
     }
 
+    // 초대 목록 상태 필터를 파싱한다. null/blank면 PENDING을 기본값으로 사용한다
+    private WorkspaceInviteStatus parseInviteStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return WorkspaceInviteStatus.PENDING;
+        }
+
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        try {
+            return WorkspaceInviteStatus.valueOf(normalized);
+        } catch (IllegalArgumentException ex) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST,
+                    "[WorkspaceServiceImpl#parseInviteStatus] invalid invite status. status=" + status,
+                    "초대 상태 값이 올바르지 않습니다.");
+        }
+    }
+
     // 초대 수락 가능 여부를 검증하고, 불가능한 상태면 예외를 던진다
     private void validateInviteCanBeAccepted(WorkspaceInvite workspaceInvite) {
         WorkspaceInviteStatus status = workspaceInvite.getStatus(LocalDateTime.now());
@@ -326,6 +417,35 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 CommonErrorCode.BAD_REQUEST_STATE,
                 "[WorkspaceServiceImpl#validateInviteCanBeAccepted] invite revoked",
                 "폐기된 초대 링크입니다.");
+    }
+
+    // 초대 삭제 가능 여부를 검증한다
+    private void validateInviteCanBeDeleted(WorkspaceInvite workspaceInvite) {
+        WorkspaceInviteStatus status = workspaceInvite.getStatus(LocalDateTime.now());
+        if (status == WorkspaceInviteStatus.ACCEPTED) {
+            throw new ServiceException(
+                    CommonErrorCode.CONFLICT,
+                    "[WorkspaceServiceImpl#validateInviteCanBeDeleted] accepted invite cannot be deleted",
+                    "이미 수락된 초대 링크는 삭제할 수 없습니다.");
+        }
+    }
+
+    // 초대 연장 가능 여부를 검증한다
+    private void validateInviteCanBeExtended(WorkspaceInvite workspaceInvite) {
+        WorkspaceInviteStatus status = workspaceInvite.getStatus(LocalDateTime.now());
+        if (status == WorkspaceInviteStatus.ACCEPTED) {
+            throw new ServiceException(
+                    CommonErrorCode.CONFLICT,
+                    "[WorkspaceServiceImpl#validateInviteCanBeExtended] accepted invite cannot be extended",
+                    "이미 수락된 초대 링크는 연장할 수 없습니다.");
+        }
+
+        if (status == WorkspaceInviteStatus.REVOKED) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST_STATE,
+                    "[WorkspaceServiceImpl#validateInviteCanBeExtended] revoked invite cannot be extended",
+                    "폐기된 초대 링크는 연장할 수 없습니다.");
+        }
     }
 
     // 이메일 초대인 경우 수락자의 이메일이 초대 대상과 일치하는지 검증한다
