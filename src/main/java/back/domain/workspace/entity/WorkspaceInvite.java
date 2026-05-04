@@ -69,6 +69,16 @@ public class WorkspaceInvite extends BaseEntity {
         this.revokedAt = LocalDateTime.now();
     }
 
+    public void extendExpiresAt(int additionalDays) {
+        if (additionalDays < 1) {
+            throw new IllegalArgumentException("additionalDays must be positive");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime base = expiresAt.isAfter(now) ? expiresAt : now;
+        this.expiresAt = base.plusDays(additionalDays);
+    }
+
     // ====== 생성자 ======
 
     private WorkspaceInvite(
