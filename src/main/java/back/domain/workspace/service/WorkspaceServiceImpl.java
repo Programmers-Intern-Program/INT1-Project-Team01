@@ -45,6 +45,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final WorkspaceInviteRepository workspaceInviteRepository;
     private final InviteEmailService inviteEmailService;
+    private final WorkspaceAccessValidator workspaceAccessValidator;
 
     @Value("${custom.invite.base-url}")
     private String inviteBaseUrl;
@@ -75,7 +76,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     // Workspace 상세 조회
     @Override
     public WorkspaceInfoRes getWorkspace(long workspaceId, long memberId) {
-        WorkspaceMember workspaceMember = requireMember(workspaceId, memberId);
+        WorkspaceMember workspaceMember = workspaceAccessValidator.requireMember(workspaceId, memberId);
         return toWorkspaceResponse(workspaceMember.getWorkspace(), workspaceMember.getRole());
     }
 
@@ -83,7 +84,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     @Transactional
     public WorkspaceInfoRes updateWorkspace(long workspaceId, long memberId, UpdateWorkspaceReq request) {
-        WorkspaceMember workspaceMember = requireAdmin(workspaceId, memberId);
+        WorkspaceMember workspaceMember = workspaceAccessValidator.requireAdmin(workspaceId, memberId);
         Workspace workspace = workspaceMember.getWorkspace();
         workspace.update(request.name(), request.description());
 
@@ -93,7 +94,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     // Workspace 멤버 조회
     @Override
     public List<WorkspaceMemberInfoRes> listMembers(long workspaceId, long memberId) {
-        requireMember(workspaceId, memberId);
+        workspaceAccessValidator.requireMember(workspaceId, memberId);
         return workspaceMemberRepository.findAllByWorkspaceId(workspaceId).stream()
                 .sorted(Comparator.comparing(workspaceMember -> workspaceMember.getMember().getId()))
                 .map(this::toWorkspaceMemberResponse)
@@ -105,8 +106,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Transactional
     public void changeMemberRole(
             long workspaceId, long targetMemberId, UpdateWorkspaceRoleReq request, long requesterId) {
-        requireAdmin(workspaceId, requesterId);
-        WorkspaceMember targetMember = requireMember(workspaceId, targetMemberId);
+        workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
+        WorkspaceMember targetMember = workspaceAccessValidator.requireMember(workspaceId, targetMemberId);
         validateLastAdminIsKept(targetMember, request.role());
         targetMember.changeRole(request.role());
     }
@@ -115,8 +116,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     @Transactional
     public void removeMember(long workspaceId, long targetMemberId, long requesterId) {
-        requireAdmin(workspaceId, requesterId);
-        WorkspaceMember targetMember = requireMember(workspaceId, targetMemberId);
+        workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
+        WorkspaceMember targetMember = workspaceAccessValidator.requireMember(workspaceId, targetMemberId);
         validateLastAdminIsKept(targetMember, null);
         workspaceMemberRepository.delete(targetMember);
     }
@@ -126,7 +127,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Transactional
     public WorkspaceInviteInfoRes createInviteLink(
             long workspaceId, long requesterId, CreateWorkspaceInviteReq request) {
-        WorkspaceMember requester = requireAdmin(workspaceId, requesterId);
+        WorkspaceMember requester = workspaceAccessValidator.requireAdmin(workspaceId, requesterId);
         Workspace workspace = requester.getWorkspace();
         Member createdByMember = requester.getMember();
         WorkspaceMemberRole role = request.role() == null ? WorkspaceMemberRole.MEMBER : request.role();
@@ -197,16 +198,6 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                         "회원이 존재하지 않습니다."));
     }
 
-    // workspaceId로 워크스페이스를 조회하고, 없으면 예외를 던진다
-    private Workspace getWorkspaceOrThrow(long workspaceId) {
-        return workspaceRepository
-                .findById(workspaceId)
-                .orElseThrow(() -> new ServiceException(
-                        CommonErrorCode.NOT_FOUND,
-                        "[WorkspaceServiceImpl#getWorkspaceOrThrow] workspace not found by id",
-                        "워크스페이스가 존재하지 않습니다."));
-    }
-
     // 토큰으로 초대를 조회하고, 없거나 토큰이 blank면 예외를 던진다
     private WorkspaceInvite getInviteOrThrow(String token) {
         if (token == null || token.isBlank()) {
@@ -222,30 +213,6 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                         CommonErrorCode.NOT_FOUND,
                         "[WorkspaceServiceImpl#getInviteOrThrow] invite not found by token",
                         "초대 링크가 존재하지 않습니다."));
-    }
-
-    // 워크스페이스 멤버십을 검증하고, 멤버가 아니면 예외를 던진다
-    private WorkspaceMember requireMember(long workspaceId, long memberId) {
-        getWorkspaceOrThrow(workspaceId);
-        return workspaceMemberRepository
-                .findByWorkspaceIdAndMemberId(workspaceId, memberId)
-                .orElseThrow(() -> new ServiceException(
-                        CommonErrorCode.FORBIDDEN,
-                        "[WorkspaceServiceImpl#requireMember] workspace membership not found",
-                        "워크스페이스 접근 권한이 없습니다."));
-    }
-
-    // ADMIN 권한을 검증하고, ADMIN이 아니면 예외를 던진다
-    private WorkspaceMember requireAdmin(long workspaceId, long memberId) {
-        WorkspaceMember workspaceMember = requireMember(workspaceId, memberId);
-        if (workspaceMember.getRole() != WorkspaceMemberRole.ADMIN) {
-            throw new ServiceException(
-                    CommonErrorCode.FORBIDDEN,
-                    "[WorkspaceServiceImpl#requireAdmin] workspace member is not admin",
-                    "워크스페이스 관리자 권한이 필요합니다.");
-        }
-
-        return workspaceMember;
     }
 
     // 마지막 ADMIN을 변경하거나 제거하려 할 때 예외를 던진다
