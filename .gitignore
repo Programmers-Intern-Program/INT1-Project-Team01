@@ -42,3 +42,6 @@ test.trace.db
 
 ### env ###
 .env
+
+### Local docs ###
+docs/
