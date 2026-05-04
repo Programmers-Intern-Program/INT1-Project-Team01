@@ -1,0 +1,36 @@
+name: Backend CD
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: backend-cd-develop
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to OCI server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            cd /home/ubuntu/app/INT1-Project-Team01
+
+            git fetch origin
+            git checkout develop
+            git reset --hard origin/develop
+
+            chmod +x scripts/deploy-bluegreen.sh
+            ./scripts/deploy-bluegreen.sh develop
+
+            curl -f http://localhost/api/v1/health
