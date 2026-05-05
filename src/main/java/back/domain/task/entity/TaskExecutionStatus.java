@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 public enum TaskExecutionStatus {
     PENDING,   // 실행 대기

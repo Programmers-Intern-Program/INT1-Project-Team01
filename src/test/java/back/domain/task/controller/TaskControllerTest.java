@@ -1,9 +1,9 @@
 package back.domain.task.controller;
 
-import back.domain.task.domain.SourceType;
-import back.domain.task.domain.TaskPriority;
-import back.domain.task.domain.TaskStatus;
-import back.domain.task.domain.TaskType;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import com.fasterxml.jackson.databind.JsonNode;

@@ -1,7 +1,7 @@
 package back.domain.task.dto.response;
 
-import back.domain.task.domain.AgentReport;
-import back.domain.task.domain.TaskStatus;
+import back.domain.task.entity.AgentReport;
+import back.domain.task.entity.TaskStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;

@@ -1,7 +1,7 @@
 package back.domain.task.dto.response;
 
-import back.domain.task.domain.LogLevel;
-import back.domain.task.domain.TaskExecutionLog;
+import back.domain.task.entity.LogLevel;
+import back.domain.task.entity.TaskExecutionLog;
 
 import java.time.LocalDateTime;
 

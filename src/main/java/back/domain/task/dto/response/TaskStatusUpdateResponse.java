@@ -1,6 +1,6 @@
 package back.domain.task.dto.response;
 
-import back.domain.task.domain.TaskStatus;
+import back.domain.task.entity.TaskStatus;
 
 import java.time.LocalDateTime;
 

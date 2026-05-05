@@ -1,6 +1,6 @@
 package back.domain.task.repository;
 
-import back.domain.task.domain.AgentReport;
+import back.domain.task.entity.AgentReport;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

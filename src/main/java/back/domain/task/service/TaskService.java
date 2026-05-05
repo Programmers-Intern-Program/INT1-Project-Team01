@@ -1,7 +1,7 @@
 package back.domain.task.service;
 
-import back.domain.task.domain.Task;
-import back.domain.task.domain.TaskStatus;
+import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskStatus;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.dto.response.TaskCreateResponse;
@@ -9,8 +9,8 @@ import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.repository.*;
-import back.domain.task.domain.AgentReport;
-import back.domain.task.domain.TaskExecution;
+import back.domain.task.entity.AgentReport;
+import back.domain.task.entity.TaskExecution;
 import back.domain.task.dto.response.AgentReportResponse;
 import back.domain.task.dto.response.TaskArtifactResponse;
 import back.domain.task.dto.response.TaskLogResponse;

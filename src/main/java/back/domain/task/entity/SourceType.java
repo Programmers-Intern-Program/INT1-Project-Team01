@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 public enum SourceType {
     DASHBOARD,      // 사용자가 웹 대시보드에서 직접 생성한 Task

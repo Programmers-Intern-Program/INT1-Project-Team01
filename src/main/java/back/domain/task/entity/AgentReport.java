@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 import back.global.jpa.entity.BaseEntity;
 import jakarta.persistence.*;
