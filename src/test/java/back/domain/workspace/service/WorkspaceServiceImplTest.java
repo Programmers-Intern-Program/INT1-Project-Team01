@@ -2,6 +2,7 @@ package back.domain.workspace.service;
 
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
 import back.domain.workspace.dto.request.ExtendWorkspaceInviteReq;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -39,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -300,6 +304,39 @@ class WorkspaceServiceImplTest {
         assertThat(result.token()).isNotBlank();
         assertThat(result.inviteUrl()).startsWith("http://localhost:8080/api/v1/invites/");
         verify(workspaceInviteRepository).save(any(WorkspaceInvite.class));
+    }
+
+    @Test
+    @DisplayName("초대 링크 생성 성공 - 이메일 발송은 트랜잭션 커밋 이후 실행")
+    void createInviteLink_targetEmail_sendsEmailAfterCommit() {
+        // given
+        CreateWorkspaceInviteReq request =
+                new CreateWorkspaceInviteReq(7, WorkspaceMemberRole.MEMBER, " invitee@test.com ");
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceInviteRepository.existsByToken(any())).willReturn(false);
+        given(workspaceInviteRepository.save(any(WorkspaceInvite.class))).willAnswer(invocation -> {
+            WorkspaceInvite invite = invocation.getArgument(0);
+            ReflectionTestUtils.setField(invite, "id", 1L);
+            return invite;
+        });
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            // when
+            workspaceService.createInviteLink(1L, 1L, request);
+
+            // then
+            verify(inviteEmailService, never()).sendAsync(any(InviteEmailCommand.class));
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            verify(inviteEmailService).sendAsync(any(InviteEmailCommand.class));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
