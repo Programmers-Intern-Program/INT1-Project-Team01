@@ -9,6 +9,8 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
@@ -464,7 +466,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 "초대 대상 이메일과 로그인한 회원 이메일이 일치하지 않습니다.");
     }
 
-    // targetEmail이 존재할 때만 초대 이메일을 비동기 발송
+    // targetEmail이 존재할 때만 트랜잭션 커밋 이후 초대 이메일을 비동기 발송
     private void sendInviteEmailIfNeeded(
             Workspace workspace,
             Member createdByMember,
@@ -475,7 +477,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
             return;
         }
 
-        inviteEmailService.sendAsync(new InviteEmailCommand(
+        InviteEmailCommand command = new InviteEmailCommand(
                 workspace.getId(),
                 workspace.getName(),
                 workspaceInvite.getId(),
@@ -484,6 +486,27 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspaceInvite.getExpiresAt(),
                 createdByMember.getId(),
                 createdByMember.getName(),
-                targetEmail.trim()));
+                targetEmail.trim());
+
+        // 실제 메일 발송은 지금 시작하지 않고, 초대 저장 트랜잭션이 커밋된 뒤 시작한다.
+        runAfterCommit(() -> inviteEmailService.sendAsync(command));
+    }
+
+    // 현재 트랜잭션이 성공적으로 커밋된 뒤에 task를 실행한다.
+    // 예: 초대 이메일 발송은 저장된 초대 row가 DB에 확정된 뒤 시작해야 async 스레드가 inviteId를 조회할 수 있다.
+    private void runAfterCommit(Runnable task) {
+        // 단위 테스트나 트랜잭션 밖 호출처럼 동기화 컨텍스트가 없으면 예약할 곳이 없으므로 바로 실행한다.
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            task.run();
+            return;
+        }
+
+        // 트랜잭션 안이면 지금 바로 실행하지 않고, Spring이 커밋 성공 후 afterCommit을 호출할 때 실행한다.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                task.run();
+            }
+        });
     }
 }
