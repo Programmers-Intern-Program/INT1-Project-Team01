@@ -1,6 +1,6 @@
 package back.domain.task.repository;
 
-import back.domain.task.domain.TaskExecution;
+import back.domain.task.entity.TaskExecution;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

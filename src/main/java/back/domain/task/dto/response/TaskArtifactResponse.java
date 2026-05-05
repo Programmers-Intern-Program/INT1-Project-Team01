@@ -1,7 +1,7 @@
 package back.domain.task.dto.response;
 
-import back.domain.task.domain.ArtifactType;
-import back.domain.task.domain.TaskArtifact;
+import back.domain.task.entity.ArtifactType;
+import back.domain.task.entity.TaskArtifact;
 
 public record TaskArtifactResponse(
         Long artifactId,

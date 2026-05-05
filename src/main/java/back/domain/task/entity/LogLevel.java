@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 public enum LogLevel {
     INFO,   // 일반 정보 로그

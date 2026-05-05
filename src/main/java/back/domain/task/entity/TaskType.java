@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 public enum TaskType {
     // 업무 종류

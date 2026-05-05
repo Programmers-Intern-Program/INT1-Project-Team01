@@ -1,4 +1,4 @@
-package back.domain.task.domain;
+package back.domain.task.entity;
 
 public enum ArtifactType {
     PR_URL,       // PR 링크

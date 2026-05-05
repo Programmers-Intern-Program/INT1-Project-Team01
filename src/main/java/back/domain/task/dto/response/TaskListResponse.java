@@ -1,9 +1,9 @@
 package back.domain.task.dto.response;
 
-import back.domain.task.domain.Task;
-import back.domain.task.domain.TaskPriority;
-import back.domain.task.domain.TaskStatus;
-import back.domain.task.domain.TaskType;
+import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
 
 import java.time.LocalDateTime;
 

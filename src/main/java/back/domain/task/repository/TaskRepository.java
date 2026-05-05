@@ -1,6 +1,6 @@
 package back.domain.task.repository;
 
-import back.domain.task.domain.Task;
+import back.domain.task.entity.Task;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -1,8 +1,8 @@
 package back.domain.task.dto.request;
 
-import back.domain.task.domain.SourceType;
-import back.domain.task.domain.TaskPriority;
-import back.domain.task.domain.TaskType;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskType;
 
 public record TaskCreateRequest(
         String title,
