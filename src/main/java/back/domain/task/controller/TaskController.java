@@ -14,9 +14,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import back.domain.task.dto.response.AgentReportResponse;
+import back.domain.task.dto.response.TaskLogResponse;
+
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/workspaces/{workspaceId}/tasks")
+@RequestMapping("/api/v1/workspaces/{workspaceId}/tasks")
 public class TaskController {
 
     private final TaskService taskService;
@@ -52,5 +57,21 @@ public class TaskController {
             @RequestBody TaskStatusUpdateRequest request
     ) {
         return ResponseEntity.ok(taskService.updateStatus(workspaceId, taskId, request));
+    }
+
+    @GetMapping("/{taskId}/logs")
+    public ResponseEntity<List<TaskLogResponse>> getTaskLogs(
+            @PathVariable Long workspaceId,
+            @PathVariable Long taskId
+    ) {
+        return ResponseEntity.ok(taskService.getTaskLogs(workspaceId, taskId));
+    }
+
+    @GetMapping("/{taskId}/reports")
+    public ResponseEntity<List<AgentReportResponse>> getTaskReports(
+            @PathVariable Long workspaceId,
+            @PathVariable Long taskId
+    ) {
+        return ResponseEntity.ok(taskService.getTaskReports(workspaceId, taskId));
     }
 }
