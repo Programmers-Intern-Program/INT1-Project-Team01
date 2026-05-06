@@ -6,6 +6,7 @@ import back.domain.github.service.GithubCredentialService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.security.AuthenticatedMember;
+import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,13 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(GithubCredentialController.class)
-class GithubCredentialControllerTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private JsonMapper jsonMapper;
+class GithubCredentialControllerTest extends WebMvcTestSupport {
 
     @MockitoBean
     private GithubCredentialService githubCredentialService;
