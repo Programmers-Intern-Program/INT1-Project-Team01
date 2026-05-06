@@ -1,21 +1,19 @@
 package back.domain.slack.controller;
 
+import back.domain.slack.service.SlackIntegrationService;
+import back.testUtil.WebMvcTestSupport;
 import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
-import back.domain.slack.service.SlackIntegrationService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.security.AuthenticatedMember;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.web.servlet.MockMvc;
-import tools.jackson.databind.json.JsonMapper;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 
@@ -30,13 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 
 @WebMvcTest(SlackIntegrationController.class)
-class SlackIntegrationControllerTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private JsonMapper jsonMapper;
+class SlackIntegrationControllerTest extends WebMvcTestSupport {
 
     @MockitoBean
     private SlackIntegrationService slackIntegrationService;
