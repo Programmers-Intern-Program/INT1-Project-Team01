@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import jakarta.persistence.Column;
 
 @Entity
 @Table(name = "tasks")
@@ -12,6 +13,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Task extends BaseEntity {
 
+    @Column(name = "workspace_id", nullable = false)
     private Long workspaceId;
 
     @Column(nullable = false)
