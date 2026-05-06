@@ -1,6 +1,5 @@
 package back.domain.slack.controller;
 
-import back.domain.slack.filter.SlackSignatureVerificationFilter;
 import back.domain.slack.service.SlackEventService;
 import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
