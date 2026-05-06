@@ -1,0 +1,12 @@
+package back.domain.gateway.client;
+
+import java.util.List;
+
+public interface OpenClawGatewayClient {
+
+    void connect(OpenClawGatewayConnectionContext context);
+
+    List<OpenClawAgentSummary> listAgents();
+
+    void close();
+}
