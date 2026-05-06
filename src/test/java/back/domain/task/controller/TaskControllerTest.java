@@ -1,13 +1,7 @@
 package back.domain.task.controller;
 
-import back.domain.task.entity.SourceType;
-import back.domain.task.entity.TaskPriority;
-import back.domain.task.entity.TaskStatus;
-import back.domain.task.entity.TaskType;
-import back.domain.task.dto.request.TaskCreateRequest;
-import back.domain.task.dto.request.TaskStatusUpdateRequest;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +13,19 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
+
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
+import back.domain.task.dto.request.TaskCreateRequest;
+import back.domain.task.dto.request.TaskStatusUpdateRequest;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.repository.WorkspaceRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -35,11 +42,17 @@ class TaskControllerTest {
     @Autowired
     private WebApplicationContext webApplicationContext;
 
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
     private ObjectMapper objectMapper;
 
     private MockMvc mockMvc;
 
-    private final Long workspaceId = 1L;
+    private Long workspaceId;
 
     @BeforeEach
     void setUp() {
@@ -48,6 +61,20 @@ class TaskControllerTest {
                 .build();
 
         objectMapper = new ObjectMapper();
+
+        Member member = memberRepository.save(Member.createUser(
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
+
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
+
+        workspaceId = workspace.getId();
     }
 
     @Test
