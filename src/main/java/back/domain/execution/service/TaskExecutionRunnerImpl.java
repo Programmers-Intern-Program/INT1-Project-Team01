@@ -20,6 +20,7 @@ import back.global.exception.ServiceException;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -27,7 +28,7 @@ import org.springframework.transaction.support.TransactionOperations;
 @RequiredArgsConstructor
 public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
 
-    private static final String WORKDIR_ROOT = "/data/aioffice/workspaces";
+    private static final String DEFAULT_WORKDIR_ROOT = "/data/aioffice/workspaces";
 
     private final TransactionOperations transactionOperations;
     private final WorkspaceRepository workspaceRepository;
@@ -35,6 +36,9 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     private final TaskExecutionRepository taskExecutionRepository;
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
+
+    @Value("${task-execution.workdir-root:/data/aioffice/workspaces}")
+    private String workdirRoot;
 
     @Override
     public TaskExecutionRunResult run(TaskExecutionRunCommand command) {
@@ -130,11 +134,25 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     }
 
     private String resolveWorkdirPath(TaskExecution execution) {
-        return WORKDIR_ROOT + "/" + execution.getWorkspaceId() + "/executions/" + execution.getId() + "/repo";
+        return normalizedWorkdirRoot()
+                + "/" + execution.getWorkspaceId()
+                + "/executions/" + execution.getId()
+                + "/repo";
     }
 
     private String resolveSessionKey(TaskExecution execution) {
         return "workspace-" + execution.getWorkspaceId() + "-execution-" + execution.getId();
+    }
+
+    private String normalizedWorkdirRoot() {
+        if (workdirRoot == null || workdirRoot.isBlank()) {
+            return DEFAULT_WORKDIR_ROOT;
+        }
+        String normalized = workdirRoot.trim();
+        while (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private <T> T requireTransactionResult(T result) {

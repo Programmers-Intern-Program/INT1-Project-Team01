@@ -36,6 +36,9 @@ security:
   slack:
     replay-timeout-seconds: 300
 
+task-execution:
+  workdir-root: ${TASK_EXECUTION_WORKDIR_ROOT:/data/aioffice/workspaces}
+
 logging:
   level:
     back: WARN
