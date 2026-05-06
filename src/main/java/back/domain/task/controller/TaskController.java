@@ -7,6 +7,7 @@ import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.service.TaskService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -29,7 +30,7 @@ public class TaskController {
     @PostMapping
     public ResponseEntity<TaskCreateResponse> createTask(
             @PathVariable Long workspaceId,
-            @RequestBody TaskCreateRequest request
+            @Valid @RequestBody TaskCreateRequest request
     ) {
         return ResponseEntity.ok(taskService.createTask(workspaceId, request));
     }
