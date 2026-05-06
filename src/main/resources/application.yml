@@ -52,6 +52,8 @@ springdoc:
 security:
   encryption:
     tink-keyset: ${ENCRYPTION_SECRET}
+  slack:
+    replay-timeout-seconds: 300
 
 logging:
   level:
