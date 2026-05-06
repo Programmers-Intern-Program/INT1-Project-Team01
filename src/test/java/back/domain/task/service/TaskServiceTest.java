@@ -1,15 +1,23 @@
 package back.domain.task.service;
 
-import back.domain.task.entity.SourceType;
-import back.domain.task.entity.TaskPriority;
-import back.domain.task.entity.TaskStatus;
-import back.domain.task.entity.TaskType;
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.enums.WorkspaceMemberRole;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +35,35 @@ class TaskServiceTest {
     @Autowired
     private TaskService taskService;
 
-    private final Long workspaceId = 1L;
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
+
+    private Long workspaceId;
+    private long memberId;
+
+    @BeforeEach
+    void setUp() {
+        Member member = memberRepository.save(
+                Member.createUser("google-sub-task-test", "task-test@example.com", "Task 테스트 유저")
+        );
+
+        Workspace workspace = workspaceRepository.save(
+                Workspace.create("테스트 워크스페이스", "Task 테스트용 워크스페이스", member)
+        );
+
+        workspaceMemberRepository.save(
+                WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
+        );
+
+        workspaceId = workspace.getId();
+        memberId = member.getId();
+    }
 
     @Test
     @DisplayName("Task를 생성할 수 있다")
@@ -36,7 +72,7 @@ class TaskServiceTest {
         TaskCreateRequest request = createRequest();
 
         // when
-        TaskCreateResponse response = taskService.createTask(workspaceId, request);
+        TaskCreateResponse response = taskService.createTask(workspaceId, memberId, request);
 
         // then
         assertThat(response.taskId()).isNotNull();
@@ -51,11 +87,11 @@ class TaskServiceTest {
     @DisplayName("워크스페이스별 Task 목록을 조회할 수 있다")
     void getTasks() {
         // given
-        taskService.createTask(workspaceId, createRequest());
+        taskService.createTask(workspaceId, memberId, createRequest());
 
         // when
         Page<TaskListResponse> responses =
-                taskService.getTasks(workspaceId, PageRequest.of(0, 10));
+                taskService.getTasks(workspaceId, memberId, PageRequest.of(0, 10));
 
         // then
         assertThat(responses.getContent()).hasSize(1);
@@ -67,10 +103,10 @@ class TaskServiceTest {
     @DisplayName("Task 상세 정보를 조회할 수 있다")
     void getTask() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
 
         // when
-        TaskDetailResponse response = taskService.getTask(workspaceId, created.taskId());
+        TaskDetailResponse response = taskService.getTask(workspaceId, memberId, created.taskId());
 
         // then
         assertThat(response.taskId()).isEqualTo(created.taskId());
@@ -85,7 +121,7 @@ class TaskServiceTest {
     @DisplayName("Task 상태를 변경할 수 있다")
     void updateStatus() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
 
         TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(
                 TaskStatus.IN_PROGRESS,
@@ -94,12 +130,13 @@ class TaskServiceTest {
 
         // when
         TaskStatusUpdateResponse response =
-                taskService.updateStatus(workspaceId, created.taskId(), request);
+                taskService.updateStatus(workspaceId, memberId, created.taskId(), request);
 
         // then
         assertThat(response.taskId()).isEqualTo(created.taskId());
         assertThat(response.previousStatus()).isEqualTo(TaskStatus.REQUESTED);
         assertThat(response.currentStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(response.updatedAt()).isNotNull();
     }
 
     private TaskCreateRequest createRequest() {

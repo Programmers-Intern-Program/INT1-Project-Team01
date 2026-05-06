@@ -39,7 +39,7 @@ public class TaskService {
     private final TaskArtifactRepository taskArtifactRepository;
 
     @Transactional
-    public TaskCreateResponse createTask(Long workspaceId, TaskCreateRequest request) {
+    public TaskCreateResponse createTask(Long workspaceId, long memberId, TaskCreateRequest request) {
         Task task = Task.create(
                 workspaceId,
                 request.title(),
@@ -58,12 +58,12 @@ public class TaskService {
         return TaskCreateResponse.from(savedTask);
     }
 
-    public Page<TaskListResponse> getTasks(Long workspaceId, Pageable pageable) {
+    public Page<TaskListResponse> getTasks(Long workspaceId, long memberId, Pageable pageable) {
         return taskRepository.findByWorkspaceId(workspaceId, pageable)
                 .map(TaskListResponse::from);
     }
 
-    public TaskDetailResponse getTask(Long workspaceId, Long taskId) {
+    public TaskDetailResponse getTask(Long workspaceId, long memberId, Long taskId) {
         Task task = taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
                 .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
 
@@ -73,6 +73,7 @@ public class TaskService {
     @Transactional
     public TaskStatusUpdateResponse updateStatus(
             Long workspaceId,
+            long memberId,
             Long taskId,
             TaskStatusUpdateRequest request
     ) {
@@ -91,7 +92,7 @@ public class TaskService {
         );
     }
 
-    public List<TaskLogResponse> getTaskLogs(Long workspaceId, Long taskId) {
+    public List<TaskLogResponse> getTaskLogs(Long workspaceId, long memberId, Long taskId) {
         taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
                 .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
 
@@ -104,7 +105,7 @@ public class TaskService {
                 .toList();
     }
 
-    public List<AgentReportResponse> getTaskReports(Long workspaceId, Long taskId) {
+    public List<AgentReportResponse> getTaskReports(Long workspaceId, long memberId, Long taskId) {
         taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
                 .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
 
