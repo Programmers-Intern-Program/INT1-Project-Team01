@@ -1,8 +1,8 @@
-// 경로: src/main/java/back/domain/slack/entity/SlackEventLog.java
 package back.domain.slack.entity;
 
 import back.domain.slack.enums.SlackEventProcessingStatus;
 import back.global.jpa.entity.BaseEntity;
+import back.global.security.crypto.TinkCryptoConverter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.persistence.*;
 import lombok.*;
@@ -40,6 +40,7 @@ public class SlackEventLog extends BaseEntity {
     @Column(name = "event_type", nullable = false, length = 50, updatable = false)
     private String eventType;
 
+    @Convert(converter = TinkCryptoConverter.class)
     @Column(name = "raw_payload", columnDefinition = "TEXT", updatable = false)
     private String rawPayload;
 
@@ -60,7 +61,9 @@ public class SlackEventLog extends BaseEntity {
 
     public void markAsFailed(String errorMessage) {
         this.processingStatus = SlackEventProcessingStatus.FAILED;
-        this.error = errorMessage;
+        this.error = errorMessage != null && errorMessage.length() > 5000
+                ? errorMessage.substring(0, 5000) + "...(truncated)"
+                : errorMessage;
         this.processedAt = LocalDateTime.now();
     }
 

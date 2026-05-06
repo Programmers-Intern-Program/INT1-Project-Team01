@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Slack Events API로부터 수신되는 Webhook 요청을 처리하는 컨트롤러입니다.
@@ -24,6 +25,7 @@ import java.util.Map;
 public class SlackEventController {
 
     private final SlackEventService slackEventService;
+    private static final Set<String> ALLOWED_EVENT_TYPES = Set.of("app_mention");
 
     /**
      * Slack 이벤트를 수신하여 유형별로 처리합니다.
@@ -31,7 +33,7 @@ public class SlackEventController {
      * 2. event_callback: 실제 비즈니스 이벤트 (app_mention 등)
      */
     @PostMapping("/events")
-    public ResponseEntity<?> handleSlackEvent(@RequestBody SlackEventReq request) {
+    public ResponseEntity<Object> handleSlackEvent(@RequestBody SlackEventReq request) {
         log.debug("Slack 이벤트 수신 - type: {}, event_id: {}", request.type(), request.eventId());
 
         if ("url_verification".equals(request.type())) {
@@ -39,10 +41,13 @@ public class SlackEventController {
             return ResponseEntity.ok(Map.of("challenge", request.challenge()));
         }
 
-        if ("event_callback".equals(request.type())) {
-            slackEventService.processEvent(request);
+        if (request.event() == null || !ALLOWED_EVENT_TYPES.contains(request.event().type())) {
+            log.debug("허용되지 않은 이벤트 타입 skip. type: {}",
+                    request.event() != null ? request.event().type() : "null");
+            return ResponseEntity.ok(new RsData<>(null, "성공"));
         }
 
+        slackEventService.processEvent(request);
         return ResponseEntity.ok(new RsData<>(null, "성공"));
     }
 }

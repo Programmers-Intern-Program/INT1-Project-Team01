@@ -22,7 +22,9 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 
@@ -73,8 +75,10 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
         RepeatableReadRequestWrapper wrappedRequest = wrapRequest(request);
 
         try {
+            // TODO: [IT-9] 추후 공식 단일 Slack App (OAuth) 도입 시 전역 Signing Secret 사용하도록 리팩토링 필요
             if (isUrlVerificationRequest(wrappedRequest.getCachedBody())) {
                 log.info("Slack URL Verification 요청 - 서명 검증 skip");
+                validateHeadersAndTimestamp(wrappedRequest);
                 filterChain.doFilter(wrappedRequest, response);
                 return;
             }
@@ -194,24 +198,32 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
      * 이를 슬랙이 헤더로 보낸 서명과 비교합니다.
      * 타이밍 공격 방어를 위해 MessageDigest.isEqual()을 사용합니다.
      */
-    private void verifySignature(RepeatableReadRequestWrapper request, String plainSigningSecret) throws Exception {
+    private void verifySignature(RepeatableReadRequestWrapper request, String plainSigningSecret) {
         String slackSignature = request.getHeader(SLACK_SIGNATURE_HEADER);
         String slackTimestamp = request.getHeader(SLACK_TIMESTAMP_HEADER);
         String requestBodyString = new String(request.getCachedBody(), StandardCharsets.UTF_8);
 
         String baseString = "v0:" + slackTimestamp + ":" + requestBodyString;
 
-        Mac mac = Mac.getInstance(HMAC_ALGORITHM);
-        mac.init(new SecretKeySpec(plainSigningSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
-        byte[] hash = mac.doFinal(baseString.getBytes(StandardCharsets.UTF_8));
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            mac.init(new SecretKeySpec(plainSigningSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
+            byte[] hash = mac.doFinal(baseString.getBytes(StandardCharsets.UTF_8));
 
-        String calculatedSignature = "v0=" + HexFormat.of().formatHex(hash);
+            String calculatedSignature = "v0=" + HexFormat.of().formatHex(hash);
 
-        if (!MessageDigest.isEqual(slackSignature.getBytes(StandardCharsets.UTF_8), calculatedSignature.getBytes(StandardCharsets.UTF_8))) {
+            if (!MessageDigest.isEqual(slackSignature.getBytes(StandardCharsets.UTF_8), calculatedSignature.getBytes(StandardCharsets.UTF_8))) {
+                throw new ServiceException(
+                        CommonErrorCode.UNAUTHORIZED,
+                        "Signature mismatch",
+                        "서명(Signature)이 일치하지 않습니다."
+                );
+            }
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new ServiceException(
-                    CommonErrorCode.UNAUTHORIZED,
-                    "Signature mismatch",
-                    "서명(Signature)이 일치하지 않습니다."
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "HMAC configuration error: " + e.getMessage(),
+                    "서명 검증 모듈 설정 오류가 발생했습니다."
             );
         }
     }

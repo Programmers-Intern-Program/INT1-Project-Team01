@@ -10,8 +10,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Map;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,18 +34,6 @@ class SlackEventControllerTest extends WebMvcTestSupport {
     @DisplayName("url_verification 요청 시 challenge 값을 그대로 반환한다")
     void urlVerificationTest() throws Exception {
         // given
-        // 필터가 실제 검증 없이 다음 필터로 바로 넘기도록 설정
-        doAnswer(invocation -> {
-            var request = invocation.getArgument(0);
-            var response = invocation.getArgument(1);
-            var chain = invocation.getArgument(2);
-            ((jakarta.servlet.FilterChain) chain).doFilter(
-                    (jakarta.servlet.ServletRequest) request,
-                    (jakarta.servlet.ServletResponse) response
-            );
-            return null;
-        }).when(slackSignatureVerificationFilter).doFilter(any(), any(), any());
-
         Map<String, String> request = Map.of(
                 "type", "url_verification",
                 "challenge", "test_challenge_string"
@@ -66,17 +52,6 @@ class SlackEventControllerTest extends WebMvcTestSupport {
     @DisplayName("event_callback 수신 시 성공 응답을 반환한다")
     void eventCallbackTest() throws Exception {
         // given
-        doAnswer(invocation -> {
-            var request = invocation.getArgument(0);
-            var response = invocation.getArgument(1);
-            var chain = invocation.getArgument(2);
-            ((jakarta.servlet.FilterChain) chain).doFilter(
-                    (jakarta.servlet.ServletRequest) request,
-                    (jakarta.servlet.ServletResponse) response
-            );
-            return null;
-        }).when(slackSignatureVerificationFilter).doFilter(any(), any(), any());
-
         Map<String, Object> request = Map.of(
                 "type", "event_callback",
                 "team_id", "T12345",

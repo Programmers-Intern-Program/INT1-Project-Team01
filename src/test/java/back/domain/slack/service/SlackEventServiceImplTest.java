@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Optional;
@@ -78,17 +79,23 @@ class SlackEventServiceImplTest {
     }
 
     @Test
-    @DisplayName("이미 처리된 event_id면 중복 처리하지 않는다 (멱등성)")
+    @DisplayName("이미 처리된 event_id(DataIntegrityViolation)면 중복 처리하지 않는다 (멱등성)")
     void duplicateEventId_stopsProcessing() {
         // given
         SlackEventReq request = buildRequest("Ev001", "T12345", "C12345");
-        given(slackEventLogRepository.existsBySlackEventId("Ev001")).willReturn(true);
+        SlackIntegration integration = SlackIntegration.builder().build();
+
+        given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
+                .willReturn(Optional.of(integration));
+
+        given(slackEventLogRepository.save(any(SlackEventLog.class)))
+                .willThrow(new DataIntegrityViolationException("uk_slack_event_id violation"));
 
         // when
         slackEventService.processEvent(request);
 
         // then
-        verify(slackEventLogRepository, never()).save(any());
+        verify(slackEventLogRepository).save(any(SlackEventLog.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -97,7 +104,6 @@ class SlackEventServiceImplTest {
     void unregisteredChannel_savesIgnoredLog() {
         // given
         SlackEventReq request = buildRequest("Ev001", "T12345", "C_UNKNOWN");
-        given(slackEventLogRepository.existsBySlackEventId("Ev001")).willReturn(false);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C_UNKNOWN"))
                 .willReturn(Optional.empty());
 
@@ -118,7 +124,6 @@ class SlackEventServiceImplTest {
         SlackEventReq request = buildRequest("Ev001", "T12345", "C12345");
         SlackIntegration integration = SlackIntegration.builder().build();
 
-        given(slackEventLogRepository.existsBySlackEventId("Ev001")).willReturn(false);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
                 .willReturn(Optional.of(integration));
 

@@ -140,7 +140,7 @@ class SlackSignatureVerificationFilterTest {
 
         // then
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(chain.getRequest()).isNull(); // 체인이 실행되지 않음
+        assertThat(chain.getRequest()).isNull();
     }
 
     @Test
@@ -185,7 +185,7 @@ class SlackSignatureVerificationFilterTest {
     @DisplayName("team_id가 없는 페이로드면 400을 반환한다")
     void missingTeamId_returns400() throws Exception {
         // given
-        String body = "{\"type\":\"event_callback\"}"; // team_id 없음
+        String body = "{\"type\":\"event_callback\"}";
         String timestamp = String.valueOf(Instant.now().getEpochSecond());
         String signature = calculateSignature(timestamp, body);
 
@@ -262,7 +262,7 @@ class SlackSignatureVerificationFilterTest {
         // when
         filter.doFilter(request, response, chain);
 
-        // then - 헤더 없어도 체인이 통과됨
+        // then
         assertThat(chain.getRequest()).isNotNull();
     }
 }
