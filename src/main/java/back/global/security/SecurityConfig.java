@@ -1,6 +1,8 @@
 package back.global.security;
 
+import back.domain.slack.filter.SlackSignatureVerificationFilter;
 import back.global.config.properties.CorsProperties;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,10 +22,14 @@ import java.util.List;
 
 @Configuration
 @RequiredArgsConstructor
+@SuppressFBWarnings(
+        value = "EI_EXPOSE_REP2",
+        justification = "SlackSignatureVerificationFilter는 Spring DI 컨테이너가 관리하는 빈이므로 외부 변조 위험 없음")
 public class SecurityConfig {
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
     private final RestAccessDeniedHandler restAccessDeniedHandler;
     private final CorsProperties corsProperties;
+    private final SlackSignatureVerificationFilter slackSignatureVerificationFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter)
@@ -58,9 +64,11 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout")
                         .authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/slack/events").permitAll()
                         .anyRequest()
                         .authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(slackSignatureVerificationFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }
