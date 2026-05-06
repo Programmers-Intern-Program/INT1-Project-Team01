@@ -6,6 +6,7 @@ public record TaskExecutionRunCommand(
     public TaskExecutionRunCommand {
         workspaceId = requireId(workspaceId, "workspaceId");
         taskId = requireId(taskId, "taskId");
+        repositoryId = requireOptionalId(repositoryId, "repositoryId");
         prompt = requireNotBlank(prompt, "prompt");
     }
 
@@ -14,6 +15,13 @@ public record TaskExecutionRunCommand(
             throw new IllegalArgumentException(fieldName + " must be positive");
         }
         return value;
+    }
+
+    private static Long requireOptionalId(Long value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        return requireId(value, fieldName);
     }
 
     private static String requireNotBlank(String value, String fieldName) {

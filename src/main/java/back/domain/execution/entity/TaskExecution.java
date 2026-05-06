@@ -61,7 +61,7 @@ public class TaskExecution extends BaseEntity {
         this.taskId = requireId(taskId, "taskId");
         this.agentId = requireId(agentId, "agentId");
         this.openClawAgentId = requireNotBlank(openClawAgentId, "openClawAgentId");
-        this.repositoryId = repositoryId;
+        this.repositoryId = requireOptionalId(repositoryId, "repositoryId");
         this.branchName = normalizeOptional(branchName);
         this.status = TaskExecutionStatus.QUEUED;
     }
@@ -104,6 +104,13 @@ public class TaskExecution extends BaseEntity {
             throw new IllegalArgumentException(fieldName + " must be positive");
         }
         return value;
+    }
+
+    private static Long requireOptionalId(Long value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        return requireId(value, fieldName);
     }
 
     private static String requireNotBlank(String value, String fieldName) {
