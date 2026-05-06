@@ -109,6 +109,25 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     @Override
+    public OpenClawChatResult sendChat(OpenClawChatCommand command) {
+        Objects.requireNonNull(command);
+        Map<String, Object> payload = sendRpc(
+                "chat.send",
+                Map.of(
+                        "sessionKey", command.fullSessionKey(),
+                        "message", command.message(),
+                        "idempotencyKey", command.idempotencyKey()));
+        Map<?, ?> chatPayload =
+                firstMap(payload, "chat").or(() -> firstMap(payload, "result")).orElse(payload);
+        String sessionKey = firstString(chatPayload, "sessionKey");
+        if (sessionKey == null) {
+            sessionKey = command.fullSessionKey();
+        }
+        String finalText = firstString(chatPayload, "finalText", "text", "message", "response");
+        return new OpenClawChatResult(sessionKey, finalText);
+    }
+
+    @Override
     public void close() {
         pendingRequests.failAll(OpenClawGatewayException.gatewayDisconnected());
         transport.close();
