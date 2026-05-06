@@ -57,15 +57,24 @@ public class MockOpenClawGatewayTransport implements OpenClawGatewayTransport {
     }
 
     public void respond(OpenClawRpcResponse response) {
+        requireConnected();
         responseHandler.handle(response);
     }
 
     public void disconnect() {
+        requireConnected();
         connectedContext = null;
         failureHandler.accept(OpenClawGatewayException.gatewayDisconnected());
     }
 
     public void fail(OpenClawGatewayException exception) {
+        requireConnected();
         failureHandler.accept(exception);
+    }
+
+    private void requireConnected() {
+        if (connectedContext == null || responseHandler == null || failureHandler == null) {
+            throw new IllegalStateException("Mock OpenClaw Gateway transport is not connected");
+        }
     }
 }
