@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.List;
 
+import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,13 +32,7 @@ import back.global.security.AuthenticatedMember;
 import tools.jackson.databind.json.JsonMapper;
 
 @WebMvcTest(AgentController.class)
-class AgentControllerTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private JsonMapper jsonMapper;
+class AgentControllerTest extends WebMvcTestSupport {
 
     @MockitoBean
     private AgentProvisioningService agentProvisioningService;
