@@ -1,31 +1,33 @@
 package back.domain.task.service;
 
-import back.domain.task.entity.Task;
-import back.domain.task.entity.TaskStatus;
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
+import back.domain.task.dto.response.AgentReportResponse;
+import back.domain.task.dto.response.TaskArtifactResponse;
 import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
-import back.domain.task.dto.response.TaskStatusUpdateResponse;
-import back.domain.task.repository.*;
-import back.domain.task.entity.AgentReport;
-import back.domain.task.entity.TaskExecution;
-import back.domain.task.dto.response.AgentReportResponse;
-import back.domain.task.dto.response.TaskArtifactResponse;
 import back.domain.task.dto.response.TaskLogResponse;
+import back.domain.task.dto.response.TaskStatusUpdateResponse;
+import back.domain.task.entity.AgentReport;
+import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.task.repository.TaskExecutionLogRepository;
 import back.domain.task.repository.TaskExecutionRepository;
-
-import java.util.List;
-
+import back.domain.task.repository.TaskRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.data.domain.Pageable;
 
 @Service
 @RequiredArgsConstructor
@@ -37,9 +39,12 @@ public class TaskService {
     private final TaskExecutionLogRepository taskExecutionLogRepository;
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
+    private final WorkspaceRepository workspaceRepository;
 
     @Transactional
     public TaskCreateResponse createTask(Long workspaceId, TaskCreateRequest request) {
+        validateWorkspaceExists(workspaceId);
+
         Task task = Task.create(
                 workspaceId,
                 request.title(),
@@ -64,8 +69,7 @@ public class TaskService {
     }
 
     public TaskDetailResponse getTask(Long workspaceId, Long taskId) {
-        Task task = taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        Task task = getTaskOrThrow(workspaceId, taskId);
 
         return TaskDetailResponse.from(task);
     }
@@ -76,8 +80,7 @@ public class TaskService {
             Long taskId,
             TaskStatusUpdateRequest request
     ) {
-        Task task = taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        Task task = getTaskOrThrow(workspaceId, taskId);
 
         TaskStatus previousStatus = task.getStatus();
 
@@ -94,21 +97,19 @@ public class TaskService {
     }
 
     public List<TaskLogResponse> getTaskLogs(Long workspaceId, Long taskId) {
-        taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        getTaskOrThrow(workspaceId, taskId);
 
-        TaskExecution latestExecution = taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId)
-                .orElseThrow(() -> new IllegalArgumentException("Task 실행 기록을 찾을 수 없습니다."));
-
-        return taskExecutionLogRepository.findByExecutionIdOrderByCreatedAtAsc(latestExecution.getId())
-                .stream()
-                .map(TaskLogResponse::from)
-                .toList();
+        return taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId)
+                .map(latestExecution -> taskExecutionLogRepository
+                        .findByExecutionIdOrderByCreatedAtAsc(latestExecution.getId())
+                        .stream()
+                        .map(TaskLogResponse::from)
+                        .toList())
+                .orElseGet(List::of);
     }
 
     public List<AgentReportResponse> getTaskReports(Long workspaceId, Long taskId) {
-        taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        getTaskOrThrow(workspaceId, taskId);
 
         return agentReportRepository.findByTaskIdOrderByCreatedAtDesc(taskId)
                 .stream()
@@ -124,4 +125,24 @@ public class TaskService {
 
         return AgentReportResponse.of(report, artifacts);
     }
+
+    private Task getTaskOrThrow(Long workspaceId, Long taskId) {
+        return taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "Task를 찾을 수 없습니다. taskId=" + taskId + ", workspaceId=" + workspaceId,
+                        "Task를 찾을 수 없습니다."
+                ));
+    }
+
+    private void validateWorkspaceExists(Long workspaceId) {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new ServiceException(
+                    CommonErrorCode.NOT_FOUND,
+                    "Workspace를 찾을 수 없습니다. workspaceId=" + workspaceId,
+                    "Workspace를 찾을 수 없습니다."
+            );
+        }
+    }
+
 }
