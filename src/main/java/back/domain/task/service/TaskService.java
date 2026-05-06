@@ -1,6 +1,8 @@
 package back.domain.task.service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,6 +27,8 @@ import back.domain.task.repository.TaskExecutionLogRepository;
 import back.domain.task.repository.TaskExecutionRepository;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
+import back.domain.task.entity.TaskArtifact;
+
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -111,19 +115,29 @@ public class TaskService {
     public List<AgentReportResponse> getTaskReports(Long workspaceId, Long taskId) {
         getTaskOrThrow(workspaceId, taskId);
 
-        return agentReportRepository.findByTaskIdOrderByCreatedAtDesc(taskId)
-                .stream()
-                .map(this::toAgentReportResponse)
-                .toList();
-    }
+        List<AgentReport> reports = agentReportRepository.findByTaskIdOrderByCreatedAtDesc(taskId);
 
-    private AgentReportResponse toAgentReportResponse(AgentReport report) {
-        List<TaskArtifactResponse> artifacts = taskArtifactRepository.findByReportId(report.getId())
-                .stream()
-                .map(TaskArtifactResponse::from)
+        if (reports.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> reportIds = reports.stream()
+                .map(AgentReport::getId)
                 .toList();
 
-        return AgentReportResponse.of(report, artifacts);
+        Map<Long, List<TaskArtifactResponse>> artifactsByReportId = taskArtifactRepository.findByReportIdIn(reportIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        TaskArtifact::getReportId,
+                        Collectors.mapping(TaskArtifactResponse::from, Collectors.toList())
+                ));
+
+        return reports.stream()
+                .map(report -> AgentReportResponse.of(
+                        report,
+                        artifactsByReportId.getOrDefault(report.getId(), List.of())
+                ))
+                .toList();
     }
 
     private Task getTaskOrThrow(Long workspaceId, Long taskId) {
