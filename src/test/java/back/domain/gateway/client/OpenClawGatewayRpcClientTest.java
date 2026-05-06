@@ -168,6 +168,42 @@ class OpenClawGatewayRpcClientTest {
     }
 
     @Test
+    @DisplayName("chat.send는 sessionKey, message, idempotencyKey를 RPC 요청으로 보내고 final text를 반환한다")
+    void sendChat_successResponse_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
+                request.id(),
+                Map.of(
+                        "chat",
+                        Map.of(
+                                "sessionKey",
+                                "agent:openclaw-agent-1:workspace-1-execution-10",
+                                "finalText",
+                                "작업을 완료했습니다."))));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        assertThat(request.method()).isEqualTo("chat.send");
+        assertThat(request.params())
+                .containsEntry("sessionKey", "agent:openclaw-agent-1:workspace-1-execution-10")
+                .containsEntry("message", "회원가입 API를 리뷰해줘")
+                .containsEntry("idempotencyKey", "idem-1");
+        assertThat(result)
+                .isEqualTo(new OpenClawChatResult(
+                        "agent:openclaw-agent-1:workspace-1-execution-10", "작업을 완료했습니다."));
+
+        client.close();
+    }
+
+    @Test
     @DisplayName("연결되지 않은 상태에서 agents.list를 호출하면 Gateway 예외가 발생한다")
     void listAgents_disconnected_throwsException() {
         // given

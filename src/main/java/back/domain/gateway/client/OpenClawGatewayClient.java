@@ -12,5 +12,7 @@ public interface OpenClawGatewayClient {
 
     void setAgentFile(OpenClawAgentFileCommand command);
 
+    OpenClawChatResult sendChat(OpenClawChatCommand command);
+
     void close();
 }
