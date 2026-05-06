@@ -21,6 +21,9 @@ import back.domain.task.repository.TaskExecutionRepository;
 
 import java.util.List;
 
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -38,8 +41,12 @@ public class TaskService {
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
 
+    private final WorkspaceMemberRepository workspaceMemberRepository;
+
     @Transactional
     public TaskCreateResponse createTask(Long workspaceId, long memberId, TaskCreateRequest request) {
+        validateWorkspaceMember(workspaceId, memberId);
+
         Task task = Task.create(
                 workspaceId,
                 request.title(),
@@ -59,13 +66,16 @@ public class TaskService {
     }
 
     public Page<TaskListResponse> getTasks(Long workspaceId, long memberId, Pageable pageable) {
+        validateWorkspaceMember(workspaceId, memberId);
+
         return taskRepository.findByWorkspaceId(workspaceId, pageable)
                 .map(TaskListResponse::from);
     }
 
     public TaskDetailResponse getTask(Long workspaceId, long memberId, Long taskId) {
-        Task task = taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        validateWorkspaceMember(workspaceId, memberId);
+
+        Task task = findTaskInWorkspace(taskId, workspaceId);
 
         return TaskDetailResponse.from(task);
     }
@@ -77,12 +87,14 @@ public class TaskService {
             Long taskId,
             TaskStatusUpdateRequest request
     ) {
-        Task task = taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        validateWorkspaceMember(workspaceId, memberId);
+
+        Task task = findTaskInWorkspace(taskId, workspaceId);
 
         TaskStatus previousStatus = task.getStatus();
 
         task.updateStatus(request.status());
+        taskRepository.flush();
 
         return new TaskStatusUpdateResponse(
                 task.getId(),
@@ -93,8 +105,9 @@ public class TaskService {
     }
 
     public List<TaskLogResponse> getTaskLogs(Long workspaceId, long memberId, Long taskId) {
-        taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        validateWorkspaceMember(workspaceId, memberId);
+
+        findTaskInWorkspace(taskId, workspaceId);
 
         TaskExecution latestExecution = taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("Task 실행 기록을 찾을 수 없습니다."));
@@ -106,13 +119,34 @@ public class TaskService {
     }
 
     public List<AgentReportResponse> getTaskReports(Long workspaceId, long memberId, Long taskId) {
-        taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+        validateWorkspaceMember(workspaceId, memberId);
+
+        findTaskInWorkspace(taskId, workspaceId);
 
         return agentReportRepository.findByTaskIdOrderByCreatedAtDesc(taskId)
                 .stream()
                 .map(this::toAgentReportResponse)
                 .toList();
+    }
+
+    private Task findTaskInWorkspace(Long taskId, Long workspaceId) {
+        return taskRepository.findByIdAndWorkspaceId(taskId, workspaceId)
+                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
+    }
+
+    private void validateWorkspaceMember(Long workspaceId, long memberId) {
+        boolean exists = workspaceMemberRepository.existsByWorkspaceIdAndMemberId(
+                workspaceId,
+                memberId
+        );
+
+        if (!exists) {
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[TaskService#validateWorkspaceMember] workspace access denied",
+                    "워크스페이스 접근 권한이 없습니다."
+            );
+        }
     }
 
     private AgentReportResponse toAgentReportResponse(AgentReport report) {
