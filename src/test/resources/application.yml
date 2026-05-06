@@ -33,6 +33,8 @@ custom:
 security:
   encryption:
     tink-keyset: ${ENCRYPTION_SECRET:{"primaryKeyId":123456789,"key":[{"keyData":{"typeUrl":"type.googleapis.com/google.crypto.tink.AesGcmKey","value":"GiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","keyMaterialType":"SYMMETRIC"},"status":"ENABLED","keyId":123456789,"outputPrefixType":"TINK"}]}}
+  slack:
+    replay-timeout-seconds: 300
 
 logging:
   level:
