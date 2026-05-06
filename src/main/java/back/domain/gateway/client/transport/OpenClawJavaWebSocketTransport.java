@@ -13,16 +13,21 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport {
+public final class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport {
+
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final GatewayUrlNormalizer urlNormalizer;
+    private final Duration connectTimeout;
     private final StringBuilder messageBuffer = new StringBuilder();
 
     private volatile WebSocket webSocket;
@@ -39,9 +44,23 @@ public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport 
             ObjectMapper objectMapper,
             GatewayUrlNormalizer urlNormalizer
     ) {
+        this(httpClient, objectMapper, urlNormalizer, DEFAULT_CONNECT_TIMEOUT);
+    }
+
+    @SuppressFBWarnings(
+            value = "EI_EXPOSE_REP2",
+            justification = "Transport intentionally uses shared HttpClient/ObjectMapper infrastructure."
+    )
+    public OpenClawJavaWebSocketTransport(
+            HttpClient httpClient,
+            ObjectMapper objectMapper,
+            GatewayUrlNormalizer urlNormalizer,
+            Duration connectTimeout
+    ) {
         this.httpClient = Objects.requireNonNull(httpClient);
         this.objectMapper = Objects.requireNonNull(objectMapper);
         this.urlNormalizer = Objects.requireNonNull(urlNormalizer);
+        this.connectTimeout = requirePositive(connectTimeout);
     }
 
     @Override
@@ -53,10 +72,13 @@ public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport 
         this.responseHandler = Objects.requireNonNull(responseHandler);
         this.failureHandler = Objects.requireNonNull(failureHandler);
         URI webSocketUri = urlNormalizer.toWebSocketUri(context.gatewayUrl());
+        clearMessageBuffer();
         try {
             webSocket = httpClient.newWebSocketBuilder()
+                    .connectTimeout(connectTimeout)
                     .header("Authorization", "Bearer " + context.token())
                     .buildAsync(webSocketUri, new GatewayWebSocketListener())
+                    .orTimeout(timeoutMillis(connectTimeout), TimeUnit.MILLISECONDS)
                     .join();
         } catch (RuntimeException exception) {
             throw OpenClawGatewayException.connectionFailed(exception);
@@ -94,6 +116,8 @@ public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport 
     public void close() {
         WebSocket current = webSocket;
         connected = false;
+        webSocket = null;
+        clearMessageBuffer();
         if (current != null) {
             current.sendClose(WebSocket.NORMAL_CLOSURE, "client closed");
         }
@@ -123,6 +147,7 @@ public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
             connected = false;
+            clearMessageBuffer();
             failureHandler.accept(OpenClawGatewayException.gatewayDisconnected());
             return CompletableFuture.completedFuture(null);
         }
@@ -130,7 +155,25 @@ public class OpenClawJavaWebSocketTransport implements OpenClawGatewayTransport 
         @Override
         public void onError(WebSocket webSocket, Throwable error) {
             connected = false;
+            clearMessageBuffer();
             failureHandler.accept(OpenClawGatewayException.gatewayDisconnected());
+        }
+    }
+
+    private static Duration requirePositive(Duration timeout) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("connectTimeout must be positive");
+        }
+        return timeout;
+    }
+
+    private static long timeoutMillis(Duration timeout) {
+        return Math.max(1L, timeout.toMillis());
+    }
+
+    private void clearMessageBuffer() {
+        synchronized (messageBuffer) {
+            messageBuffer.setLength(0);
         }
     }
 

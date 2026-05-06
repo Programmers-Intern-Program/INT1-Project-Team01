@@ -75,6 +75,33 @@ class OpenClawGatewayRpcClientTest {
     }
 
     @Test
+    @DisplayName("agents.list는 식별자나 이름이 없는 agent item을 건너뛴다")
+    void listAgents_malformedAgentItems_skipsInvalidItems() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
+                request.id(),
+                Map.of("agents", List.of(
+                        Map.of("id", "agent-1", "name", "Backend Agent"),
+                        Map.of("id", "agent-without-name"),
+                        Map.of("name", "Agent Without Id"),
+                        Map.of("id", " ", "name", "Blank Id Agent"),
+                        "not-an-agent"
+                ))
+        ));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        List<OpenClawAgentSummary> agents = client.listAgents();
+
+        // then
+        assertThat(agents).containsExactly(new OpenClawAgentSummary("agent-1", "Backend Agent"));
+
+        client.close();
+    }
+
+    @Test
     @DisplayName("연결되지 않은 상태에서 agents.list를 호출하면 Gateway 예외가 발생한다")
     void listAgents_disconnected_throwsException() {
         // given

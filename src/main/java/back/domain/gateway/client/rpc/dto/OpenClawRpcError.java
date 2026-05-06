@@ -3,6 +3,8 @@ package back.domain.gateway.client.rpc.dto;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @SuppressFBWarnings(
@@ -24,7 +26,7 @@ public record OpenClawRpcError(
         if (details == null) {
             details = Map.of();
         } else {
-            details = Map.copyOf(details);
+            details = Collections.unmodifiableMap(new LinkedHashMap<>(details));
         }
     }
 }

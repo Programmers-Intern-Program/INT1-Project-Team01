@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
@@ -46,17 +47,21 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     public static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout) {
+        Duration timeout = Objects.requireNonNull(rpcTimeout);
         ObjectMapper objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return new OpenClawGatewayRpcClient(
                 new OpenClawJavaWebSocketTransport(
-                        HttpClient.newHttpClient(),
+                        HttpClient.newBuilder()
+                                .connectTimeout(timeout)
+                                .build(),
                         objectMapper,
-                        new GatewayUrlNormalizer()
+                        new GatewayUrlNormalizer(),
+                        timeout
                 ),
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> UUID.randomUUID().toString(),
-                rpcTimeout
+                timeout
         );
     }
 
@@ -77,6 +82,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 .filter(Map.class::isInstance)
                 .map(Map.class::cast)
                 .map(this::toAgentSummary)
+                .flatMap(Optional::stream)
                 .toList();
     }
 
@@ -120,17 +126,19 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
         pendingRequests.failAll(exception);
     }
 
-    private OpenClawAgentSummary toAgentSummary(Map<?, ?> agent) {
-        return new OpenClawAgentSummary(
-                firstString(agent, "agentId", "id"),
-                firstString(agent, "name")
-        );
+    private Optional<OpenClawAgentSummary> toAgentSummary(Map<?, ?> agent) {
+        String agentId = firstString(agent, "agentId", "id");
+        String name = firstString(agent, "name");
+        if (agentId == null || name == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new OpenClawAgentSummary(agentId, name));
     }
 
     private String firstString(Map<?, ?> values, String... keys) {
         for (String key : keys) {
             Object value = values.get(key);
-            if (value instanceof String stringValue) {
+            if (value instanceof String stringValue && !stringValue.isBlank()) {
                 return stringValue;
             }
         }

@@ -2,6 +2,8 @@ package back.domain.gateway.client.rpc.dto;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @SuppressFBWarnings(
@@ -32,7 +34,7 @@ public record OpenClawRpcRequest(
         if (params == null) {
             return Map.of();
         }
-        return Map.copyOf(params);
+        return Collections.unmodifiableMap(new LinkedHashMap<>(params));
     }
 
     private static String requireNotBlank(String value, String fieldName) {

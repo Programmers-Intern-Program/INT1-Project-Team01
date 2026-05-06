@@ -2,6 +2,8 @@ package back.domain.gateway.client.rpc.dto;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @SuppressFBWarnings(
@@ -18,7 +20,7 @@ public record OpenClawRpcResponse(
 
     public OpenClawRpcResponse {
         if (payload != null) {
-            payload = Map.copyOf(payload);
+            payload = immutableCopy(payload);
         }
     }
 
@@ -49,7 +51,11 @@ public record OpenClawRpcResponse(
         if (payload == null) {
             return Map.of();
         }
-        return Map.copyOf(payload);
+        return immutableCopy(payload);
+    }
+
+    private static Map<String, Object> immutableCopy(Map<String, Object> values) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 
     private static String requireNotBlank(String value, String fieldName) {
