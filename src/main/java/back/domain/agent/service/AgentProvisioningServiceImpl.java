@@ -1,9 +1,10 @@
 package back.domain.agent.service;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
@@ -30,9 +31,9 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class AgentProvisioningServiceImpl implements AgentProvisioningService {
 
+    private final TransactionOperations transactionOperations;
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final AgentRepository agentRepository;
@@ -41,8 +42,24 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
 
     @Override
-    @Transactional
     public OpenClawAgentCreateRes createAgent(Long workspaceId, Long memberId, OpenClawAgentCreateReq request) {
+        AgentProvisioningTarget target = requireTransactionResult(transactionOperations.execute(
+                status -> createProvisioningTarget(workspaceId, memberId, request)));
+
+        OpenClawGatewayConnectionContext context;
+        try {
+            context = workspaceGatewayBindingService.getConnectionContext(workspaceId);
+        } catch (ServiceException exception) {
+            target.agent().markError(exception.getClientMessage());
+            return saveProvisioningResult(target);
+        }
+
+        provisionOpenClawAgent(target, context, request.emoji());
+        return saveProvisioningResult(target);
+    }
+
+    private AgentProvisioningTarget createProvisioningTarget(
+            Long workspaceId, Long memberId, OpenClawAgentCreateReq request) {
         WorkspaceMember admin = requireAdmin(workspaceId, memberId);
         String agentName = requireNotBlank(request.name(), "name");
         validateDuplicateAgentName(workspaceId, agentName);
@@ -50,30 +67,30 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
         Agent agent = agentRepository.save(Agent.create(
                 admin.getWorkspace(), agentName, resolveWorkspacePath(workspaceId, request.workspacePath()), memberId));
         List<AgentSkillFile> skillFiles = saveSkillFiles(agent, request.skillFiles());
+        return new AgentProvisioningTarget(workspaceId, agent, skillFiles);
+    }
 
-        OpenClawGatewayConnectionContext context;
-        try {
-            context = workspaceGatewayBindingService.getConnectionContext(workspaceId);
-        } catch (ServiceException exception) {
-            agent.markError(exception.getClientMessage());
-            return OpenClawAgentCreateRes.from(agent, skillFiles);
-        }
-
-        provisionOpenClawAgent(agent, skillFiles, context, request.emoji());
-        return OpenClawAgentCreateRes.from(agent, skillFiles);
+    private OpenClawAgentCreateRes saveProvisioningResult(AgentProvisioningTarget target) {
+        return requireTransactionResult(transactionOperations.execute(status -> {
+            Agent savedAgent = agentRepository.save(target.agent());
+            List<AgentSkillFile> savedSkillFiles =
+                    target.skillFiles().stream().map(agentSkillFileRepository::save).toList();
+            return OpenClawAgentCreateRes.from(savedAgent, savedSkillFiles);
+        }));
     }
 
     private void provisionOpenClawAgent(
-            Agent agent, List<AgentSkillFile> skillFiles, OpenClawGatewayConnectionContext context, String emoji) {
+            AgentProvisioningTarget target, OpenClawGatewayConnectionContext context, String emoji) {
         OpenClawGatewayClient client = openClawGatewayClientFactory.create();
         try {
             client.connect(context);
             OpenClawAgentSummary summary = client.createAgent(
-                    new OpenClawAgentCreateCommand(resolveOpenClawAgentName(agent), agent.getWorkspacePath(), emoji));
-            agent.markOpenClawCreated(summary.agentId());
-            syncSkillFiles(client, agent, skillFiles);
+                    new OpenClawAgentCreateCommand(
+                            resolveOpenClawAgentName(target), target.agent().getWorkspacePath(), emoji));
+            target.agent().markOpenClawCreated(summary.agentId());
+            syncSkillFiles(client, target.agent(), target.skillFiles());
         } catch (OpenClawGatewayException exception) {
-            agent.markError(exception.getClientMessage());
+            target.agent().markError(exception.getClientMessage());
         } finally {
             client.close();
         }
@@ -152,8 +169,8 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
         return "~/.openclaw/workspace-" + workspaceId;
     }
 
-    private String resolveOpenClawAgentName(Agent agent) {
-        return "workspace-" + agent.getWorkspace().getId() + "-agent-" + agent.getId();
+    private String resolveOpenClawAgentName(AgentProvisioningTarget target) {
+        return "workspace-" + target.workspaceId() + "-agent-" + target.agent().getId();
     }
 
     private String requireNotBlank(String value, String fieldName) {
@@ -165,4 +182,10 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
         }
         return value.trim();
     }
+
+    private <T> T requireTransactionResult(T result) {
+        return Objects.requireNonNull(result, "transaction result must not be null");
+    }
+
+    private record AgentProvisioningTarget(Long workspaceId, Agent agent, List<AgentSkillFile> skillFiles) {}
 }

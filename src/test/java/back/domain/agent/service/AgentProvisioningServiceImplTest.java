@@ -21,6 +21,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
@@ -72,6 +74,9 @@ class AgentProvisioningServiceImplTest {
     @Mock
     private OpenClawGatewayClient openClawGatewayClient;
 
+    @Mock
+    private TransactionOperations transactionOperations;
+
     @InjectMocks
     private AgentProvisioningServiceImpl agentProvisioningService;
 
@@ -90,6 +95,10 @@ class AgentProvisioningServiceImplTest {
 
         admin = WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN);
         gatewayContext = new OpenClawGatewayConnectionContext("ws://localhost:34115", "gateway-secret-token");
+        given(transactionOperations.execute(any())).willAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
     }
 
     @Test

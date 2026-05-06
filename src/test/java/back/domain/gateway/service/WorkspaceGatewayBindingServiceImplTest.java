@@ -111,6 +111,28 @@ class WorkspaceGatewayBindingServiceImplTest {
     }
 
     @Test
+    @DisplayName("짧은 token은 응답에서 전체 masking한다")
+    void bindExternalGateway_shortToken_masksAll() {
+        // given
+        WorkspaceGatewayBindingReq request = new WorkspaceGatewayBindingReq("ws://localhost:34115", "123456789");
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.empty());
+        given(workspaceGatewayBindingRepository.save(any(WorkspaceGatewayBinding.class)))
+                .willAnswer(invocation -> {
+                    WorkspaceGatewayBinding binding = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(binding, "id", 100L);
+                    return binding;
+                });
+
+        // when
+        WorkspaceGatewayBindingRes response = workspaceGatewayBindingService.bindExternalGateway(1L, 10L, request);
+
+        // then
+        assertThat(response.maskedToken()).isEqualTo("****");
+    }
+
+    @Test
     @DisplayName("binding 조회는 Gateway connection context를 반환하고 token을 toString에 노출하지 않는다")
     void getConnectionContext_existingBinding_success() {
         // given

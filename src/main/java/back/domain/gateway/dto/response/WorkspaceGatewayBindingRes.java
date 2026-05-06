@@ -5,9 +5,9 @@ import back.domain.gateway.entity.WorkspaceGatewayBinding;
 
 public record WorkspaceGatewayBindingRes(
         Long id, Long workspaceId, GatewayMode mode, String gatewayUrl, String maskedToken) {
-    private static final int MIN_SECRET_LENGTH_FOR_MASKING = 8;
     private static final int VISIBLE_PREFIX_LENGTH = 4;
     private static final int VISIBLE_SUFFIX_LENGTH = 4;
+    private static final int MIN_HIDDEN_LENGTH = 4;
     private static final String MASK_STRING = "****";
 
     public static WorkspaceGatewayBindingRes from(WorkspaceGatewayBinding binding) {
@@ -20,7 +20,7 @@ public record WorkspaceGatewayBindingRes(
     }
 
     private static String mask(String secret) {
-        if (secret == null || secret.length() <= MIN_SECRET_LENGTH_FOR_MASKING) {
+        if (secret == null || secret.length() <= VISIBLE_PREFIX_LENGTH + VISIBLE_SUFFIX_LENGTH + MIN_HIDDEN_LENGTH) {
             return MASK_STRING;
         }
         return secret.substring(0, VISIBLE_PREFIX_LENGTH)
