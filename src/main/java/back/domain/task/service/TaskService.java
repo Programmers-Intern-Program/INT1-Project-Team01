@@ -83,6 +83,8 @@ public class TaskService {
 
         task.updateStatus(request.status());
 
+        taskRepository.flush();
+
         return new TaskStatusUpdateResponse(
                 task.getId(),
                 previousStatus,
