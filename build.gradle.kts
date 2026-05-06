@@ -60,6 +60,9 @@ dependencies {
 	// --- SpotBugs ---
 	compileOnly("com.github.spotbugs:spotbugs-annotations:4.8.6")
 
+	// --- Email ---
+	implementation ("org.springframework.boot:spring-boot-starter-mail")
+
 	// --- Test ---
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")

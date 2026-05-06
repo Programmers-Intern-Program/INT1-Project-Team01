@@ -3,6 +3,7 @@ package back.domain.workspace.entity;
 import java.time.LocalDateTime;
 
 import back.domain.member.entity.Member;
+import back.domain.workspace.enums.InviteEmailStatus;
 import back.domain.workspace.enums.WorkspaceInviteStatus;
 import back.domain.workspace.enums.WorkspaceMemberRole;
 import back.global.jpa.entity.BaseEntity;
@@ -46,6 +47,16 @@ public class WorkspaceInvite extends BaseEntity {
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
+    @Column(name = "target_email", length = 320)
+    private String targetEmail;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "email_status", nullable = false, length = 20)
+    private InviteEmailStatus emailStatus = InviteEmailStatus.NOT_REQUESTED;
+
+    @Column(name = "email_sent_at")
+    private LocalDateTime emailSentAt;
+
     private LocalDateTime acceptedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -53,6 +64,22 @@ public class WorkspaceInvite extends BaseEntity {
     private Member acceptedByMember;
 
     private LocalDateTime revokedAt;
+
+    public void revoke() {
+        this.revokedAt = LocalDateTime.now();
+    }
+
+    public void extendExpiresAt(int additionalDays) {
+        if (additionalDays < 1) {
+            throw new IllegalArgumentException("additionalDays must be positive");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime base = expiresAt.isAfter(now) ? expiresAt : now;
+        this.expiresAt = base.plusDays(additionalDays);
+    }
+
+    // ====== 생성자 ======
 
     private WorkspaceInvite(
             Workspace workspace,
@@ -65,52 +92,6 @@ public class WorkspaceInvite extends BaseEntity {
         this.role = requireRole(role);
         this.createdByMember = requireMember(createdByMember, "createdByMember");
         this.expiresAt = requireExpiresAt(expiresAt);
-    }
-
-    public static WorkspaceInvite create(
-            Workspace workspace,
-            String token,
-            WorkspaceMemberRole role,
-            Member createdByMember,
-            LocalDateTime expiresAt) {
-        return new WorkspaceInvite(workspace, token, role, createdByMember, expiresAt);
-    }
-
-    public WorkspaceInviteStatus getStatus(LocalDateTime now) {
-        if (revokedAt != null) {
-            return WorkspaceInviteStatus.REVOKED;
-        }
-        if (acceptedAt != null) {
-            return WorkspaceInviteStatus.ACCEPTED;
-        }
-        if (expiresAt.isBefore(now)) {
-            return WorkspaceInviteStatus.EXPIRED;
-        }
-        return WorkspaceInviteStatus.PENDING;
-    }
-
-    public boolean isPending(LocalDateTime now) {
-        return getStatus(now) == WorkspaceInviteStatus.PENDING;
-    }
-
-    public boolean isExpired(LocalDateTime now) {
-        return getStatus(now) == WorkspaceInviteStatus.EXPIRED;
-    }
-
-    public void accept(Member acceptedByMember) {
-        this.acceptedByMember = requireMember(acceptedByMember, "acceptedByMember");
-        this.acceptedAt = LocalDateTime.now();
-    }
-
-    public void revoke() {
-        this.revokedAt = LocalDateTime.now();
-    }
-
-    private static Workspace requireWorkspace(Workspace workspace) {
-        if (workspace == null) {
-            throw new IllegalArgumentException("workspace must not be null");
-        }
-        return workspace;
     }
 
     private static String requireToken(String token) {
@@ -139,5 +120,75 @@ public class WorkspaceInvite extends BaseEntity {
             throw new IllegalArgumentException("expiresAt must not be null");
         }
         return expiresAt;
+    }
+
+    private static Workspace requireWorkspace(Workspace workspace) {
+        if (workspace == null) {
+            throw new IllegalArgumentException("workspace must not be null");
+        }
+        return workspace;
+    }
+
+    // ====== Workspace Invite(링크) 생성 ======
+
+    public static WorkspaceInvite create(
+            Workspace workspace,
+            String token,
+            WorkspaceMemberRole role,
+            Member createdByMember,
+            LocalDateTime expiresAt) {
+        return new WorkspaceInvite(workspace, token, role, createdByMember, expiresAt);
+    }
+
+    // ====== Workspace Invite(링크) 상태 ======
+
+    public WorkspaceInviteStatus getStatus(LocalDateTime now) {
+        if (revokedAt != null) {
+            return WorkspaceInviteStatus.REVOKED;
+        }
+        if (acceptedAt != null) {
+            return WorkspaceInviteStatus.ACCEPTED;
+        }
+        if (expiresAt.isBefore(now)) {
+            return WorkspaceInviteStatus.EXPIRED;
+        }
+        return WorkspaceInviteStatus.PENDING;
+    }
+
+    // ====== Email ======
+
+    public boolean hasTargetEmail() {
+        return targetEmail != null && !targetEmail.isBlank();
+    }
+
+    public void requestEmailDelivery(String targetEmail) {
+        if (targetEmail == null || targetEmail.isBlank()) {
+            this.targetEmail = null;
+            this.emailStatus = InviteEmailStatus.NOT_REQUESTED;
+            this.emailSentAt = null;
+            return;
+        }
+
+        this.targetEmail = targetEmail.trim();
+        this.emailStatus = InviteEmailStatus.PENDING;
+        this.emailSentAt = null;
+    }
+
+    public void markEmailSending() {
+        this.emailStatus = InviteEmailStatus.PENDING;
+    }
+
+    public void markEmailSent() {
+        this.emailStatus = InviteEmailStatus.SENT;
+        this.emailSentAt = LocalDateTime.now();
+    }
+
+    public void markEmailFailed(String reason) {
+        this.emailStatus = InviteEmailStatus.FAILED;
+    }
+
+    public void accept(Member acceptedByMember) {
+        this.acceptedByMember = requireMember(acceptedByMember, "acceptedByMember");
+        this.acceptedAt = LocalDateTime.now();
     }
 }
