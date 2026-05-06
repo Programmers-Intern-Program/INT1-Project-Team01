@@ -66,6 +66,9 @@ class TaskExecutionRunnerImplTest {
     @Mock
     private OpenClawGatewayClient openClawGatewayClient;
 
+    @Mock
+    private TaskExecutionResultRecorder taskExecutionResultRecorder;
+
     @InjectMocks
     private TaskExecutionRunnerImpl taskExecutionRunner;
 
@@ -138,8 +141,10 @@ class TaskExecutionRunnerImplTest {
                 .contains("taskExecutionId: 200")
                 .contains("workdirPath: /tmp/aioffice/workspaces/1/executions/200/repo")
                 .contains("createPr: true")
+                .contains("Final report must be a JSON object.")
                 .contains("회원가입 API를 리뷰해줘")
                 .doesNotContain("gateway-secret-token");
+        verify(taskExecutionResultRecorder).recordSuccess(any(TaskExecution.class), any(OpenClawChatResult.class));
         verify(openClawGatewayClient).close();
     }
 
@@ -180,6 +185,7 @@ class TaskExecutionRunnerImplTest {
         // then
         assertThat(result.status()).isEqualTo(TaskExecutionStatus.FAILED);
         assertThat(result.failureReason()).isEqualTo("워크스페이스 Gateway 설정이 없습니다.");
+        verify(taskExecutionResultRecorder).recordFailure(any(TaskExecution.class));
         verify(openClawGatewayClientFactory, never()).create();
     }
 
@@ -203,6 +209,7 @@ class TaskExecutionRunnerImplTest {
         // then
         assertThat(result.status()).isEqualTo(TaskExecutionStatus.FAILED);
         assertThat(result.failureReason()).isEqualTo("OpenClaw Gateway 요청 시간이 초과되었습니다.");
+        verify(taskExecutionResultRecorder).recordFailure(any(TaskExecution.class));
         verify(openClawGatewayClient).close();
     }
 }

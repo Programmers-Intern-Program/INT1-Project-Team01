@@ -36,6 +36,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     private final TaskExecutionRepository taskExecutionRepository;
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
+    private final TaskExecutionResultRecorder taskExecutionResultRecorder;
 
     @Value("${task-execution.workdir-root:/data/aioffice/workspaces}")
     private String workdirRoot;
@@ -105,6 +106,11 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     private TaskExecutionRunResult saveResult(TaskExecution execution, OpenClawChatResult chatResult) {
         return requireTransactionResult(transactionOperations.execute(status -> {
             TaskExecution savedExecution = taskExecutionRepository.save(execution);
+            if (chatResult == null) {
+                taskExecutionResultRecorder.recordFailure(savedExecution);
+            } else {
+                taskExecutionResultRecorder.recordSuccess(savedExecution, chatResult);
+            }
             return TaskExecutionRunResult.from(savedExecution, chatResult);
         }));
     }
@@ -125,7 +131,9 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 "User Request",
                 command.prompt(),
                 "",
-                "Final report must include status, summary, detail, recommendedAction, and artifacts when available.",
+                "Final report must be a JSON object.",
+                "Required fields: status, summary, detail, recommendedAction.",
+                "Optional field: artifacts [{ artifactType, name, url }].",
                 "Do not expose GitHub PAT, Slack token, Gateway token, or any credential value.");
     }
 
