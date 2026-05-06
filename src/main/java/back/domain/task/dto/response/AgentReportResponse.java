@@ -21,11 +21,6 @@ public record AgentReportResponse(
         artifacts = artifacts == null ? List.of() : List.copyOf(artifacts);
     }
 
-    @Override
-    public List<TaskArtifactResponse> artifacts() {
-        return List.copyOf(artifacts);
-    }
-
     public static AgentReportResponse of(
             AgentReport report,
             List<TaskArtifactResponse> artifacts
