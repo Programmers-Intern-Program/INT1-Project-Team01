@@ -1,14 +1,7 @@
 package back.domain.gateway.client;
 
-import back.domain.gateway.client.rpc.OpenClawPendingRequests;
-import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
-import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
-import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
-import back.domain.gateway.client.transport.OpenClawGatewayTransport;
-import back.domain.gateway.exception.OpenClawGatewayException;
-
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -18,8 +11,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import back.domain.gateway.client.rpc.OpenClawPendingRequests;
+import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
+import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
+import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
+import back.domain.gateway.client.transport.OpenClawGatewayTransport;
+import back.domain.gateway.exception.OpenClawGatewayException;
 
 class OpenClawGatewayRpcClientTest {
 
@@ -29,10 +29,8 @@ class OpenClawGatewayRpcClientTest {
         // given
         FakeGatewayTransport transport = new FakeGatewayTransport();
         OpenClawGatewayRpcClient client = newClient(transport);
-        OpenClawGatewayConnectionContext context = new OpenClawGatewayConnectionContext(
-                "ws://localhost:3999",
-                "secret-token"
-        );
+        OpenClawGatewayConnectionContext context =
+                new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token");
 
         // when
         client.connect(context);
@@ -52,11 +50,11 @@ class OpenClawGatewayRpcClientTest {
         FakeGatewayTransport transport = new FakeGatewayTransport();
         transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
                 request.id(),
-                Map.of("agents", List.of(
-                        Map.of("id", "agent-1", "name", "Backend Agent"),
-                        Map.of("agentId", "agent-2", "name", "Reviewer Agent")
-                ))
-        ));
+                Map.of(
+                        "agents",
+                        List.of(
+                                Map.of("id", "agent-1", "name", "Backend Agent"),
+                                Map.of("agentId", "agent-2", "name", "Reviewer Agent")))));
         OpenClawGatewayRpcClient client = newClient(transport);
         client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
 
@@ -66,10 +64,10 @@ class OpenClawGatewayRpcClientTest {
         // then
         assertThat(transport.sentRequests).hasSize(1);
         assertThat(transport.sentRequests.getFirst().method()).isEqualTo("agents.list");
-        assertThat(agents).containsExactly(
-                new OpenClawAgentSummary("agent-1", "Backend Agent"),
-                new OpenClawAgentSummary("agent-2", "Reviewer Agent")
-        );
+        assertThat(agents)
+                .containsExactly(
+                        new OpenClawAgentSummary("agent-1", "Backend Agent"),
+                        new OpenClawAgentSummary("agent-2", "Reviewer Agent"));
 
         client.close();
     }
@@ -81,14 +79,14 @@ class OpenClawGatewayRpcClientTest {
         FakeGatewayTransport transport = new FakeGatewayTransport();
         transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
                 request.id(),
-                Map.of("agents", List.of(
-                        Map.of("id", "agent-1", "name", "Backend Agent"),
-                        Map.of("id", "agent-without-name"),
-                        Map.of("name", "Agent Without Id"),
-                        Map.of("id", " ", "name", "Blank Id Agent"),
-                        "not-an-agent"
-                ))
-        ));
+                Map.of(
+                        "agents",
+                        List.of(
+                                Map.of("id", "agent-1", "name", "Backend Agent"),
+                                Map.of("id", "agent-without-name"),
+                                Map.of("name", "Agent Without Id"),
+                                Map.of("id", " ", "name", "Blank Id Agent"),
+                                "not-an-agent"))));
         OpenClawGatewayRpcClient client = newClient(transport);
         client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
 
@@ -97,6 +95,74 @@ class OpenClawGatewayRpcClientTest {
 
         // then
         assertThat(agents).containsExactly(new OpenClawAgentSummary("agent-1", "Backend Agent"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("agents.create는 optional parameter를 제외하고 RPC 요청을 보낸 뒤 agent summary를 반환한다")
+    void createAgent_successResponse_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
+                request.id(), Map.of("agent", Map.of("agentId", "openclaw-agent-1", "name", "Backend Agent"))));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawAgentSummary summary =
+                client.createAgent(new OpenClawAgentCreateCommand("Backend Agent", "~/.openclaw/workspace-1", null));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        assertThat(request.method()).isEqualTo("agents.create");
+        assertThat(request.params()).containsEntry("name", "Backend Agent");
+        assertThat(request.params()).containsEntry("workspace", "~/.openclaw/workspace-1");
+        assertThat(request.params()).doesNotContainKey("emoji");
+        assertThat(summary).isEqualTo(new OpenClawAgentSummary("openclaw-agent-1", "Backend Agent"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("agents.create 응답에 agent id가 없으면 Gateway 응답 파싱 실패로 처리한다")
+    void createAgent_missingAgentId_throwsException() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request ->
+                transport.respond(OpenClawRpcResponse.success(request.id(), Map.of("name", "Backend Agent")));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when & then
+        assertThatThrownBy(() -> client.createAgent(new OpenClawAgentCreateCommand("Backend Agent", null, null)))
+                .isInstanceOf(OpenClawGatewayException.class)
+                .extracting("gatewayErrorCode")
+                .isEqualTo("gateway_response_parse_failed");
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("agents.files.set은 agentId, name, content를 RPC 요청으로 보낸다")
+    void setAgentFile_successResponse_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(request.id(), Map.of()));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        client.setAgentFile(new OpenClawAgentFileCommand("openclaw-agent-1", "AGENTS.md", "You are a backend agent."));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        assertThat(request.method()).isEqualTo("agents.files.set");
+        assertThat(request.params()).containsEntry("agentId", "openclaw-agent-1");
+        assertThat(request.params()).containsEntry("name", "AGENTS.md");
+        assertThat(request.params()).containsEntry("content", "You are a backend agent.");
 
         client.close();
     }
@@ -123,9 +189,8 @@ class OpenClawGatewayRpcClientTest {
         FakeGatewayTransport transport = new FakeGatewayTransport();
         OpenClawGatewayRpcClient client = newClient(transport);
         client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
-        transport.onSend = request -> transport.fail(OpenClawGatewayException.responseParseFailed(
-                new IllegalArgumentException("invalid frame")
-        ));
+        transport.onSend = request -> transport.fail(
+                OpenClawGatewayException.responseParseFailed(new IllegalArgumentException("invalid frame")));
 
         // when & then
         assertThatThrownBy(client::listAgents)
@@ -160,8 +225,7 @@ class OpenClawGatewayRpcClientTest {
                 transport,
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> "req-" + sequence.incrementAndGet(),
-                Duration.ofSeconds(1)
-        );
+                Duration.ofSeconds(1));
     }
 
     private static class FakeGatewayTransport implements OpenClawGatewayTransport {
@@ -170,15 +234,13 @@ class OpenClawGatewayRpcClientTest {
         private OpenClawRpcResponseHandler responseHandler;
         private Consumer<OpenClawGatewayException> failureHandler;
         private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
-        private Consumer<OpenClawRpcRequest> onSend = request -> {
-        };
+        private Consumer<OpenClawRpcRequest> onSend = request -> {};
 
         @Override
         public void connect(
                 OpenClawGatewayConnectionContext context,
                 OpenClawRpcResponseHandler responseHandler,
-                Consumer<OpenClawGatewayException> failureHandler
-        ) {
+                Consumer<OpenClawGatewayException> failureHandler) {
             this.connectedContext = context;
             this.responseHandler = responseHandler;
             this.failureHandler = failureHandler;

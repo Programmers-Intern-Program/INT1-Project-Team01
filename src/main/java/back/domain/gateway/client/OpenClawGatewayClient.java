@@ -8,5 +8,9 @@ public interface OpenClawGatewayClient {
 
     List<OpenClawAgentSummary> listAgents();
 
+    OpenClawAgentSummary createAgent(OpenClawAgentCreateCommand command);
+
+    void setAgentFile(OpenClawAgentFileCommand command);
+
     void close();
 }
