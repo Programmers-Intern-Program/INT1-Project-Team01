@@ -1,9 +1,10 @@
 package back.domain.task.service;
 
+import back.domain.execution.entity.TaskExecution;
+import back.domain.execution.repository.TaskExecutionRepository;
 import back.domain.task.entity.Task;
-import back.domain.task.entity.TaskExecution;
 import back.domain.task.entity.TaskStatus;
-import back.domain.task.repository.TaskExecutionRepository;
+
 import back.domain.task.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,7 +22,14 @@ public class TaskExecutionService {
     public TaskExecution startExecution(Long workspaceId, Long taskId) {
         Task task = findTask(workspaceId, taskId);
 
-        TaskExecution execution = TaskExecution.create(taskId);
+        TaskExecution execution = TaskExecution.create(
+                workspaceId,
+                taskId,
+                task.getAssignedAgentId(),
+                createOpenClawAgentId(task.getAssignedAgentId()),
+                task.getRepositoryId(),
+                createBranchName(workspaceId, taskId, task.getTitle())
+        );
         execution.start();
 
         task.updateStatus(TaskStatus.IN_PROGRESS);
@@ -81,5 +89,19 @@ public class TaskExecutionService {
         if (!execution.getTaskId().equals(taskId)) {
             throw new IllegalArgumentException("Task와 실행 기록이 일치하지 않습니다.");
         }
+    }
+
+    private String createOpenClawAgentId(Long agentId) {
+        if (agentId == null) {
+            throw new IllegalArgumentException("Agent가 배정되지 않은 Task는 실행할 수 없습니다.");
+        }
+
+        return "openclaw-agent-" + agentId;
+    }
+
+    private String createBranchName(Long workspaceId, Long taskId, String title) {
+        String safeTitle = title == null ? "task" : title.replaceAll("[^a-zA-Z0-9가-힣]", "-");
+
+        return "ai/workspace-" + workspaceId + "/task-" + taskId + "-" + safeTitle;
     }
 }

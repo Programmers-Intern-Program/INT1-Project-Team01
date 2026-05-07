@@ -1,10 +1,13 @@
 package back.domain.task.entity;
 
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 import back.global.jpa.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import jakarta.persistence.Column;
 
 @Entity
 @Table(name = "tasks")
@@ -12,6 +15,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Task extends BaseEntity {
 
+    @Column(name = "workspace_id", nullable = false)
     private Long workspaceId;
 
     @Column(nullable = false)
@@ -96,6 +100,14 @@ public class Task extends BaseEntity {
     }
 
     public void updateStatus(TaskStatus status) {
+        if (!this.status.canChangeTo(status)) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST_STATE,
+                    "Task 상태를 변경할 수 없습니다. currentStatus=" + this.status + ", nextStatus=" + status,
+                    "Task 상태를 변경할 수 없습니다."
+            );
+        }
+
         this.status = status;
     }
 }

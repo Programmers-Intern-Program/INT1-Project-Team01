@@ -5,6 +5,12 @@ spring:
     username: sa
     password:
 
+  mail:
+    host: localhost
+    port: 3025
+    username: test-mail@example.com
+    password: test
+
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -29,6 +35,19 @@ custom:
       - http://localhost:5173
   invite:
     base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:8080/api/v1/invites}
+    email:
+      from: ${spring.mail.username}
+      from-name: ${CUSTOM_INVITE_EMAIL_FROM_NAME:AI Office}
+      subject-prefix: ${CUSTOM_INVITE_EMAIL_SUBJECT_PREFIX:[AI Office]}
+
+security:
+  encryption:
+    tink-keyset: ${ENCRYPTION_SECRET:{"primaryKeyId":123456789,"key":[{"keyData":{"typeUrl":"type.googleapis.com/google.crypto.tink.AesGcmKey","value":"GiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==","keyMaterialType":"SYMMETRIC"},"status":"ENABLED","keyId":123456789,"outputPrefixType":"TINK"}]}}
+  slack:
+    replay-timeout-seconds: 300
+
+task-execution:
+  workdir-root: ${TASK_EXECUTION_WORKDIR_ROOT:/data/aioffice/workspaces}
 
 logging:
   level:

@@ -1,21 +1,18 @@
 package back.domain.task.controller;
 
-import back.domain.member.entity.Member;
-import back.domain.member.repository.MemberRepository;
-import back.domain.task.dto.request.TaskCreateRequest;
-import back.domain.task.dto.request.TaskStatusUpdateRequest;
-import back.domain.task.entity.SourceType;
-import back.domain.task.entity.TaskPriority;
-import back.domain.task.entity.TaskStatus;
-import back.domain.task.entity.TaskType;
-import back.domain.workspace.entity.Workspace;
-import back.domain.workspace.entity.WorkspaceMember;
-import back.domain.workspace.enums.WorkspaceMemberRole;
-import back.domain.workspace.repository.WorkspaceMemberRepository;
-import back.domain.workspace.repository.WorkspaceRepository;
-import back.global.security.AuthenticatedMember;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.List;
+import java.util.UUID;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,16 +29,23 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
-import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
-import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
+import back.domain.task.dto.request.TaskCreateRequest;
+import back.domain.task.dto.request.TaskStatusUpdateRequest;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.enums.WorkspaceMemberRole;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
+import back.global.security.AuthenticatedMember;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
@@ -60,7 +64,7 @@ class TaskControllerTest {
     @Autowired
     private WorkspaceMemberRepository workspaceMemberRepository;
 
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private MockMvc mockMvc;
 
@@ -75,15 +79,17 @@ class TaskControllerTest {
                 .apply(springSecurity())
                 .build();
 
-        objectMapper = new ObjectMapper();
+        Member member = memberRepository.save(Member.createUser(
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
 
-        Member member = memberRepository.save(
-                Member.createUser("google-sub-task-controller-test", "task-controller-test@example.com", "Task 컨트롤러 테스트 유저")
-        );
-
-        Workspace workspace = workspaceRepository.save(
-                Workspace.create("테스트 워크스페이스", "Task 컨트롤러 테스트용 워크스페이스", member)
-        );
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
 
         workspaceMemberRepository.save(
                 WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)

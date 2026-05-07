@@ -9,6 +9,7 @@ import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.service.TaskService;
+import jakarta.validation.Valid;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.security.AuthenticatedMember;
@@ -33,7 +34,7 @@ public class TaskController {
     public ResponseEntity<TaskCreateResponse> createTask(
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
             @PathVariable Long workspaceId,
-            @RequestBody TaskCreateRequest request
+            @Valid @RequestBody TaskCreateRequest request
     ) {
         long memberId = resolveAuthenticatedMemberId(authenticatedMember);
 

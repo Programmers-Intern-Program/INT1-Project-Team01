@@ -1,9 +1,10 @@
 package back.domain.task.service;
 
+import back.domain.task.dto.response.SlackReportMessageResponse;
 import back.domain.task.entity.AgentReport;
+import back.domain.task.entity.Task;
 import back.domain.task.entity.TaskArtifact;
 import back.domain.task.entity.TaskStatus;
-import back.domain.task.dto.response.SlackReportMessageResponse;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.task.repository.TaskRepository;
@@ -22,21 +23,26 @@ public class ReportMessageService {
     private final TaskArtifactRepository taskArtifactRepository;
 
     public SlackReportMessageResponse createSlackReportMessage(Long taskId) {
-        validateTaskExists(taskId);
+        Task task = findTask(taskId);
 
         AgentReport report = findLatestReport(taskId);
         List<TaskArtifact> artifacts =
                 taskArtifactRepository.findByReportId(report.getId());
 
         String message = buildMessage(report, artifacts);
+        SlackSourceRef slackSourceRef = parseSlackSourceRef(task.getSourceId());
 
-        return new SlackReportMessageResponse(taskId, message);
+        return new SlackReportMessageResponse(
+                taskId,
+                slackSourceRef.channelId(),
+                slackSourceRef.threadTs(),
+                message
+        );
     }
 
-    private void validateTaskExists(Long taskId) {
-        if (!taskRepository.existsById(taskId)) {
-            throw new IllegalArgumentException("Task를 찾을 수 없습니다.");
-        }
+    private Task findTask(Long taskId) {
+        return taskRepository.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("Task를 찾을 수 없습니다."));
     }
 
     private AgentReport findLatestReport(Long taskId) {
@@ -98,5 +104,25 @@ public class ReportMessageService {
             case CANCELED -> "🚫";
             default -> "ℹ️";
         };
+    }
+
+    private SlackSourceRef parseSlackSourceRef(String sourceId) {
+        if (sourceId == null || sourceId.isBlank()) {
+            return new SlackSourceRef(null, null);
+        }
+
+        String[] parts = sourceId.split(":");
+
+        if (parts.length < 3) {
+            return new SlackSourceRef(null, null);
+        }
+
+        return new SlackSourceRef(parts[1], parts[2]);
+    }
+
+    private record SlackSourceRef(
+            String channelId,
+            String threadTs
+    ) {
     }
 }

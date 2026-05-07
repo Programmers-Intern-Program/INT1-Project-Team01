@@ -8,4 +8,5 @@ import java.util.List;
 public interface TaskArtifactRepository extends JpaRepository<TaskArtifact, Long> {
 
     List<TaskArtifact> findByReportId(Long reportId);
+    List<TaskArtifact> findByReportIdIn(List<Long> reportIds);
 }

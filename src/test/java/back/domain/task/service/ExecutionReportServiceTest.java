@@ -1,28 +1,39 @@
 package back.domain.task.service;
 
-import back.domain.task.entity.AgentReport;
-import back.domain.task.entity.ArtifactType;
-import back.domain.task.entity.SourceType;
-import back.domain.task.entity.TaskArtifact;
-import back.domain.task.entity.TaskExecution;
-import back.domain.task.entity.TaskExecutionStatus;
-import back.domain.task.entity.TaskPriority;
-import back.domain.task.entity.TaskStatus;
-import back.domain.task.entity.TaskType;
-import back.domain.task.dto.request.AgentReportSaveRequest;
-import back.domain.task.dto.request.TaskArtifactSaveRequest;
-import back.domain.task.dto.request.TaskCreateRequest;
-import back.domain.task.dto.response.SlackReportMessageResponse;
-import back.domain.task.dto.response.TaskCreateResponse;
-import back.domain.task.dto.response.TaskDetailResponse;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import back.domain.execution.entity.TaskExecution;
+import back.domain.execution.entity.TaskExecutionStatus;
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
+import back.domain.task.dto.request.AgentReportSaveRequest;
+import back.domain.task.dto.request.TaskArtifactSaveRequest;
+import back.domain.task.dto.request.TaskCreateRequest;
+import back.domain.task.dto.response.SlackReportMessageResponse;
+import back.domain.task.dto.response.TaskCreateResponse;
+import back.domain.task.dto.response.TaskDetailResponse;
+import back.domain.task.entity.AgentReport;
+import back.domain.task.entity.ArtifactType;
+import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskArtifact;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.enums.WorkspaceMemberRole;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
@@ -43,7 +54,40 @@ class ExecutionReportServiceTest {
     @Autowired
     private ReportMessageService reportMessageService;
 
-    private final Long workspaceId = 1L;
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
+
+    private Long workspaceId;
+
+    private long memberId;
+
+    @BeforeEach
+    void setUp() {
+        Member member = memberRepository.save(Member.createUser(
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
+
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
+
+        workspaceMemberRepository.save(
+                WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
+        );
+
+        workspaceId = workspace.getId();
+        memberId = member.getId();
+    }
 
     @Test
     @DisplayName("Task 실행을 시작하면 실행 상태와 Task 상태가 변경된다")
@@ -59,6 +103,7 @@ class ExecutionReportServiceTest {
 
         TaskDetailResponse taskDetail = taskService.getTask(
                 workspaceId,
+                memberId,
                 task.taskId()
         );
 
@@ -89,11 +134,12 @@ class ExecutionReportServiceTest {
 
         TaskDetailResponse taskDetail = taskService.getTask(
                 workspaceId,
+                memberId,
                 task.taskId()
         );
 
         // then
-        assertThat(completed.getStatus()).isEqualTo(TaskExecutionStatus.SUCCESS);
+        assertThat(completed.getStatus()).isEqualTo(TaskExecutionStatus.SUCCEEDED);
         assertThat(completed.getFinishedAt()).isNotNull();
         assertThat(taskDetail.status()).isEqualTo(TaskStatus.COMPLETED);
     }
@@ -118,6 +164,7 @@ class ExecutionReportServiceTest {
 
         TaskDetailResponse taskDetail = taskService.getTask(
                 workspaceId,
+                memberId,
                 task.taskId()
         );
 
@@ -245,6 +292,8 @@ class ExecutionReportServiceTest {
 
         // then
         assertThat(response.taskId()).isEqualTo(report.getTaskId());
+        assertThat(response.channelId()).isEqualTo("C1234567");
+        assertThat(response.threadTs()).isEqualTo("1778030044.043499");
         assertThat(response.message()).contains("PR 리뷰 완료");
         assertThat(response.message()).contains("예외 처리 보강이 필요합니다.");
         assertThat(response.message()).contains("테스트 코드를 추가하세요.");
@@ -275,6 +324,7 @@ class ExecutionReportServiceTest {
     private TaskCreateResponse createTask() {
         return taskService.createTask(
                 workspaceId,
+                memberId,
                 new TaskCreateRequest(
                         "PR 리뷰",
                         "최근 PR 변경사항을 리뷰한다.",
@@ -282,8 +332,8 @@ class ExecutionReportServiceTest {
                         TaskPriority.HIGH,
                         1L,
                         3L,
-                        SourceType.DASHBOARD,
-                        "dashboard-test",
+                        SourceType.SLACK,
+                        "teamId:C1234567:1778030044.043499",
                         "이 PR 리뷰해줘"
                 )
         );

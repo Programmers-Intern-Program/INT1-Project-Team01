@@ -4,9 +4,11 @@ import java.util.List;
 
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
+import back.domain.workspace.dto.request.ExtendWorkspaceInviteReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
+import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -476,4 +478,39 @@ public interface WorkspaceControllerDocs {
                     }
                     """)))
             @Valid CreateWorkspaceInviteReq request);
+
+    @Operation(
+            summary = "내가 보낸 초대 목록 조회",
+            description = "로그인한 ADMIN 사용자가 해당 워크스페이스에서 생성한 초대 목록을 조회합니다. status로 PENDING, ACCEPTED 등을 필터링할 수 있습니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    ResponseEntity<RsData<List<WorkspaceInviteManagementRes>>> listMySentInvites(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId,
+            @Parameter(description = "초대 상태 필터. 공백 제거 후 대문자로 처리됩니다.", example = "pending") String status);
+
+    @Operation(summary = "내가 보낸 초대 삭제", description = "로그인한 ADMIN 사용자가 생성한 초대 링크를 폐기합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    ResponseEntity<RsData<Void>> deleteInvite(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId,
+            @Parameter(description = "초대 ID", example = "10") long inviteId);
+
+    @Operation(summary = "내가 보낸 초대 연장", description = "로그인한 ADMIN 사용자가 생성한 초대 링크 만료일을 연장합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    ResponseEntity<RsData<WorkspaceInviteManagementRes>> extendInvite(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId,
+            @Parameter(description = "초대 ID", example = "10") long inviteId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "초대 링크 연장 옵션",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                    {
+                      "additionalDays": 7
+                    }
+                    """)))
+            @Valid ExtendWorkspaceInviteReq request);
 }

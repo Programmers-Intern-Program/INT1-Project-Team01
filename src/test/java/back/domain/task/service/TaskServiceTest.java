@@ -1,5 +1,19 @@
 package back.domain.task.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.annotation.Transactional;
+
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
 import back.domain.task.dto.request.TaskCreateRequest;
@@ -7,6 +21,7 @@ import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
+import back.domain.task.dto.response.TaskLogResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.entity.SourceType;
 import back.domain.task.entity.TaskPriority;
@@ -17,16 +32,6 @@ import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.enums.WorkspaceMemberRole;
 import back.domain.workspace.repository.WorkspaceMemberRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.transaction.annotation.Transactional;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
@@ -45,17 +50,22 @@ class TaskServiceTest {
     private WorkspaceMemberRepository workspaceMemberRepository;
 
     private Long workspaceId;
+
     private long memberId;
 
     @BeforeEach
     void setUp() {
-        Member member = memberRepository.save(
-                Member.createUser("google-sub-task-test", "task-test@example.com", "Task 테스트 유저")
-        );
+        Member member = memberRepository.save(Member.createUser(
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
 
-        Workspace workspace = workspaceRepository.save(
-                Workspace.create("테스트 워크스페이스", "Task 테스트용 워크스페이스", member)
-        );
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
 
         workspaceMemberRepository.save(
                 WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
@@ -137,6 +147,19 @@ class TaskServiceTest {
         assertThat(response.previousStatus()).isEqualTo(TaskStatus.REQUESTED);
         assertThat(response.currentStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
         assertThat(response.updatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Task는 존재하지만 실행 기록이 없으면 빈 로그 목록을 반환한다")
+    void getTaskLogsWithoutExecution() {
+        // given
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
+
+        // when
+        List<TaskLogResponse> responses = taskService.getTaskLogs(workspaceId, memberId, created.taskId());
+
+        // then
+        assertThat(responses).isEmpty();
     }
 
     private TaskCreateRequest createRequest() {

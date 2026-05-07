@@ -1,12 +1,13 @@
 package back.domain.task.service;
 
+import back.domain.execution.entity.TaskExecution;
+import back.domain.execution.repository.TaskExecutionRepository;
 import back.domain.task.entity.LogLevel;
 import back.domain.task.entity.Task;
-import back.domain.task.entity.TaskExecution;
 import back.domain.task.entity.TaskExecutionLog;
 import back.domain.task.dto.response.TaskLogResponse;
 import back.domain.task.repository.TaskExecutionLogRepository;
-import back.domain.task.repository.TaskExecutionRepository;
+
 import back.domain.task.repository.TaskRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

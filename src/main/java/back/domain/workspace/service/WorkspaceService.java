@@ -4,9 +4,11 @@ import java.util.List;
 
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
+import back.domain.workspace.dto.request.ExtendWorkspaceInviteReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceRoleReq;
 import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
+import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
@@ -105,6 +107,51 @@ public interface WorkspaceService {
      * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
      */
     WorkspaceInviteInfoRes createInviteLink(long workspaceId, long requesterId, CreateWorkspaceInviteReq request);
+
+    /**
+     * 요청자가 해당 워크스페이스에서 생성한 초대 목록을 반환합니다.
+     *
+     * @param workspaceId 대상 워크스페이스 ID
+     * @param requesterId 요청자의 회원 ID
+     * @param status      초대 상태 필터 문자열 (null 또는 blank이면 PENDING)
+     * @return 요청자가 생성한 초대 관리 정보 목록
+     * @throws ServiceException 워크스페이스가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
+     */
+    List<WorkspaceInviteManagementRes> listMySentInvites(
+            long workspaceId,
+            long requesterId,
+            String status);
+
+    /**
+     * 요청자가 생성한 초대 링크를 폐기합니다.
+     *
+     * @param workspaceId  대상 워크스페이스 ID
+     * @param inviteId     폐기할 초대 ID
+     * @param requesterId  요청자의 회원 ID
+     * @throws ServiceException 워크스페이스 또는 초대가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
+     * @throws ServiceException 이미 수락된 초대인 경우 (CONFLICT)
+     */
+    void deleteInvite(long workspaceId, long inviteId, long requesterId);
+
+    /**
+     * 요청자가 생성한 초대 링크 만료일을 연장합니다.
+     *
+     * @param workspaceId  대상 워크스페이스 ID
+     * @param inviteId     연장할 초대 ID
+     * @param requesterId  요청자의 회원 ID
+     * @param request      연장 요청 DTO
+     * @return 연장된 초대 관리 정보
+     * @throws ServiceException 워크스페이스 또는 초대가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
+     * @throws ServiceException 이미 수락 또는 폐기된 초대인 경우 (BAD_REQUEST_STATE 또는 CONFLICT)
+     */
+    WorkspaceInviteManagementRes extendInvite(
+            long workspaceId,
+            long inviteId,
+            long requesterId,
+            ExtendWorkspaceInviteReq request);
 
     /**
      * 초대 토큰으로 초대 대상 Workspace 정보를 조회합니다.

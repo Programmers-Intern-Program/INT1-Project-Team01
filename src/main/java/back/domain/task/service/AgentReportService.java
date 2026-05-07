@@ -1,11 +1,12 @@
 package back.domain.task.service;
 
+import back.domain.execution.entity.TaskExecution;
+import back.domain.execution.repository.TaskExecutionRepository;
 import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.Task;
-import back.domain.task.entity.TaskExecution;
 import back.domain.task.dto.request.AgentReportSaveRequest;
 import back.domain.task.repository.AgentReportRepository;
-import back.domain.task.repository.TaskExecutionRepository;
+
 import back.domain.task.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
