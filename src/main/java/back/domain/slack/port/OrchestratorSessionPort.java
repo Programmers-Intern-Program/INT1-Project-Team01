@@ -9,10 +9,10 @@ public interface OrchestratorSessionPort {
     /**
      * AI 작업을 위한 새로운 세션을 생성합니다.
      *
-     * @param teamId    Slack 워크스페이스 ID
-     * @param channelId Slack 채널 ID
-     * @param targetTs  스레드를 식별할 수 있는 타임스탬프 (threadTs 또는 ts)
-     * @param text      멘션 태그가 제거된 순수 명령어 텍스트
+     * @param workspaceId 내부 워크스페이스 ID (SlackIntegration을 통해 식별)
+     * @param sourceRef   이벤트 출처 참조값 (team_id:channel_id:ts 형식)
+     * @param targetTs    스레드를 식별할 수 있는 타임스탬프 (threadTs 또는 ts)
+     * @param text        멘션 태그가 제거된 순수 명령어 텍스트
      */
-    void createSession(String teamId, String channelId, String targetTs, String text);
+    void createSession(Long workspaceId, String sourceRef, String targetTs, String text);
 }

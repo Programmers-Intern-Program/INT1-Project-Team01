@@ -1,6 +1,7 @@
 package back.domain.slack.event;
 
 import back.domain.slack.entity.SlackEventLog;
+import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackEventLogRepository;
 import back.domain.slack.port.OrchestratorSessionPort;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -36,6 +37,10 @@ public class SlackEventHandler {
 
     /**
      * 비동기 환경에서 슬랙 이벤트를 파싱하고 Orchestrator 세션 생성을 요청합니다.
+     *
+     * <p>@Async로 별도 스레드에서 실행되므로 호출자 트랜잭션과 분리됩니다.
+     * @Transactional은 이 메서드 단독으로 새 트랜잭션을 열어 eventLog 상태 변경(markAsProcessed 등)을
+     * DB에 반영하기 위해 사용합니다.
      */
     @Async("slackEventTaskExecutor")
     @EventListener
@@ -45,6 +50,15 @@ public class SlackEventHandler {
                 .orElseThrow(() -> new IllegalArgumentException("이벤트 로그를 찾을 수 없습니다. ID: " + event.eventLogId()));
 
         try {
+            SlackIntegration integration = eventLog.getIntegration();
+            if (integration == null) {
+                log.warn("SlackEventLog에 연결된 Integration 정보가 없습니다. logId: {}", event.eventLogId());
+                eventLog.markAsIgnored("SlackEventLog에 연결된 Integration 정보가 없습니다.");
+                return;
+            }
+
+            Long workspaceId = integration.getWorkspace().getId();
+
             JsonNode rootNode = jsonMapper.readTree(eventLog.getRawPayload());
             JsonNode eventNode = rootNode.path("event");
 
@@ -58,13 +72,14 @@ public class SlackEventHandler {
 
             String cleanText = sanitizeText(rawText);
             String targetTs = (threadTs != null && !threadTs.isBlank()) ? threadTs : ts;
+            String sourceRef = String.format("%s:%s:%s", teamId, channelId, targetTs);
 
             if (cleanText.isBlank()) {
                 eventLog.markAsIgnored("파싱 후 실행할 명령어(Text)가 존재하지 않습니다.");
                 return;
             }
 
-            orchestratorSessionPort.createSession(teamId, channelId, targetTs, cleanText);
+            orchestratorSessionPort.createSession(workspaceId, sourceRef, targetTs, cleanText);
 
             eventLog.markAsProcessed();
             log.info(

@@ -1,8 +1,10 @@
 package back.domain.slack.event;
 
 import back.domain.slack.entity.SlackEventLog;
+import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.port.OrchestratorSessionPort;
 import back.domain.slack.repository.SlackEventLogRepository;
+import back.domain.workspace.entity.Workspace;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,8 +17,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,10 +45,21 @@ class SlackEventHandlerTest {
         mockEventLog = mock(SlackEventLog.class);
     }
 
+    private void givenIntegrationExists() {
+        Workspace mockWorkspace = mock(Workspace.class);
+        when(mockWorkspace.getId()).thenReturn(1L);
+
+        SlackIntegration mockIntegration = mock(SlackIntegration.class);
+        when(mockIntegration.getWorkspace()).thenReturn(mockWorkspace);
+
+        when(mockEventLog.getIntegration()).thenReturn(mockIntegration);
+    }
+
     @Test
     @DisplayName("멘션 태그가 포함된 메시지가 오면 태그를 제거하고 Port를 호출한 뒤 PROCESSED 처리한다.")
     void handleSlackEvent_Success() {
         // given
+        givenIntegrationExists();
         String rawPayload = """
                 {
                   "team_id": "T123",
@@ -65,7 +78,7 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(orchestratorSessionPort).createSession("T123", "C123", "999.000", "로그인 API 구현해줘");
+        verify(orchestratorSessionPort).createSession(1L, "T123:C123:999.000", "999.000", "로그인 API 구현해줘");
         verify(mockEventLog).markAsProcessed();
     }
 
@@ -73,6 +86,7 @@ class SlackEventHandlerTest {
     @DisplayName("멘션 태그만 있고 실제 텍스트가 없으면 작업을 무시(IGNORED)한다.")
     void handleSlackEvent_IgnoredWhenEmptyText() {
         // given
+        givenIntegrationExists();
         String rawPayload = """
                 {
                   "team_id": "T123",
@@ -90,7 +104,22 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(orchestratorSessionPort, never()).createSession(anyString(), anyString(), anyString(), anyString());
+        verify(orchestratorSessionPort, never()).createSession(anyLong(), anyString(), anyString(), anyString());
+        verify(mockEventLog).markAsIgnored(anyString());
+    }
+
+    @Test
+    @DisplayName("Integration 정보가 없으면 작업을 무시(IGNORED)하고 경고 로그를 남긴다.")
+    void handleSlackEvent_IgnoredWhenIntegrationIsNull() {
+        // given
+        when(slackEventLogRepository.findById(eventLogId)).thenReturn(Optional.of(mockEventLog));
+        when(mockEventLog.getIntegration()).thenReturn(null);
+
+        // when
+        slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
+
+        // then
+        verify(orchestratorSessionPort, never()).createSession(anyLong(), anyString(), anyString(), anyString());
         verify(mockEventLog).markAsIgnored(anyString());
     }
 }

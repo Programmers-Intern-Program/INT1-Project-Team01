@@ -34,9 +34,9 @@ public class AsyncConfig {
     @Bean(name = "slackEventTaskExecutor")
     public Executor slackEventTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);
-        executor.setMaxPoolSize(20);
-        executor.setQueueCapacity(50);
+        executor.setCorePoolSize(5);    // 평상시 동시 처리 예상량 기준
+        executor.setMaxPoolSize(20);    // 트래픽 급증 시 최대 확장 범위
+        executor.setQueueCapacity(50);  // 순간 burst 흡수 버퍼. 초과 시 rejection handler에서 로그 남김
         executor.setThreadNamePrefix("SlackEvent-Async-");
 
         executor.setRejectedExecutionHandler((Runnable r, ThreadPoolExecutor exec) -> {
