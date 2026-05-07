@@ -1,6 +1,7 @@
 package back.domain.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -194,6 +195,54 @@ class TaskServiceTest {
         assertThat(command.repositoryId()).isEqualTo(3L);
         assertThat(command.prompt()).isEqualTo("이 PR 리뷰해줘");
         assertThat(command.createPr()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Runner 실행 중 Task가 종료 상태로 바뀌면 최종 상태를 덮어쓰지 않는다")
+    void createAndRunTaskWithTerminalTaskStatus() {
+        // given
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
+            TaskExecutionRunCommand command = invocation.getArgument(0);
+            taskService.updateStatus(
+                    command.workspaceId(),
+                    command.taskId(),
+                    new TaskStatusUpdateRequest(TaskStatus.CANCELED, "사용자 취소"));
+            return new TaskExecutionRunResult(
+                    20L,
+                    command.taskId(),
+                    command.workspaceId(),
+                    100L,
+                    TaskExecutionStatus.SUCCEEDED,
+                    "/tmp/aioffice/workspaces/1/executions/20/repo",
+                    "workspace-1-execution-20",
+                    "작업을 완료했습니다.",
+                    null);
+        });
+
+        // when
+        TaskRunResponse response = taskRunService.createAndRunTask(workspaceId, createRunRequest());
+
+        // then
+        assertThat(response.taskStatus()).isEqualTo(TaskStatus.CANCELED);
+
+        TaskDetailResponse detail = taskService.getTask(workspaceId, response.taskId());
+        assertThat(detail.status()).isEqualTo(TaskStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("Runner 예외 발생 시 원래 예외를 유지하고 Task를 FAILED로 변경한다")
+    void createAndRunTaskWithRunnerException() {
+        // given
+        RuntimeException runnerException = new IllegalStateException("runner failed");
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willThrow(runnerException);
+
+        // when & then
+        assertThatThrownBy(() -> taskRunService.createAndRunTask(workspaceId, createRunRequest()))
+                .isSameAs(runnerException);
+
+        Page<TaskListResponse> responses = taskService.getTasks(workspaceId, PageRequest.of(0, 10));
+        assertThat(responses.getContent()).hasSize(1);
+        assertThat(responses.getContent().get(0).status()).isEqualTo(TaskStatus.FAILED);
     }
 
     private TaskCreateRequest createRequest() {

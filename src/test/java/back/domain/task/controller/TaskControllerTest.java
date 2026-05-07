@@ -170,6 +170,27 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.finalText").value("작업을 완료했습니다."));
     }
 
+    @Test
+    @DisplayName("Task 실행 요청의 필수값과 양수 ID를 검증한다")
+    void validateTaskRunRequest() throws Exception {
+        TaskRunRequest request = new TaskRunRequest(
+                "PR 리뷰",
+                "최근 PR 변경사항을 리뷰한다.",
+                TaskType.PR_REVIEW,
+                null,
+                0L,
+                0L,
+                SourceType.DASHBOARD,
+                "dashboard-test",
+                "이 PR 리뷰해줘",
+                true);
+
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/tasks/run", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
     private Long createTaskAndGetId() throws Exception {
         TaskCreateRequest request = createRequest();
 

@@ -15,8 +15,10 @@ import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TaskRunService {
 
@@ -37,7 +39,7 @@ public class TaskRunService {
                     resolveExecutionPrompt(task),
                     request.shouldCreatePr()));
         } catch (RuntimeException exception) {
-            markTaskStatus(task.getWorkspaceId(), task.getId(), TaskStatus.FAILED);
+            markTaskFailedBestEffort(task.getWorkspaceId(), task.getId(), exception);
             throw exception;
         }
 
@@ -64,8 +66,24 @@ public class TaskRunService {
 
     private Task markTaskStatus(Long workspaceId, Long taskId, TaskStatus taskStatus) {
         Task task = getTaskOrThrow(workspaceId, taskId);
+        if (isTerminalStatus(task.getStatus()) && task.getStatus() != taskStatus) {
+            return task;
+        }
         task.updateStatus(taskStatus);
         return taskRepository.save(task);
+    }
+
+    private void markTaskFailedBestEffort(Long workspaceId, Long taskId, RuntimeException originalException) {
+        try {
+            markTaskStatus(workspaceId, taskId, TaskStatus.FAILED);
+        } catch (RuntimeException statusException) {
+            log.warn(
+                    "Failed to mark task as FAILED after runner exception. workspaceId={}, taskId={}",
+                    workspaceId,
+                    taskId,
+                    statusException);
+            originalException.addSuppressed(statusException);
+        }
     }
 
     private Task getTaskOrThrow(Long workspaceId, Long taskId) {
@@ -93,6 +111,12 @@ public class TaskRunService {
             case CANCELED -> TaskStatus.CANCELED;
             case QUEUED, RUNNING -> TaskStatus.IN_PROGRESS;
         };
+    }
+
+    private boolean isTerminalStatus(TaskStatus taskStatus) {
+        return taskStatus == TaskStatus.COMPLETED
+                || taskStatus == TaskStatus.FAILED
+                || taskStatus == TaskStatus.CANCELED;
     }
 
     private String resolveExecutionPrompt(Task task) {

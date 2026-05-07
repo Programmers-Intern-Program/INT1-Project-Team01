@@ -5,6 +5,7 @@ import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 public record TaskRunRequest(
@@ -18,10 +19,13 @@ public record TaskRunRequest(
         @NotNull(message = "Task 타입은 필수입니다.")
         TaskType taskType,
 
+        @NotNull(message = "Task 우선순위는 필수입니다.")
         TaskPriority priority,
 
+        @Positive(message = "assignedAgentId는 양수여야 합니다.")
         Long assignedAgentId,
 
+        @Positive(message = "repositoryId는 양수여야 합니다.")
         Long repositoryId,
 
         SourceType sourceType,
