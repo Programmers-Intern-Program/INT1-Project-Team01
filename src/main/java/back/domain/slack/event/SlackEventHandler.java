@@ -5,11 +5,13 @@ import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackEventLogRepository;
 import back.domain.slack.port.OrchestratorSessionPort;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,8 +45,8 @@ public class SlackEventHandler {
      * DB에 반영하기 위해 사용합니다.
      */
     @Async("slackEventTaskExecutor")
-    @EventListener
-    @Transactional
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handleSlackEvent(SlackEventReceivedEvent event) {
         SlackEventLog eventLog = slackEventLogRepository.findById(event.eventLogId())
                 .orElseThrow(() -> new IllegalArgumentException("이벤트 로그를 찾을 수 없습니다. ID: " + event.eventLogId()));
