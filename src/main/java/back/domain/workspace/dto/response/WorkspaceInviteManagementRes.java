@@ -8,7 +8,6 @@ import back.domain.workspace.enums.WorkspaceMemberRole;
 
 public record WorkspaceInviteManagementRes(
         Long inviteId,
-        String token,
         String inviteUrl,
         WorkspaceMemberRole role,
         String targetEmail,
