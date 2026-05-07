@@ -1,9 +1,12 @@
 package back.domain.workspace.controller;
 
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
+import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
+import back.domain.workspace.enums.InviteEmailStatus;
+import back.domain.workspace.enums.WorkspaceInviteStatus;
 import back.domain.workspace.enums.WorkspaceMemberRole;
 import back.domain.workspace.service.WorkspaceService;
 import back.global.security.JwtTokenProvider;
@@ -188,5 +191,103 @@ class WorkspaceControllerTest {
                 .andExpect(jsonPath("$.data.inviteId").value(1L))
                 .andExpect(jsonPath("$.data.token").value("invite-token"))
                 .andExpect(jsonPath("$.data.inviteUrl").value("http://localhost:3000/invites/invite-token"));
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 목록 조회 성공")
+    void listMySentInvites_success() throws Exception {
+        // given
+        WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
+                1L,
+                "invite-token",
+                "http://localhost:3000/invites/invite-token",
+                WorkspaceMemberRole.MEMBER,
+                "invitee@test.com",
+                InviteEmailStatus.SENT,
+                1L,
+                "홍길동",
+                LocalDateTime.now().plusDays(7),
+                WorkspaceInviteStatus.PENDING,
+                LocalDateTime.now(),
+                null,
+                null);
+        given(workspaceService.listMySentInvites(anyLong(), anyLong(), any())).willReturn(List.of(response));
+
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/1/invites")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].inviteId").value(1L))
+                .andExpect(jsonPath("$.data[0].targetEmail").value("invitee@test.com"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 목록 조회 성공 - status 필터")
+    void listMySentInvites_statusFilter_success() throws Exception {
+        // given
+        WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
+                1L,
+                "invite-token",
+                "http://localhost:3000/invites/invite-token",
+                WorkspaceMemberRole.MEMBER,
+                "invitee@test.com",
+                InviteEmailStatus.SENT,
+                1L,
+                "홍길동",
+                LocalDateTime.now().plusDays(7),
+                WorkspaceInviteStatus.ACCEPTED,
+                LocalDateTime.now(),
+                LocalDateTime.now(),
+                null);
+        given(workspaceService.listMySentInvites(anyLong(), anyLong(), any())).willReturn(List.of(response));
+
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/1/invites")
+                        .queryParam("status", "ACCEPTED")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("ACCEPTED"));
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 삭제 성공")
+    void deleteInvite_success() throws Exception {
+        // given
+        doNothing().when(workspaceService).deleteInvite(anyLong(), anyLong(), anyLong());
+
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/1/invites/10")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("내가 보낸 초대 연장 성공")
+    void extendInvite_success() throws Exception {
+        // given
+        WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
+                10L,
+                "invite-token",
+                "http://localhost:3000/invites/invite-token",
+                WorkspaceMemberRole.MEMBER,
+                null,
+                InviteEmailStatus.NOT_REQUESTED,
+                1L,
+                "홍길동",
+                LocalDateTime.now().plusDays(10),
+                WorkspaceInviteStatus.PENDING,
+                null,
+                null,
+                null);
+        given(workspaceService.extendInvite(anyLong(), anyLong(), anyLong(), any())).willReturn(response);
+
+        // when & then
+        mockMvc.perform(patch("/api/v1/workspaces/1/invites/10/extend")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"additionalDays\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inviteId").value(10L));
     }
 }
