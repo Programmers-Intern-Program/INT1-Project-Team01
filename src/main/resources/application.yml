@@ -53,7 +53,7 @@ custom:
       - http://localhost:3000
       - http://localhost:5173
   invite:
-    base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:8080/api/v1/invites}
+    base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:3000/invites}
     email:
       from: ${spring.mail.username}
       from-name: ${CUSTOM_INVITE_EMAIL_FROM_NAME:AI Office}
