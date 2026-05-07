@@ -7,7 +7,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+
 import java.time.LocalDateTime;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -128,52 +130,52 @@ public class TaskExecution extends BaseEntity {
 
     public void fail(String failureReason) {
         markFailed(failureReason);
+    }
+
     public void markCanceled(String failureReason) {
         this.status = TaskExecutionStatus.CANCELED;
         this.failureReason = normalizeError(failureReason);
         this.finishedAt = LocalDateTime.now();
     }
 
-    private static Long requireId(Long value, String fieldName) {
-        if (value == null || value <= 0) {
-            throw new IllegalArgumentException(fieldName + " must be positive");
+        private static Long requireId (Long value, String fieldName){
+            if (value == null || value <= 0) {
+                throw new IllegalArgumentException(fieldName + " must be positive");
+            }
+            return value;
         }
-        return value;
+
+        private static Long requireOptionalId (Long value, String fieldName){
+            if (value == null) {
+                return null;
+            }
+            return requireId(value, fieldName);
+        }
+
+        private static String requireNotBlank (String value, String fieldName){
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(fieldName + " must not be blank");
+            }
+            return value.trim();
+        }
+
+        private static String normalizeOptional (String value){
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return value.trim();
+        }
+
+        private static String normalizeError (String value){
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            String trimmed = value.trim();
+            if (trimmed.length() <= 1000) {
+                return trimmed;
+            }
+            return trimmed.substring(0, 1000);
+        }
+
+
     }
-
-    private static Long requireOptionalId(Long value, String fieldName) {
-        if (value == null) {
-            return null;
-        }
-        return requireId(value, fieldName);
-    }
-
-    private static String requireNotBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
-        return value.trim();
-    }
-
-    private static String normalizeOptional(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private static String normalizeError(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if (trimmed.length() <= 1000) {
-            return trimmed;
-        }
-        return trimmed.substring(0, 1000);
-    }
-
-
-
-
-}
