@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.DisplayName;
@@ -245,6 +246,84 @@ class OpenClawGatewayRpcClientTest {
         assertThat(result)
                 .isEqualTo(new OpenClawChatResult(
                         "agent:openclaw-agent-1:workspace-1-execution-10", "작업을 완료했습니다."));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("chat.send RPC ack 이후 도착한 이벤트 스트림으로 final text를 반환한다")
+    void sendChat_ackThenEventStream_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> {
+            String sessionKey = (String) request.params().get("sessionKey");
+            transport.respond(OpenClawRpcResponse.success(
+                    request.id(),
+                    Map.of("chat", Map.of("sessionKey", sessionKey))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "ack 이후 완료"))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "chat",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "state", "final")));
+        };
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
+
+        // then
+        assertThat(result)
+                .isEqualTo(new OpenClawChatResult(
+                        "agent:openclaw-agent-1:workspace-1-execution-10", "ack 이후 완료"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("chat.send는 동일 sessionKey pending 중복 등록을 거부한다")
+    void sendChat_duplicatePendingSession_rejectsSecondRequest() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        AtomicReference<OpenClawGatewayRpcClient> clientRef = new AtomicReference<>();
+        OpenClawChatCommand command = new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1");
+        transport.onSend = request -> {
+            assertThatThrownBy(() -> clientRef.get().sendChat(command))
+                    .isInstanceOf(OpenClawGatewayException.class)
+                    .extracting("gatewayErrorCode")
+                    .isEqualTo("gateway_send_failed");
+
+            String sessionKey = (String) request.params().get("sessionKey");
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "첫 요청 완료"))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "chat",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "state", "final")));
+        };
+        OpenClawGatewayRpcClient client = newClient(transport);
+        clientRef.set(client);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(command);
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        assertThat(result.finalText()).isEqualTo("첫 요청 완료");
 
         client.close();
     }

@@ -231,7 +231,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
     private PendingChatStream registerChatStream(String requestId, String sessionKey) {
         PendingChatStream chatStream = new PendingChatStream(requestId, sessionKey);
-        pendingChatsBySessionKey.put(sessionKey, chatStream);
+        PendingChatStream previous = pendingChatsBySessionKey.putIfAbsent(sessionKey, chatStream);
+        if (previous != null) {
+            throw OpenClawGatewayException.sendFailed(
+                    CHAT_SEND_METHOD,
+                    requestId,
+                    new IllegalStateException("Duplicate pending chat sessionKey=" + sessionKey));
+        }
         pendingChatSessionKeyByRequestId.put(requestId, sessionKey);
         chatStream.enableTimeout(chatTimeout);
         return chatStream;
@@ -243,17 +249,28 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             return false;
         }
 
-        PendingChatStream chatStream = removePendingChat(response.id(), sessionKey);
+        PendingChatStream chatStream = pendingChatsBySessionKey.get(sessionKey);
         if (chatStream == null) {
+            pendingChatSessionKeyByRequestId.remove(response.id(), sessionKey);
             return true;
         }
         if (!response.ok()) {
-            chatStream.fail(OpenClawGatewayException.fromRpcError(response.error(), response.id()));
+            PendingChatStream removed = removePendingChat(response.id(), sessionKey);
+            if (removed != null) {
+                removed.fail(OpenClawGatewayException.fromRpcError(response.error(), response.id()));
+            }
             return true;
         }
 
         Map<String, Object> payload = response.payload() == null ? Map.of() : response.payload();
-        chatStream.complete(chatResultFromPayload(chatStream, payload));
+        if (!hasFinalChatPayload(payload)) {
+            return true;
+        }
+
+        PendingChatStream removed = removePendingChat(response.id(), sessionKey);
+        if (removed != null) {
+            removed.complete(chatResultFromPayload(removed, payload));
+        }
         return true;
     }
 
@@ -301,8 +318,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     private OpenClawChatResult chatResultFromPayload(PendingChatStream chatStream, Map<?, ?> payload) {
-        Map<?, ?> chatPayload =
-                firstMap(payload, "chat").or(() -> firstMap(payload, "result")).orElse(payload);
+        Map<?, ?> chatPayload = chatPayload(payload);
         String sessionKey = firstString(chatPayload, "sessionKey");
         if (sessionKey == null) {
             sessionKey = chatStream.sessionKey();
@@ -316,6 +332,21 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             finalText = messageContentText(chatPayload);
         }
         return new OpenClawChatResult(sessionKey, finalText);
+    }
+
+    private boolean hasFinalChatPayload(Map<?, ?> payload) {
+        Map<?, ?> chatPayload = chatPayload(payload);
+        if (isFinalState(firstString(chatPayload, "state", "status"))) {
+            return true;
+        }
+        if (firstString(chatPayload, "finalText", "text", "response") != null) {
+            return true;
+        }
+        return messageContentText(chatPayload) != null;
+    }
+
+    private Map<?, ?> chatPayload(Map<?, ?> payload) {
+        return firstMap(payload, "chat").or(() -> firstMap(payload, "result")).orElse(payload);
     }
 
     private String messageContentText(Map<?, ?> payload) {

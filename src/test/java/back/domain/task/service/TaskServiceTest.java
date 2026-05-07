@@ -46,11 +46,15 @@ import back.domain.task.dto.response.AgentReportResponse;
 import back.domain.task.dto.response.TaskRunResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.dto.response.TaskArtifactResponse;
+import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.ArtifactType;
 import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskArtifact;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.entity.TaskType;
+import back.domain.task.repository.AgentReportRepository;
+import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.repository.WorkspaceRepository;
 
@@ -78,6 +82,12 @@ class TaskServiceTest {
 
     @Autowired
     private ExecutionTaskArtifactRepository executionTaskArtifactRepository;
+
+    @Autowired
+    private AgentReportRepository agentReportRepository;
+
+    @Autowired
+    private TaskArtifactRepository taskArtifactRepository;
 
     @MockitoBean
     private TaskExecutionRunner taskExecutionRunner;
@@ -217,6 +227,48 @@ class TaskServiceTest {
                         ArtifactType.PR_URL,
                         "생성된 PR",
                         "https://github.com/example/repo/pull/1"));
+    }
+
+    @Test
+    @DisplayName("Task 리포트 조회는 최신 실행 리포트가 없으면 기존 리포트로 폴백한다")
+    void getTaskReportsWithExecutionWithoutReportFallsBackToLegacyReport() {
+        // given
+        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        taskExecutionRepository.save(TaskExecution.queued(
+                workspaceId,
+                created.taskId(),
+                1L,
+                "openclaw-agent-1",
+                3L,
+                "feature/pr-review"));
+        AgentReport legacyReport = agentReportRepository.save(AgentReport.create(
+                created.taskId(),
+                100L,
+                TaskStatus.COMPLETED,
+                "기존 리포트입니다.",
+                "기존 리포트 상세입니다.",
+                "기존 권장 조치입니다."));
+        taskArtifactRepository.save(TaskArtifact.create(
+                created.taskId(),
+                legacyReport.getId(),
+                ArtifactType.FILE_PATH,
+                "수정 파일",
+                "src/main/java/back/domain/task/service/TaskService.java"));
+
+        // when
+        List<AgentReportResponse> responses = taskService.getTaskReports(workspaceId, created.taskId());
+
+        // then
+        assertThat(responses).hasSize(1);
+        AgentReportResponse response = responses.getFirst();
+        assertThat(response.reportId()).isEqualTo(legacyReport.getId());
+        assertThat(response.summary()).isEqualTo("기존 리포트입니다.");
+        assertThat(response.artifacts())
+                .extracting(TaskArtifactResponse::artifactType, TaskArtifactResponse::name, TaskArtifactResponse::url)
+                .containsExactly(tuple(
+                        ArtifactType.FILE_PATH,
+                        "수정 파일",
+                        "src/main/java/back/domain/task/service/TaskService.java"));
     }
 
     @Test

@@ -198,6 +198,8 @@ public final class OpenClawJavaWebSocketTransport implements OpenClawGatewayTran
             }
         } catch (JsonProcessingException exception) {
             failureHandler.accept(OpenClawGatewayException.responseParseFailed(exception));
+        } catch (IllegalArgumentException exception) {
+            failureHandler.accept(OpenClawGatewayException.responseParseFailed(exception));
         }
     }
 }

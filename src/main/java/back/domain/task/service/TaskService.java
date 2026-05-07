@@ -123,7 +123,10 @@ public class TaskService {
 
         var latestExecution = taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId);
         if (latestExecution.isPresent()) {
-            return getLatestExecutionReports(taskId, latestExecution.get());
+            List<AgentReportResponse> executionReports = getLatestExecutionReports(taskId, latestExecution.get());
+            if (!executionReports.isEmpty()) {
+                return executionReports;
+            }
         }
 
         return getLegacyTaskReports(taskId);
