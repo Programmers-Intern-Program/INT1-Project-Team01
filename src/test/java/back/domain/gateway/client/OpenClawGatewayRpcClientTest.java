@@ -26,6 +26,8 @@ import back.domain.gateway.exception.OpenClawGatewayException;
 
 class OpenClawGatewayRpcClientTest {
 
+    private static final String CONNECT_METHOD = "connect";
+
     @Test
     @DisplayName("connect는 transport 연결 후 Gateway connect handshake를 먼저 보낸다")
     void connect_validContext_success() {
@@ -45,7 +47,7 @@ class OpenClawGatewayRpcClientTest {
         assertThat(transport.isConnected()).isTrue();
         assertThat(transport.sentRequests).hasSize(1);
         OpenClawRpcRequest connectRequest = transport.sentRequests.getFirst();
-        assertThat(connectRequest.method()).isEqualTo("connect");
+        assertThat(connectRequest.method()).isEqualTo(CONNECT_METHOD);
         assertThat(connectRequest.params()).containsEntry("minProtocol", 3);
         assertThat(connectRequest.params()).containsEntry("maxProtocol", 3);
         assertThat(connectRequest.params()).containsKey("auth");
@@ -57,6 +59,21 @@ class OpenClawGatewayRpcClientTest {
                         "version", "1.0.0",
                         "platform", "java",
                         "mode", "backend"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("connect는 null context를 허용하지 않는다")
+    void connect_nullContext_throwsException() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        OpenClawGatewayRpcClient client = newClient(transport);
+
+        // when & then
+        assertThatThrownBy(() -> client.connect(null)).isInstanceOf(NullPointerException.class);
+        assertThat(transport.isConnected()).isFalse();
+        assertThat(transport.sentRequests).isEmpty();
 
         client.close();
     }
@@ -434,7 +451,7 @@ class OpenClawGatewayRpcClientTest {
 
     private List<OpenClawRpcRequest> businessRequests(FakeGatewayTransport transport) {
         return transport.sentRequests.stream()
-                .filter(request -> !"connect".equals(request.method()))
+                .filter(request -> !CONNECT_METHOD.equals(request.method()))
                 .toList();
     }
 
@@ -463,7 +480,7 @@ class OpenClawGatewayRpcClientTest {
         @Override
         public void send(OpenClawRpcRequest request) {
             sentRequests.add(request);
-            if (autoRespondToConnect && "connect".equals(request.method())) {
+            if (autoRespondToConnect && CONNECT_METHOD.equals(request.method())) {
                 respond(OpenClawRpcResponse.success(request.id(), Map.of()));
                 return;
             }

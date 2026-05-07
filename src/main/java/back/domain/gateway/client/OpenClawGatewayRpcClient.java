@@ -36,6 +36,17 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
     private static final int PROTOCOL_MIN = 3;
     private static final int PROTOCOL_MAX = 3;
+    private static final String CLIENT_ID = "gateway-client";
+    private static final String CLIENT_VERSION = "1.0.0";
+    private static final String CLIENT_PLATFORM = "java";
+    private static final String CLIENT_MODE = "backend";
+    private static final String OPERATOR_ROLE = "operator";
+    private static final String OPERATOR_READ_SCOPE = "operator.read";
+    private static final String OPERATOR_WRITE_SCOPE = "operator.write";
+    private static final String OPERATOR_ADMIN_SCOPE = "operator.admin";
+    // agents.create and agents.files.set are admin-scoped Gateway RPCs.
+    private static final List<String> OPERATOR_SCOPES =
+            List.of(OPERATOR_READ_SCOPE, OPERATOR_WRITE_SCOPE, OPERATOR_ADMIN_SCOPE);
 
     private final OpenClawGatewayTransport transport;
     private final OpenClawPendingRequests pendingRequests;
@@ -89,9 +100,10 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
     @Override
     public void connect(OpenClawGatewayConnectionContext context) {
-        transport.connect(context, this::handleResponse, this::handleEvent, this::handleFailure);
+        OpenClawGatewayConnectionContext connectionContext = Objects.requireNonNull(context);
+        transport.connect(connectionContext, this::handleResponse, this::handleEvent, this::handleFailure);
         try {
-            sendConnect(context);
+            sendConnect(connectionContext);
         } catch (RuntimeException exception) {
             transport.close();
             throw exception;
@@ -225,14 +237,14 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 PROTOCOL_MAX,
                 "client",
                 Map.of(
-                        "id", "gateway-client",
-                        "version", "1.0.0",
-                        "platform", "java",
-                        "mode", "backend"),
+                        "id", CLIENT_ID,
+                        "version", CLIENT_VERSION,
+                        "platform", CLIENT_PLATFORM,
+                        "mode", CLIENT_MODE),
                 "role",
-                "operator",
+                OPERATOR_ROLE,
                 "scopes",
-                List.of("operator.read", "operator.write", "operator.admin"),
+                OPERATOR_SCOPES,
                 "auth",
                 Map.of("token", context.token()));
     }
