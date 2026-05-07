@@ -220,7 +220,6 @@ class WorkspaceControllerTest {
         // given
         WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
                 1L,
-                "invite-token",
                 "http://localhost:3000/invites/invite-token",
                 WorkspaceMemberRole.MEMBER,
                 "invitee@test.com",
@@ -249,7 +248,6 @@ class WorkspaceControllerTest {
         // given
         WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
                 1L,
-                "invite-token",
                 "http://localhost:3000/invites/invite-token",
                 WorkspaceMemberRole.MEMBER,
                 "invitee@test.com",
@@ -289,7 +287,6 @@ class WorkspaceControllerTest {
         // given
         WorkspaceInviteManagementRes response = new WorkspaceInviteManagementRes(
                 10L,
-                "invite-token",
                 "http://localhost:3000/invites/invite-token",
                 WorkspaceMemberRole.MEMBER,
                 null,

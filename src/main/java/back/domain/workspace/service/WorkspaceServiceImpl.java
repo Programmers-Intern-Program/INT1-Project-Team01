@@ -337,7 +337,6 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private WorkspaceInviteManagementRes toWorkspaceInviteManagementResponse(WorkspaceInvite workspaceInvite) {
         return new WorkspaceInviteManagementRes(
                 workspaceInvite.getId(),
-                workspaceInvite.getToken(),
                 buildInviteUrl(workspaceInvite.getToken()),
                 workspaceInvite.getRole(),
                 workspaceInvite.getTargetEmail(),
