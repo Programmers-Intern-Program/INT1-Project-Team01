@@ -31,6 +31,11 @@ public class AsyncConfig {
     /**
      * Slack 이벤트 처리를 전담하는 커스텀 스레드 풀을 생성합니다.
      */
+
+    // TODO: [IT-9] Slack Async Queue 포화 시 이벤트 유실 방지 처리 필요
+    // 현재 큐(capacity=50) 초과 시 이벤트가 RECEIVED 상태로 고착됨
+    // 대안 1: FAILED 상태 로그 주기적 재처리 스케줄러 구현
+    // 대안 2: Redis/RabbitMQ 외부 큐 도입
     @Bean(name = "slackEventTaskExecutor")
     public Executor slackEventTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
