@@ -1,4 +1,3 @@
-// 경로: src/main/java/back/domain/slack/event/SlackEventHandler.java
 package back.domain.slack.event;
 
 import back.domain.slack.entity.SlackEventLog;
