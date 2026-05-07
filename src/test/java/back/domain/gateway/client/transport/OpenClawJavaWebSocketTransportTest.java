@@ -1,6 +1,7 @@
 package back.domain.gateway.client.transport;
 
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.rpc.dto.OpenClawGatewayEvent;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
 import back.domain.gateway.exception.OpenClawGatewayException;
@@ -62,6 +63,7 @@ class OpenClawJavaWebSocketTransportTest {
         server.start();
 
         LinkedBlockingQueue<OpenClawRpcResponse> responses = new LinkedBlockingQueue<>();
+        LinkedBlockingQueue<OpenClawGatewayEvent> events = new LinkedBlockingQueue<>();
         OpenClawJavaWebSocketTransport transport = new OpenClawJavaWebSocketTransport(
                 HttpClient.newHttpClient(),
                 objectMapper(),
@@ -72,6 +74,7 @@ class OpenClawJavaWebSocketTransportTest {
             transport.connect(
                     new OpenClawGatewayConnectionContext(server.url("/gateway").toString(), "secret-token"),
                     responses::add,
+                    events::add,
                     exception -> {
                     }
             );
@@ -81,6 +84,9 @@ class OpenClawJavaWebSocketTransportTest {
             serverWebSocket.get().send("""
                     {"type":"res","id":"req-1","ok":true,"payload":{"agents":[]}}
                     """);
+            serverWebSocket.get().send("""
+                    {"type":"event","event":"chat","payload":{"sessionKey":"session-1","state":"final"}}
+                    """);
 
             // then
             assertThat(transport.isConnected()).isTrue();
@@ -88,6 +94,7 @@ class OpenClawJavaWebSocketTransportTest {
                     .contains("\"id\":\"req-1\"")
                     .contains("\"method\":\"agents.list\"");
             assertThat(responses.poll(1, TimeUnit.SECONDS).id()).isEqualTo("req-1");
+            assertThat(events.poll(1, TimeUnit.SECONDS).event()).isEqualTo("chat");
         } finally {
             transport.close();
             WebSocket webSocket = serverWebSocket.get();
@@ -116,6 +123,8 @@ class OpenClawJavaWebSocketTransportTest {
                 new OpenClawGatewayConnectionContext("ws://localhost:3999/gateway", "secret-token"),
                 response -> {
                 },
+                event -> {
+                },
                 exception -> {
                 }
         ))
@@ -132,6 +141,7 @@ class OpenClawJavaWebSocketTransportTest {
         FakeWebSocket webSocket = new FakeWebSocket();
         FakeHttpClient httpClient = new FakeHttpClient(CompletableFuture.completedFuture(webSocket));
         LinkedBlockingQueue<OpenClawRpcResponse> responses = new LinkedBlockingQueue<>();
+        LinkedBlockingQueue<OpenClawGatewayEvent> events = new LinkedBlockingQueue<>();
         LinkedBlockingQueue<OpenClawGatewayException> failures = new LinkedBlockingQueue<>();
         OpenClawJavaWebSocketTransport transport = new OpenClawJavaWebSocketTransport(
                 httpClient,
@@ -142,6 +152,7 @@ class OpenClawJavaWebSocketTransportTest {
         transport.connect(
                 new OpenClawGatewayConnectionContext("ws://localhost:3999/gateway", "secret-token"),
                 responses::add,
+                events::add,
                 failures::add
         );
         java.net.http.WebSocket.Listener listener = httpClient.listener;
