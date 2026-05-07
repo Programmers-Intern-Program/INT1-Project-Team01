@@ -2,6 +2,7 @@ package back.domain.task.controller;
 
 import java.util.List;
 
+import back.domain.task.dto.response.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -10,12 +11,6 @@ import org.springframework.web.bind.annotation.*;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
-import back.domain.task.dto.response.AgentReportResponse;
-import back.domain.task.dto.response.TaskCreateResponse;
-import back.domain.task.dto.response.TaskDetailResponse;
-import back.domain.task.dto.response.TaskListResponse;
-import back.domain.task.dto.response.TaskLogResponse;
-import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.service.TaskRunService;
 import back.domain.task.service.TaskService;
 import jakarta.validation.Valid;

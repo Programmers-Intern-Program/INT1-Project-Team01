@@ -2,6 +2,8 @@ package back.domain.task.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -33,6 +35,10 @@ import org.springframework.web.context.WebApplicationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import back.domain.execution.dto.request.TaskExecutionRunCommand;
+import back.domain.execution.dto.response.TaskExecutionRunResult;
+import back.domain.execution.entity.TaskExecutionStatus;
+import back.domain.execution.service.TaskExecutionRunner;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
 import back.domain.task.dto.request.TaskCreateRequest;
@@ -66,6 +72,9 @@ class TaskControllerTest {
     @Autowired
     private WorkspaceMemberRepository workspaceMemberRepository;
 
+    @MockitoBean
+    private TaskExecutionRunner taskExecutionRunner;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private MockMvc mockMvc;
@@ -82,9 +91,16 @@ class TaskControllerTest {
                 .build();
 
         Member member = memberRepository.save(Member.createUser(
-                "test-google-sub-" + UUID.randomUUID(), "test-" + UUID.randomUUID() + "@test.com", "테스트 멤버"));
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
 
-        Workspace workspace = workspaceRepository.save(Workspace.create("테스트 워크스페이스", "테스트용 워크스페이스입니다.", member));
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
 
         workspaceMemberRepository.save(
                 WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
@@ -146,7 +162,10 @@ class TaskControllerTest {
     void updateTaskStatus() throws Exception {
         Long taskId = createTaskAndGetId();
 
-        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(TaskStatus.IN_PROGRESS, "Agent 작업 시작");
+        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(
+                TaskStatus.IN_PROGRESS,
+                "Agent 작업 시작"
+        );
 
         mockMvc.perform(patch("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/status", workspaceId, taskId)
                         .with(authenticated())
@@ -164,6 +183,7 @@ class TaskControllerTest {
     void createAndRunTask() throws Exception {
         given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
             TaskExecutionRunCommand command = invocation.getArgument(0);
+
             return new TaskExecutionRunResult(
                     20L,
                     command.taskId(),
@@ -173,10 +193,12 @@ class TaskControllerTest {
                     "/tmp/aioffice/workspaces/1/executions/20/repo",
                     "workspace-1-execution-20",
                     "작업을 완료했습니다.",
-                    null);
+                    null
+            );
         });
 
         mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/tasks/run", workspaceId)
+                        .with(authenticated())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createRunRequest())))
                 .andExpect(status().isOk())
@@ -202,9 +224,11 @@ class TaskControllerTest {
                 SourceType.DASHBOARD,
                 "dashboard-test",
                 "이 PR 리뷰해줘",
-                true);
+                true
+        );
 
         mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/tasks/run", workspaceId)
+                        .with(authenticated())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -251,7 +275,8 @@ class TaskControllerTest {
                 3L,
                 SourceType.DASHBOARD,
                 "dashboard-test",
-                "이 PR 리뷰해줘");
+                "이 PR 리뷰해줘"
+        );
     }
 
     private TaskRunRequest createRunRequest() {
@@ -265,6 +290,7 @@ class TaskControllerTest {
                 SourceType.DASHBOARD,
                 "dashboard-test",
                 "이 PR 리뷰해줘",
-                true);
+                true
+        );
     }
 }
