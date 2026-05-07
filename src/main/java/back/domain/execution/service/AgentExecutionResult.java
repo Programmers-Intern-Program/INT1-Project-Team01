@@ -11,4 +11,8 @@ public record AgentExecutionResult(AgentReportSaveRequest report, List<TaskArtif
         report = Objects.requireNonNull(report);
         artifacts = artifacts == null ? List.of() : List.copyOf(artifacts);
     }
+
+    public AgentExecutionStatus status() {
+        return AgentExecutionStatus.from(report.status());
+    }
 }

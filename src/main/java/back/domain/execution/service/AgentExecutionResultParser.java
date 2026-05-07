@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class AgentExecutionResultParser {
 
-    private static final String DEFAULT_SUCCESS_STATUS = "COMPLETED";
     private static final String DEFAULT_SUCCESS_SUMMARY = "Agent 실행이 완료되었습니다.";
     private static final Pattern JSON_FENCE = Pattern.compile("(?s)```(?:json)?\\s*(\\{.*?})\\s*```");
 
@@ -32,9 +31,9 @@ public class AgentExecutionResultParser {
 
     private AgentExecutionResult parseJsonReport(JsonNode root, String finalText) {
         JsonNode reportNode = root.path("report").isObject() ? root.path("report") : root;
-        String status = firstText(reportNode, "status").orElse(DEFAULT_SUCCESS_STATUS);
+        String status = normalizeStatus(firstText(reportNode, "status").orElse(null));
         String summary = firstText(reportNode, "summary").orElseGet(() -> fallbackSummary(finalText));
-        String detail = firstText(reportNode, "detail").orElse(finalText);
+        String detail = firstText(reportNode, "detail", "details").orElse(finalText);
         String recommendedAction = firstText(reportNode, "recommendedAction", "recommended_action").orElse(null);
         return new AgentExecutionResult(
                 new AgentReportSaveRequest(status, summary, detail, recommendedAction),
@@ -44,7 +43,7 @@ public class AgentExecutionResultParser {
     private AgentExecutionResult fallbackReport(String finalText) {
         return new AgentExecutionResult(
                 new AgentReportSaveRequest(
-                        DEFAULT_SUCCESS_STATUS,
+                        AgentExecutionStatus.COMPLETED.reportStatus(),
                         fallbackSummary(finalText),
                         finalText.isBlank() ? null : finalText,
                         null),
@@ -127,6 +126,10 @@ public class AgentExecutionResultParser {
             return DEFAULT_SUCCESS_SUMMARY;
         }
         return finalText;
+    }
+
+    private String normalizeStatus(String value) {
+        return AgentExecutionStatus.from(value).reportStatus();
     }
 
     private String normalize(String value) {

@@ -80,4 +80,45 @@ class AgentExecutionResultParserTest {
         assertThat(result.report().detail()).isEqualTo("작업을 완료했습니다.");
         assertThat(result.artifacts()).isEmpty();
     }
+
+    @Test
+    @DisplayName("Agent status 용어를 서버 저장 규칙에 맞게 표준화한다")
+    void parse_statusAlias_normalizesReportStatus() {
+        // given
+        String finalText = """
+                {
+                  "status": "SUCCEEDED",
+                  "summary": "작업 완료",
+                  "details": "상세 내용"
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.report().status()).isEqualTo("COMPLETED");
+        assertThat(result.report().detail()).isEqualTo("상세 내용");
+        assertThat(result.status()).isEqualTo(AgentExecutionStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("실패 계열 Agent status는 FAILED로 표준화한다")
+    void parse_failedStatusAlias_normalizesReportStatus() {
+        // given
+        String finalText = """
+                {
+                  "status": "error",
+                  "summary": "작업 실패",
+                  "detail": "테스트 실패"
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.report().status()).isEqualTo("FAILED");
+        assertThat(result.status()).isEqualTo(AgentExecutionStatus.FAILED);
+    }
 }
