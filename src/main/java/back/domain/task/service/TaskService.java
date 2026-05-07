@@ -25,14 +25,15 @@ import back.domain.task.dto.response.TaskLogResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskArtifact;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.task.repository.TaskExecutionLogRepository;
-import back.domain.task.repository.TaskRepository;
-import back.domain.workspace.repository.WorkspaceRepository;
-import back.domain.task.entity.TaskArtifact;
 
+import back.domain.task.repository.TaskRepository;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -50,10 +51,11 @@ public class TaskService {
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
     private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
 
     @Transactional
-    public TaskCreateResponse createTask(Long workspaceId, TaskCreateRequest request) {
-        validateWorkspaceExists(workspaceId);
+    public TaskCreateResponse createTask(Long workspaceId, long memberId, TaskCreateRequest request) {
+        validateWorkspaceMember(workspaceId, memberId);
 
         Task task = Task.create(
                 workspaceId,
@@ -73,12 +75,16 @@ public class TaskService {
         return TaskCreateResponse.from(savedTask);
     }
 
-    public Page<TaskListResponse> getTasks(Long workspaceId, Pageable pageable) {
+    public Page<TaskListResponse> getTasks(Long workspaceId, long memberId, Pageable pageable) {
+        validateWorkspaceMember(workspaceId, memberId);
+
         return taskRepository.findByWorkspaceId(workspaceId, pageable)
                 .map(TaskListResponse::from);
     }
 
-    public TaskDetailResponse getTask(Long workspaceId, Long taskId) {
+    public TaskDetailResponse getTask(Long workspaceId, long memberId, Long taskId) {
+        validateWorkspaceMember(workspaceId, memberId);
+
         Task task = getTaskOrThrow(workspaceId, taskId);
 
         return TaskDetailResponse.from(task);
@@ -87,11 +93,13 @@ public class TaskService {
     @Transactional
     public TaskStatusUpdateResponse updateStatus(
             Long workspaceId,
+            long memberId,
             Long taskId,
             TaskStatusUpdateRequest request
     ) {
-        Task task = getTaskOrThrow(workspaceId, taskId);
+        validateWorkspaceMember(workspaceId, memberId);
 
+        Task task = getTaskOrThrow(workspaceId, taskId);
         TaskStatus previousStatus = task.getStatus();
 
         task.updateStatus(request.status());
@@ -106,7 +114,8 @@ public class TaskService {
         );
     }
 
-    public List<TaskLogResponse> getTaskLogs(Long workspaceId, Long taskId) {
+    public List<TaskLogResponse> getTaskLogs(Long workspaceId, long memberId, Long taskId) {
+        validateWorkspaceMember(workspaceId, memberId);
         getTaskOrThrow(workspaceId, taskId);
 
         return taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId)
@@ -118,7 +127,8 @@ public class TaskService {
                 .orElseGet(List::of);
     }
 
-    public List<AgentReportResponse> getTaskReports(Long workspaceId, Long taskId) {
+    public List<AgentReportResponse> getTaskReports(Long workspaceId, long memberId, Long taskId) {
+        validateWorkspaceMember(workspaceId, memberId);
         getTaskOrThrow(workspaceId, taskId);
 
         var latestExecution = taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId);
@@ -186,6 +196,24 @@ public class TaskService {
                 ));
     }
 
+    private void validateWorkspaceMember(Long workspaceId, long memberId) {
+        validateWorkspaceExists(workspaceId);
+
+        boolean exists = workspaceMemberRepository.existsByWorkspaceIdAndMemberId(
+                workspaceId,
+                memberId
+        );
+
+        if (!exists) {
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[TaskService#validateWorkspaceMember] workspace access denied. "
+                            + "workspaceId=" + workspaceId + ", memberId=" + memberId,
+                    "워크스페이스 접근 권한이 없습니다."
+            );
+        }
+    }
+
     private void validateWorkspaceExists(Long workspaceId) {
         if (!workspaceRepository.existsById(workspaceId)) {
             throw new ServiceException(
@@ -195,5 +223,4 @@ public class TaskService {
             );
         }
     }
-
 }

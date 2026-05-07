@@ -38,14 +38,14 @@ import back.domain.member.repository.MemberRepository;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
+import back.domain.task.dto.response.AgentReportResponse;
+import back.domain.task.dto.response.TaskArtifactResponse;
 import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
-import back.domain.task.dto.response.AgentReportResponse;
 import back.domain.task.dto.response.TaskRunResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
-import back.domain.task.dto.response.TaskArtifactResponse;
 import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.ArtifactType;
 import back.domain.task.entity.SourceType;
@@ -56,6 +56,9 @@ import back.domain.task.entity.TaskType;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.enums.WorkspaceMemberRole;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -73,6 +76,9 @@ class TaskServiceTest {
 
     @Autowired
     private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
 
     @Autowired
     private TaskExecutionRepository taskExecutionRepository;
@@ -94,14 +100,28 @@ class TaskServiceTest {
 
     private Long workspaceId;
 
+    private long memberId;
+
     @BeforeEach
     void setUp() {
         Member member = memberRepository.save(Member.createUser(
-                "test-google-sub-" + UUID.randomUUID(), "test-" + UUID.randomUUID() + "@test.com", "테스트 멤버"));
+                "test-google-sub-" + UUID.randomUUID(),
+                "test-" + UUID.randomUUID() + "@test.com",
+                "테스트 멤버"
+        ));
 
-        Workspace workspace = workspaceRepository.save(Workspace.create("테스트 워크스페이스", "테스트용 워크스페이스입니다.", member));
+        Workspace workspace = workspaceRepository.save(Workspace.create(
+                "테스트 워크스페이스",
+                "테스트용 워크스페이스입니다.",
+                member
+        ));
+
+        workspaceMemberRepository.save(
+                WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
+        );
 
         workspaceId = workspace.getId();
+        memberId = member.getId();
     }
 
     @Test
@@ -111,7 +131,7 @@ class TaskServiceTest {
         TaskCreateRequest request = createRequest();
 
         // when
-        TaskCreateResponse response = taskService.createTask(workspaceId, request);
+        TaskCreateResponse response = taskService.createTask(workspaceId, memberId, request);
 
         // then
         assertThat(response.taskId()).isNotNull();
@@ -126,10 +146,11 @@ class TaskServiceTest {
     @DisplayName("워크스페이스별 Task 목록을 조회할 수 있다")
     void getTasks() {
         // given
-        taskService.createTask(workspaceId, createRequest());
+        taskService.createTask(workspaceId, memberId, createRequest());
 
         // when
-        Page<TaskListResponse> responses = taskService.getTasks(workspaceId, PageRequest.of(0, 10));
+        Page<TaskListResponse> responses =
+                taskService.getTasks(workspaceId, memberId, PageRequest.of(0, 10));
 
         // then
         assertThat(responses.getContent()).hasSize(1);
@@ -141,10 +162,10 @@ class TaskServiceTest {
     @DisplayName("Task 상세 정보를 조회할 수 있다")
     void getTask() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
 
         // when
-        TaskDetailResponse response = taskService.getTask(workspaceId, created.taskId());
+        TaskDetailResponse response = taskService.getTask(workspaceId, memberId, created.taskId());
 
         // then
         assertThat(response.taskId()).isEqualTo(created.taskId());
@@ -159,27 +180,32 @@ class TaskServiceTest {
     @DisplayName("Task 상태를 변경할 수 있다")
     void updateStatus() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
 
-        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(TaskStatus.IN_PROGRESS, "Agent 작업 시작");
+        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(
+                TaskStatus.IN_PROGRESS,
+                "Agent 작업 시작"
+        );
 
         // when
-        TaskStatusUpdateResponse response = taskService.updateStatus(workspaceId, created.taskId(), request);
+        TaskStatusUpdateResponse response =
+                taskService.updateStatus(workspaceId, memberId, created.taskId(), request);
 
         // then
         assertThat(response.taskId()).isEqualTo(created.taskId());
         assertThat(response.previousStatus()).isEqualTo(TaskStatus.REQUESTED);
         assertThat(response.currentStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(response.updatedAt()).isNotNull();
     }
 
     @Test
     @DisplayName("Task는 존재하지만 실행 기록이 없으면 빈 로그 목록을 반환한다")
     void getTaskLogsWithoutExecution() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
 
         // when
-        List<TaskLogResponse> responses = taskService.getTaskLogs(workspaceId, created.taskId());
+        List<TaskLogResponse> responses = taskService.getTaskLogs(workspaceId, memberId, created.taskId());
 
         // then
         assertThat(responses).isEmpty();
@@ -189,86 +215,116 @@ class TaskServiceTest {
     @DisplayName("Task 리포트 조회는 최신 실행 결과와 산출물을 반환한다")
     void getTaskReportsWithLatestExecutionResult() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
+
         TaskExecution execution = taskExecutionRepository.save(TaskExecution.queued(
                 workspaceId,
                 created.taskId(),
                 1L,
                 "openclaw-agent-1",
                 3L,
-                "feature/pr-review"));
+                "feature/pr-review"
+        ));
+
         ExecutionAgentReport report = executionAgentReportRepository.save(ExecutionAgentReport.create(
                 execution.getId(),
                 new AgentReportSaveRequest(
                         "COMPLETED",
                         "PR 리뷰가 완료되었습니다.",
                         "입력값 검증 개선 포인트를 확인했습니다.",
-                        "DTO validation 추가를 권장합니다.")));
+                        "DTO validation 추가를 권장합니다."
+                )
+        ));
+
         executionTaskArtifactRepository.save(ExecutionTaskArtifact.create(
                 execution.getId(),
                 new TaskArtifactSaveRequest(
                         "PR_URL",
                         "생성된 PR",
-                        "https://github.com/example/repo/pull/1")));
+                        "https://github.com/example/repo/pull/1"
+                )
+        ));
 
         // when
-        List<AgentReportResponse> responses = taskService.getTaskReports(workspaceId, created.taskId());
+        List<AgentReportResponse> responses =
+                taskService.getTaskReports(workspaceId, memberId, created.taskId());
 
         // then
         assertThat(responses).hasSize(1);
+
         AgentReportResponse response = responses.getFirst();
+
         assertThat(response.reportId()).isEqualTo(report.getId());
         assertThat(response.taskId()).isEqualTo(created.taskId());
         assertThat(response.status()).isEqualTo(TaskStatus.COMPLETED);
         assertThat(response.summary()).isEqualTo("PR 리뷰가 완료되었습니다.");
         assertThat(response.artifacts())
-                .extracting(TaskArtifactResponse::artifactType, TaskArtifactResponse::name, TaskArtifactResponse::url)
+                .extracting(
+                        TaskArtifactResponse::artifactType,
+                        TaskArtifactResponse::name,
+                        TaskArtifactResponse::url
+                )
                 .containsExactly(tuple(
                         ArtifactType.PR_URL,
                         "생성된 PR",
-                        "https://github.com/example/repo/pull/1"));
+                        "https://github.com/example/repo/pull/1"
+                ));
     }
 
     @Test
     @DisplayName("Task 리포트 조회는 최신 실행 리포트가 없으면 기존 리포트로 폴백한다")
     void getTaskReportsWithExecutionWithoutReportFallsBackToLegacyReport() {
         // given
-        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskCreateResponse created = taskService.createTask(workspaceId, memberId, createRequest());
+
         taskExecutionRepository.save(TaskExecution.queued(
                 workspaceId,
                 created.taskId(),
                 1L,
                 "openclaw-agent-1",
                 3L,
-                "feature/pr-review"));
+                "feature/pr-review"
+        ));
+
         AgentReport legacyReport = agentReportRepository.save(AgentReport.create(
                 created.taskId(),
                 100L,
                 TaskStatus.COMPLETED,
                 "기존 리포트입니다.",
                 "기존 리포트 상세입니다.",
-                "기존 권장 조치입니다."));
+                "기존 권장 조치입니다."
+        ));
+
         taskArtifactRepository.save(TaskArtifact.create(
                 created.taskId(),
                 legacyReport.getId(),
                 ArtifactType.FILE_PATH,
                 "수정 파일",
-                "src/main/java/back/domain/task/service/TaskService.java"));
+                "src/main/java/back/domain/task/service/TaskService.java"
+        ));
 
         // when
-        List<AgentReportResponse> responses = taskService.getTaskReports(workspaceId, created.taskId());
+        List<AgentReportResponse> responses =
+                taskService.getTaskReports(workspaceId, memberId, created.taskId());
 
         // then
         assertThat(responses).hasSize(1);
+
         AgentReportResponse response = responses.getFirst();
+
         assertThat(response.reportId()).isEqualTo(legacyReport.getId());
         assertThat(response.summary()).isEqualTo("기존 리포트입니다.");
         assertThat(response.artifacts())
-                .extracting(TaskArtifactResponse::artifactType, TaskArtifactResponse::name, TaskArtifactResponse::url)
+                .extracting(
+                        TaskArtifactResponse::artifactType,
+                        TaskArtifactResponse::name,
+                        TaskArtifactResponse::url
+                )
                 .containsExactly(tuple(
                         ArtifactType.FILE_PATH,
                         "수정 파일",
-                        "src/main/java/back/domain/task/service/TaskService.java"));
+                        "src/main/java/back/domain/task/service/TaskService.java"
+                ));
     }
 
     @Test
@@ -277,6 +333,7 @@ class TaskServiceTest {
         // given
         given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
             TaskExecutionRunCommand command = invocation.getArgument(0);
+
             return new TaskExecutionRunResult(
                     20L,
                     command.taskId(),
@@ -286,11 +343,15 @@ class TaskServiceTest {
                     "/tmp/aioffice/workspaces/1/executions/20/repo",
                     "workspace-1-execution-20",
                     "작업을 완료했습니다.",
-                    null);
+                    null
+            );
         });
 
         // when
-        TaskRunResponse response = taskRunService.createAndRunTask(workspaceId, createRunRequest());
+        TaskRunResponse response = taskRunService.createAndRunTask(
+                workspaceId,
+                createRunRequest()
+        );
 
         // then
         assertThat(response.taskId()).isNotNull();
@@ -299,14 +360,17 @@ class TaskServiceTest {
         assertThat(response.executionStatus()).isEqualTo(TaskExecutionStatus.SUCCEEDED);
         assertThat(response.finalText()).isEqualTo("작업을 완료했습니다.");
 
-        TaskDetailResponse detail = taskService.getTask(workspaceId, response.taskId());
+        TaskDetailResponse detail = taskService.getTask(workspaceId, memberId, response.taskId());
+
         assertThat(detail.status()).isEqualTo(TaskStatus.COMPLETED);
 
         ArgumentCaptor<TaskExecutionRunCommand> commandCaptor =
                 ArgumentCaptor.forClass(TaskExecutionRunCommand.class);
+
         verify(taskExecutionRunner).run(commandCaptor.capture());
 
         TaskExecutionRunCommand command = commandCaptor.getValue();
+
         assertThat(command.workspaceId()).isEqualTo(workspaceId);
         assertThat(command.taskId()).isEqualTo(response.taskId());
         assertThat(command.repositoryId()).isEqualTo(3L);
@@ -320,10 +384,14 @@ class TaskServiceTest {
         // given
         given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
             TaskExecutionRunCommand command = invocation.getArgument(0);
+
             taskService.updateStatus(
                     command.workspaceId(),
+                    memberId,
                     command.taskId(),
-                    new TaskStatusUpdateRequest(TaskStatus.CANCELED, "사용자 취소"));
+                    new TaskStatusUpdateRequest(TaskStatus.CANCELED, "사용자 취소")
+            );
+
             return new TaskExecutionRunResult(
                     20L,
                     command.taskId(),
@@ -333,16 +401,21 @@ class TaskServiceTest {
                     "/tmp/aioffice/workspaces/1/executions/20/repo",
                     "workspace-1-execution-20",
                     "작업을 완료했습니다.",
-                    null);
+                    null
+            );
         });
 
         // when
-        TaskRunResponse response = taskRunService.createAndRunTask(workspaceId, createRunRequest());
+        TaskRunResponse response = taskRunService.createAndRunTask(
+                workspaceId,
+                createRunRequest()
+        );
 
         // then
         assertThat(response.taskStatus()).isEqualTo(TaskStatus.CANCELED);
 
-        TaskDetailResponse detail = taskService.getTask(workspaceId, response.taskId());
+        TaskDetailResponse detail = taskService.getTask(workspaceId, memberId, response.taskId());
+
         assertThat(detail.status()).isEqualTo(TaskStatus.CANCELED);
     }
 
@@ -351,13 +424,18 @@ class TaskServiceTest {
     void createAndRunTaskWithRunnerException() {
         // given
         RuntimeException runnerException = new IllegalStateException("runner failed");
+
         given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willThrow(runnerException);
 
         // when & then
-        assertThatThrownBy(() -> taskRunService.createAndRunTask(workspaceId, createRunRequest()))
-                .isSameAs(runnerException);
+        assertThatThrownBy(() -> taskRunService.createAndRunTask(
+                workspaceId,
+                createRunRequest()
+        )).isSameAs(runnerException);
 
-        Page<TaskListResponse> responses = taskService.getTasks(workspaceId, PageRequest.of(0, 10));
+        Page<TaskListResponse> responses =
+                taskService.getTasks(workspaceId, memberId, PageRequest.of(0, 10));
+
         assertThat(responses.getContent()).hasSize(1);
         assertThat(responses.getContent().get(0).status()).isEqualTo(TaskStatus.FAILED);
     }
@@ -372,7 +450,8 @@ class TaskServiceTest {
                 3L,
                 SourceType.DASHBOARD,
                 "dashboard-test",
-                "이 PR 리뷰해줘");
+                "이 PR 리뷰해줘"
+        );
     }
 
     private TaskRunRequest createRunRequest() {
@@ -386,6 +465,7 @@ class TaskServiceTest {
                 SourceType.DASHBOARD,
                 "dashboard-test",
                 "이 PR 리뷰해줘",
-                true);
+                true
+        );
     }
 }
