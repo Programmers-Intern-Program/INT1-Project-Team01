@@ -31,8 +31,22 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
+    private static final String CONNECT_METHOD = "connect";
     private static final String CHAT_SEND_METHOD = "chat.send";
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
+    private static final int PROTOCOL_MIN = 3;
+    private static final int PROTOCOL_MAX = 3;
+    private static final String CLIENT_ID = "gateway-client";
+    private static final String CLIENT_VERSION = "1.0.0";
+    private static final String CLIENT_PLATFORM = "java";
+    private static final String CLIENT_MODE = "backend";
+    private static final String OPERATOR_ROLE = "operator";
+    private static final String OPERATOR_READ_SCOPE = "operator.read";
+    private static final String OPERATOR_WRITE_SCOPE = "operator.write";
+    private static final String OPERATOR_ADMIN_SCOPE = "operator.admin";
+    // agents.create and agents.files.set are admin-scoped Gateway RPCs.
+    private static final List<String> OPERATOR_SCOPES =
+            List.of(OPERATOR_READ_SCOPE, OPERATOR_WRITE_SCOPE, OPERATOR_ADMIN_SCOPE);
 
     private final OpenClawGatewayTransport transport;
     private final OpenClawPendingRequests pendingRequests;
@@ -86,7 +100,14 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
     @Override
     public void connect(OpenClawGatewayConnectionContext context) {
-        transport.connect(context, this::handleResponse, this::handleEvent, this::handleFailure);
+        OpenClawGatewayConnectionContext connectionContext = Objects.requireNonNull(context);
+        transport.connect(connectionContext, this::handleResponse, this::handleEvent, this::handleFailure);
+        try {
+            sendConnect(connectionContext);
+        } catch (RuntimeException exception) {
+            transport.close();
+            throw exception;
+        }
     }
 
     @Override
@@ -202,6 +223,30 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             pendingRequests.cancel(requestId);
             throw OpenClawGatewayException.sendFailed(method, requestId, exception);
         }
+    }
+
+    private void sendConnect(OpenClawGatewayConnectionContext context) {
+        sendRpc(CONNECT_METHOD, connectParams(context));
+    }
+
+    private Map<String, Object> connectParams(OpenClawGatewayConnectionContext context) {
+        return Map.of(
+                "minProtocol",
+                PROTOCOL_MIN,
+                "maxProtocol",
+                PROTOCOL_MAX,
+                "client",
+                Map.of(
+                        "id", CLIENT_ID,
+                        "version", CLIENT_VERSION,
+                        "platform", CLIENT_PLATFORM,
+                        "mode", CLIENT_MODE),
+                "role",
+                OPERATOR_ROLE,
+                "scopes",
+                OPERATOR_SCOPES,
+                "auth",
+                Map.of("token", context.token()));
     }
 
     private void handleResponse(OpenClawRpcResponse response) {
