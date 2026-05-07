@@ -172,6 +172,27 @@ class WorkspaceControllerTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 삭제 성공")
+    void deleteWorkspace_success() throws Exception {
+        // given
+        doNothing().when(workspaceService).deleteWorkspace(anyLong(), anyLong());
+
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("워크스페이스가 삭제되었습니다."));
+    }
+
+    @Test
+    @DisplayName("워크스페이스 삭제 - 인증 없을 때 401")
+    void deleteWorkspace_noAuth_returns401() throws Exception {
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("초대 링크 생성 성공")
     void createInviteLink_success() throws Exception {
         // given
