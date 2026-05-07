@@ -99,6 +99,12 @@ public class TaskExecution extends BaseEntity {
         this.finishedAt = LocalDateTime.now();
     }
 
+    public void markCanceled(String failureReason) {
+        this.status = TaskExecutionStatus.CANCELED;
+        this.failureReason = normalizeError(failureReason);
+        this.finishedAt = LocalDateTime.now();
+    }
+
     private static Long requireId(Long value, String fieldName) {
         if (value == null || value <= 0) {
             throw new IllegalArgumentException(fieldName + " must be positive");

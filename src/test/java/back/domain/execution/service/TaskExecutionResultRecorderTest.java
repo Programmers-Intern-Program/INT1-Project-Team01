@@ -48,17 +48,16 @@ class TaskExecutionResultRecorderTest {
 
     @Test
     @DisplayName("성공 결과 보고와 산출물을 taskExecutionId 기준으로 저장한다")
-    void recordSuccess_savesReportAndArtifacts() {
+    void recordResult_savesReportAndArtifacts() {
         // given
         AgentReportSaveRequest report =
                 new AgentReportSaveRequest("COMPLETED", "완료", "상세 내용", "리뷰하세요.");
         TaskArtifactSaveRequest artifact =
                 new TaskArtifactSaveRequest("PR_URL", "생성된 PR", "https://github.com/example/repo/pull/1");
-        given(agentExecutionResultParser.parse("final text"))
-                .willReturn(new AgentExecutionResult(report, List.of(artifact)));
+        AgentExecutionResult result = new AgentExecutionResult(report, List.of(artifact));
 
         // when
-        recorder.recordSuccess(execution, new OpenClawChatResult("session-1", "final text"));
+        recorder.recordResult(execution, result);
 
         // then
         ArgumentCaptor<AgentReport> reportCaptor = ArgumentCaptor.forClass(AgentReport.class);
@@ -69,6 +68,22 @@ class TaskExecutionResultRecorderTest {
         assertThat(reportCaptor.getValue().getSummary()).isEqualTo("완료");
         assertThat(artifactCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
         assertThat(artifactCaptor.getValue().getArtifactType()).isEqualTo("PR_URL");
+    }
+
+    @Test
+    @DisplayName("Agent 실행 결과 텍스트를 파싱한다")
+    void parse_delegatesToParser() {
+        // given
+        AgentExecutionResult result = new AgentExecutionResult(
+                new AgentReportSaveRequest("COMPLETED", "완료", "상세 내용", null),
+                List.of());
+        given(agentExecutionResultParser.parse("final text")).willReturn(result);
+
+        // when
+        AgentExecutionResult parsed = recorder.parse(new OpenClawChatResult("session-1", "final text"));
+
+        // then
+        assertThat(parsed).isSameAs(result);
     }
 
     @Test

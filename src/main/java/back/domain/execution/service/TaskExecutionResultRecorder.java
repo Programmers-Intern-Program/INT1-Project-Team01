@@ -22,10 +22,14 @@ public class TaskExecutionResultRecorder {
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
 
-    public void recordSuccess(TaskExecution execution, OpenClawChatResult chatResult) {
-        Objects.requireNonNull(execution);
+    public AgentExecutionResult parse(OpenClawChatResult chatResult) {
         Objects.requireNonNull(chatResult);
-        AgentExecutionResult result = agentExecutionResultParser.parse(chatResult.finalText());
+        return agentExecutionResultParser.parse(chatResult.finalText());
+    }
+
+    public void recordResult(TaskExecution execution, AgentExecutionResult result) {
+        Objects.requireNonNull(execution);
+        Objects.requireNonNull(result);
         agentReportRepository.save(AgentReport.create(execution.getId(), result.report()));
         result.artifacts().stream()
                 .map(artifact -> TaskArtifact.create(execution.getId(), artifact))

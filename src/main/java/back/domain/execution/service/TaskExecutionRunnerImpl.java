@@ -62,8 +62,9 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                     execution.getOpenClawSessionKey(),
                     buildAgentMessage(command, execution),
                     UUID.randomUUID().toString()));
-            execution.markSucceeded();
-            return saveResult(execution, chatResult);
+            AgentExecutionResult agentResult = taskExecutionResultRecorder.parse(chatResult);
+            markFinalStatus(execution, agentResult);
+            return saveResult(execution, chatResult, agentResult);
         } catch (OpenClawGatewayException exception) {
             execution.markFailed(exception.getClientMessage());
             return saveResult(execution, null);
@@ -104,15 +105,36 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     }
 
     private TaskExecutionRunResult saveResult(TaskExecution execution, OpenClawChatResult chatResult) {
+        return saveResult(execution, chatResult, null);
+    }
+
+    private TaskExecutionRunResult saveResult(
+            TaskExecution execution, OpenClawChatResult chatResult, AgentExecutionResult agentResult) {
         return requireTransactionResult(transactionOperations.execute(status -> {
             TaskExecution savedExecution = taskExecutionRepository.save(execution);
             if (chatResult == null) {
                 taskExecutionResultRecorder.recordFailure(savedExecution);
             } else {
-                taskExecutionResultRecorder.recordSuccess(savedExecution, chatResult);
+                taskExecutionResultRecorder.recordResult(savedExecution, agentResult);
             }
             return TaskExecutionRunResult.from(savedExecution, chatResult);
         }));
+    }
+
+    private void markFinalStatus(TaskExecution execution, AgentExecutionResult agentResult) {
+        switch (agentResult.status()) {
+            case COMPLETED -> execution.markSucceeded();
+            case FAILED -> execution.markFailed(resolveFailureReason(agentResult));
+            case CANCELED -> execution.markCanceled(resolveFailureReason(agentResult));
+        }
+    }
+
+    private String resolveFailureReason(AgentExecutionResult agentResult) {
+        String detail = agentResult.report().detail();
+        if (detail != null && !detail.isBlank()) {
+            return detail;
+        }
+        return agentResult.report().summary();
     }
 
     private String buildAgentMessage(TaskExecutionRunCommand command, TaskExecution execution) {
@@ -133,6 +155,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 "",
                 "Final report must be a JSON object.",
                 "Required fields: status, summary, detail, recommendedAction.",
+                "Allowed status values: COMPLETED, FAILED, CANCELED.",
                 "Optional field: artifacts [{ artifactType, name, url }].",
                 "Do not expose GitHub PAT, Slack token, Gateway token, or any credential value.");
     }
