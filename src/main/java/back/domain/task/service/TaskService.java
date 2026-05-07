@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import back.domain.execution.repository.TaskExecutionRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,6 @@ import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.task.repository.TaskExecutionLogRepository;
-import back.domain.task.repository.TaskExecutionRepository;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
 import back.domain.task.entity.TaskArtifact;
