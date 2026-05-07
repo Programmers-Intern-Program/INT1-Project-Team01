@@ -128,6 +128,10 @@ public class TaskExecution extends BaseEntity {
 
     public void fail(String failureReason) {
         markFailed(failureReason);
+    public void markCanceled(String failureReason) {
+        this.status = TaskExecutionStatus.CANCELED;
+        this.failureReason = normalizeError(failureReason);
+        this.finishedAt = LocalDateTime.now();
     }
 
     private static Long requireId(Long value, String fieldName) {

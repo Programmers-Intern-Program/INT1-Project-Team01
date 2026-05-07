@@ -4,6 +4,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import back.domain.execution.entity.ExecutionAgentReport;
+import back.domain.execution.entity.TaskExecution;
+import back.domain.execution.repository.ExecutionAgentReportRepository;
+import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.execution.repository.TaskExecutionRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -41,6 +45,8 @@ public class TaskService {
 
     private final TaskRepository taskRepository;
     private final TaskExecutionRepository taskExecutionRepository;
+    private final ExecutionAgentReportRepository executionAgentReportRepository;
+    private final ExecutionTaskArtifactRepository executionTaskArtifactRepository;
     private final TaskExecutionLogRepository taskExecutionLogRepository;
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
@@ -125,6 +131,37 @@ public class TaskService {
         validateWorkspaceMember(workspaceId, memberId);
         getTaskOrThrow(workspaceId, taskId);
 
+        var latestExecution = taskExecutionRepository.findTopByTaskIdOrderByCreatedAtDesc(taskId);
+        if (latestExecution.isPresent()) {
+            List<AgentReportResponse> executionReports = getLatestExecutionReports(taskId, latestExecution.get());
+            if (!executionReports.isEmpty()) {
+                return executionReports;
+            }
+        }
+
+        return getLegacyTaskReports(taskId);
+    }
+
+    private List<AgentReportResponse> getLatestExecutionReports(Long taskId, TaskExecution latestExecution) {
+        return executionAgentReportRepository.findByTaskExecutionId(latestExecution.getId())
+                .map(report -> List.of(toAgentReportResponse(taskId, latestExecution, report)))
+                .orElseGet(List::of);
+    }
+
+    private AgentReportResponse toAgentReportResponse(
+            Long taskId,
+            TaskExecution latestExecution,
+            ExecutionAgentReport report
+    ) {
+        List<TaskArtifactResponse> artifacts = executionTaskArtifactRepository
+                .findAllByTaskExecutionIdOrderByIdAsc(latestExecution.getId())
+                .stream()
+                .map(TaskArtifactResponse::from)
+                .toList();
+        return AgentReportResponse.of(report, taskId, artifacts);
+    }
+
+    private List<AgentReportResponse> getLegacyTaskReports(Long taskId) {
         List<AgentReport> reports = agentReportRepository.findByTaskIdOrderByCreatedAtDesc(taskId);
 
         if (reports.isEmpty()) {

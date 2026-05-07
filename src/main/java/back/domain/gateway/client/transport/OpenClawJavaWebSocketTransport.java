@@ -1,12 +1,15 @@
 package back.domain.gateway.client.transport;
 
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.rpc.OpenClawGatewayEventHandler;
 import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
+import back.domain.gateway.client.rpc.dto.OpenClawGatewayEvent;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
 import back.domain.gateway.exception.OpenClawGatewayException;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
@@ -32,6 +35,7 @@ public final class OpenClawJavaWebSocketTransport implements OpenClawGatewayTran
 
     private volatile WebSocket webSocket;
     private volatile OpenClawRpcResponseHandler responseHandler;
+    private volatile OpenClawGatewayEventHandler eventHandler;
     private volatile Consumer<OpenClawGatewayException> failureHandler;
     private volatile boolean connected;
 
@@ -67,9 +71,11 @@ public final class OpenClawJavaWebSocketTransport implements OpenClawGatewayTran
     public void connect(
             OpenClawGatewayConnectionContext context,
             OpenClawRpcResponseHandler responseHandler,
+            OpenClawGatewayEventHandler eventHandler,
             Consumer<OpenClawGatewayException> failureHandler
     ) {
         this.responseHandler = Objects.requireNonNull(responseHandler);
+        this.eventHandler = Objects.requireNonNull(eventHandler);
         this.failureHandler = Objects.requireNonNull(failureHandler);
         URI webSocketUri = urlNormalizer.toWebSocketUri(context.gatewayUrl());
         clearMessageBuffer();
@@ -179,11 +185,20 @@ public final class OpenClawJavaWebSocketTransport implements OpenClawGatewayTran
 
     private void handleTextMessage(String text) {
         try {
-            OpenClawRpcResponse response = objectMapper.readValue(text, OpenClawRpcResponse.class);
-            if ("res".equals(response.type())) {
+            JsonNode frame = objectMapper.readTree(text);
+            String type = frame.path("type").asText();
+            if ("res".equals(type)) {
+                OpenClawRpcResponse response = objectMapper.treeToValue(frame, OpenClawRpcResponse.class);
                 responseHandler.handle(response);
+                return;
+            }
+            if ("event".equals(type)) {
+                OpenClawGatewayEvent event = objectMapper.treeToValue(frame, OpenClawGatewayEvent.class);
+                eventHandler.handle(event);
             }
         } catch (JsonProcessingException exception) {
+            failureHandler.accept(OpenClawGatewayException.responseParseFailed(exception));
+        } catch (IllegalArgumentException exception) {
             failureHandler.accept(OpenClawGatewayException.responseParseFailed(exception));
         }
     }

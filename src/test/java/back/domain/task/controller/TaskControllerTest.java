@@ -23,6 +23,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -35,6 +36,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
 import back.domain.task.dto.request.TaskCreateRequest;
+import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.entity.SourceType;
 import back.domain.task.entity.TaskPriority;
@@ -80,16 +82,9 @@ class TaskControllerTest {
                 .build();
 
         Member member = memberRepository.save(Member.createUser(
-                "test-google-sub-" + UUID.randomUUID(),
-                "test-" + UUID.randomUUID() + "@test.com",
-                "테스트 멤버"
-        ));
+                "test-google-sub-" + UUID.randomUUID(), "test-" + UUID.randomUUID() + "@test.com", "테스트 멤버"));
 
-        Workspace workspace = workspaceRepository.save(Workspace.create(
-                "테스트 워크스페이스",
-                "테스트용 워크스페이스입니다.",
-                member
-        ));
+        Workspace workspace = workspaceRepository.save(Workspace.create("테스트 워크스페이스", "테스트용 워크스페이스입니다.", member));
 
         workspaceMemberRepository.save(
                 WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
@@ -151,10 +146,7 @@ class TaskControllerTest {
     void updateTaskStatus() throws Exception {
         Long taskId = createTaskAndGetId();
 
-        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(
-                TaskStatus.IN_PROGRESS,
-                "Agent 작업 시작"
-        );
+        TaskStatusUpdateRequest request = new TaskStatusUpdateRequest(TaskStatus.IN_PROGRESS, "Agent 작업 시작");
 
         mockMvc.perform(patch("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/status", workspaceId, taskId)
                         .with(authenticated())
@@ -165,6 +157,57 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.previousStatus").value("REQUESTED"))
                 .andExpect(jsonPath("$.currentStatus").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.updatedAt").exists());
+    }
+
+    @Test
+    @DisplayName("Task를 생성하고 Runner 실행까지 연결할 수 있다")
+    void createAndRunTask() throws Exception {
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
+            TaskExecutionRunCommand command = invocation.getArgument(0);
+            return new TaskExecutionRunResult(
+                    20L,
+                    command.taskId(),
+                    command.workspaceId(),
+                    100L,
+                    TaskExecutionStatus.SUCCEEDED,
+                    "/tmp/aioffice/workspaces/1/executions/20/repo",
+                    "workspace-1-execution-20",
+                    "작업을 완료했습니다.",
+                    null);
+        });
+
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/tasks/run", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createRunRequest())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskId").exists())
+                .andExpect(jsonPath("$.workspaceId").value(workspaceId))
+                .andExpect(jsonPath("$.title").value("PR 리뷰"))
+                .andExpect(jsonPath("$.taskStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.taskExecutionId").value(20L))
+                .andExpect(jsonPath("$.executionStatus").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.finalText").value("작업을 완료했습니다."));
+    }
+
+    @Test
+    @DisplayName("Task 실행 요청의 필수값과 양수 ID를 검증한다")
+    void validateTaskRunRequest() throws Exception {
+        TaskRunRequest request = new TaskRunRequest(
+                "PR 리뷰",
+                "최근 PR 변경사항을 리뷰한다.",
+                TaskType.PR_REVIEW,
+                null,
+                0L,
+                0L,
+                SourceType.DASHBOARD,
+                "dashboard-test",
+                "이 PR 리뷰해줘",
+                true);
+
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/tasks/run", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 
     private Long createTaskAndGetId() throws Exception {
@@ -208,7 +251,20 @@ class TaskControllerTest {
                 3L,
                 SourceType.DASHBOARD,
                 "dashboard-test",
-                "이 PR 리뷰해줘"
-        );
+                "이 PR 리뷰해줘");
+    }
+
+    private TaskRunRequest createRunRequest() {
+        return new TaskRunRequest(
+                "PR 리뷰",
+                "최근 PR 변경사항을 리뷰한다.",
+                TaskType.PR_REVIEW,
+                TaskPriority.HIGH,
+                1L,
+                3L,
+                SourceType.DASHBOARD,
+                "dashboard-test",
+                "이 PR 리뷰해줘",
+                true);
     }
 }

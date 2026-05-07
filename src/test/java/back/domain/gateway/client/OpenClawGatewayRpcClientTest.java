@@ -9,13 +9,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import back.domain.gateway.client.rpc.OpenClawPendingRequests;
+import back.domain.gateway.client.rpc.OpenClawGatewayEventHandler;
 import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
+import back.domain.gateway.client.rpc.dto.OpenClawGatewayEvent;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
 import back.domain.gateway.client.transport.OpenClawGatewayTransport;
@@ -38,6 +41,7 @@ class OpenClawGatewayRpcClientTest {
         // then
         assertThat(transport.connectedContext).isEqualTo(context);
         assertThat(transport.responseHandler).isNotNull();
+        assertThat(transport.eventHandler).isNotNull();
         assertThat(transport.isConnected()).isTrue();
 
         client.close();
@@ -168,7 +172,8 @@ class OpenClawGatewayRpcClientTest {
     }
 
     @Test
-    @DisplayName("chat.send는 sessionKey, message, idempotencyKey를 RPC 요청으로 보내고 final text를 반환한다")
+    @DisplayName("chat.send는 sessionKey, message, idempotencyKey를 RPC 요청으로 보내고 "
+            + "final text를 반환한다")
     void sendChat_successResponse_success() {
         // given
         FakeGatewayTransport transport = new FakeGatewayTransport();
@@ -199,6 +204,126 @@ class OpenClawGatewayRpcClientTest {
         assertThat(result)
                 .isEqualTo(new OpenClawChatResult(
                         "agent:openclaw-agent-1:workspace-1-execution-10", "작업을 완료했습니다."));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("chat.send는 agent/chat 이벤트 스트림을 누적해 final text를 반환한다")
+    void sendChat_eventStream_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> {
+            String sessionKey = (String) request.params().get("sessionKey");
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "작업을 "))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "완료했습니다."))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "chat",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "state", "final")));
+        };
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        assertThat(transport.sentRequests.getFirst().method()).isEqualTo("chat.send");
+        assertThat(result)
+                .isEqualTo(new OpenClawChatResult(
+                        "agent:openclaw-agent-1:workspace-1-execution-10", "작업을 완료했습니다."));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("chat.send RPC ack 이후 도착한 이벤트 스트림으로 final text를 반환한다")
+    void sendChat_ackThenEventStream_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> {
+            String sessionKey = (String) request.params().get("sessionKey");
+            transport.respond(OpenClawRpcResponse.success(
+                    request.id(),
+                    Map.of("chat", Map.of("sessionKey", sessionKey))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "ack 이후 완료"))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "chat",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "state", "final")));
+        };
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
+
+        // then
+        assertThat(result)
+                .isEqualTo(new OpenClawChatResult(
+                        "agent:openclaw-agent-1:workspace-1-execution-10", "ack 이후 완료"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("chat.send는 동일 sessionKey pending 중복 등록을 거부한다")
+    void sendChat_duplicatePendingSession_rejectsSecondRequest() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        AtomicReference<OpenClawGatewayRpcClient> clientRef = new AtomicReference<>();
+        OpenClawChatCommand command = new OpenClawChatCommand(
+                "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1");
+        transport.onSend = request -> {
+            assertThatThrownBy(() -> clientRef.get().sendChat(command))
+                    .isInstanceOf(OpenClawGatewayException.class)
+                    .extracting("gatewayErrorCode")
+                    .isEqualTo("gateway_send_failed");
+
+            String sessionKey = (String) request.params().get("sessionKey");
+            transport.emit(OpenClawGatewayEvent.of(
+                    "agent",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "stream", "assistant",
+                            "data", Map.of("delta", "첫 요청 완료"))));
+            transport.emit(OpenClawGatewayEvent.of(
+                    "chat",
+                    Map.of(
+                            "sessionKey", sessionKey,
+                            "state", "final")));
+        };
+        OpenClawGatewayRpcClient client = newClient(transport);
+        clientRef.set(client);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        OpenClawChatResult result = client.sendChat(command);
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        assertThat(result.finalText()).isEqualTo("첫 요청 완료");
 
         client.close();
     }
@@ -268,6 +393,7 @@ class OpenClawGatewayRpcClientTest {
 
         private OpenClawGatewayConnectionContext connectedContext;
         private OpenClawRpcResponseHandler responseHandler;
+        private OpenClawGatewayEventHandler eventHandler;
         private Consumer<OpenClawGatewayException> failureHandler;
         private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
         private Consumer<OpenClawRpcRequest> onSend = request -> {};
@@ -276,9 +402,11 @@ class OpenClawGatewayRpcClientTest {
         public void connect(
                 OpenClawGatewayConnectionContext context,
                 OpenClawRpcResponseHandler responseHandler,
+                OpenClawGatewayEventHandler eventHandler,
                 Consumer<OpenClawGatewayException> failureHandler) {
             this.connectedContext = context;
             this.responseHandler = responseHandler;
+            this.eventHandler = eventHandler;
             this.failureHandler = failureHandler;
         }
 
@@ -300,6 +428,10 @@ class OpenClawGatewayRpcClientTest {
 
         private void respond(OpenClawRpcResponse response) {
             responseHandler.handle(response);
+        }
+
+        private void emit(OpenClawGatewayEvent event) {
+            eventHandler.handle(event);
         }
 
         private void disconnect() {

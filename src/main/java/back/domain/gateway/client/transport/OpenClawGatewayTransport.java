@@ -1,6 +1,7 @@
 package back.domain.gateway.client.transport;
 
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.rpc.OpenClawGatewayEventHandler;
 import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
 import back.domain.gateway.exception.OpenClawGatewayException;
@@ -12,6 +13,7 @@ public interface OpenClawGatewayTransport {
     void connect(
             OpenClawGatewayConnectionContext context,
             OpenClawRpcResponseHandler responseHandler,
+            OpenClawGatewayEventHandler eventHandler,
             Consumer<OpenClawGatewayException> failureHandler
     );
 

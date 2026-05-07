@@ -1,6 +1,14 @@
 package back.domain.task.controller;
 
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
 import back.domain.task.dto.request.TaskCreateRequest;
+import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.dto.response.AgentReportResponse;
 import back.domain.task.dto.response.TaskCreateResponse;
@@ -8,6 +16,7 @@ import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
+import back.domain.task.service.TaskRunService;
 import back.domain.task.service.TaskService;
 import jakarta.validation.Valid;
 import back.global.exception.CommonErrorCode;
@@ -29,6 +38,7 @@ import java.util.List;
 public class TaskController {
 
     private final TaskService taskService;
+    private final TaskRunService taskRunService;
 
     @PostMapping
     public ResponseEntity<TaskCreateResponse> createTask(
@@ -39,6 +49,12 @@ public class TaskController {
         long memberId = resolveAuthenticatedMemberId(authenticatedMember);
 
         return ResponseEntity.ok(taskService.createTask(workspaceId, memberId, request));
+    }
+
+    @PostMapping("/run")
+    public ResponseEntity<TaskRunResponse> createAndRunTask(
+            @PathVariable Long workspaceId, @Valid @RequestBody TaskRunRequest request) {
+        return ResponseEntity.ok(taskRunService.createAndRunTask(workspaceId, request));
     }
 
     @GetMapping
