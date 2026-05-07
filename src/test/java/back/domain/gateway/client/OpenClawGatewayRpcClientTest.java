@@ -27,7 +27,7 @@ import back.domain.gateway.exception.OpenClawGatewayException;
 class OpenClawGatewayRpcClientTest {
 
     @Test
-    @DisplayName("connect는 transport에 Gateway context와 response handler를 등록한다")
+    @DisplayName("connect는 transport 연결 후 Gateway connect handshake를 먼저 보낸다")
     void connect_validContext_success() {
         // given
         FakeGatewayTransport transport = new FakeGatewayTransport();
@@ -43,6 +43,44 @@ class OpenClawGatewayRpcClientTest {
         assertThat(transport.responseHandler).isNotNull();
         assertThat(transport.eventHandler).isNotNull();
         assertThat(transport.isConnected()).isTrue();
+        assertThat(transport.sentRequests).hasSize(1);
+        OpenClawRpcRequest connectRequest = transport.sentRequests.getFirst();
+        assertThat(connectRequest.method()).isEqualTo("connect");
+        assertThat(connectRequest.params()).containsEntry("minProtocol", 3);
+        assertThat(connectRequest.params()).containsEntry("maxProtocol", 3);
+        assertThat(connectRequest.params()).containsKey("auth");
+        assertThat(connectRequest.params()).containsEntry("role", "operator");
+        assertThat(connectRequest.params()).containsEntry(
+                "client",
+                Map.of(
+                        "id", "gateway-client",
+                        "version", "1.0.0",
+                        "platform", "java",
+                        "mode", "backend"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("connect handshake 실패 시 Gateway RPC 예외로 처리하고 연결을 닫는다")
+    void connect_handshakeFailure_throwsException() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.autoRespondToConnect = false;
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.failure(
+                request.id(),
+                new back.domain.gateway.client.rpc.dto.OpenClawRpcError(
+                        "UNAUTHORIZED",
+                        "invalid gateway token")));
+        OpenClawGatewayRpcClient client = newClient(transport);
+
+        // when & then
+        assertThatThrownBy(() -> client.connect(
+                        new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token")))
+                .isInstanceOf(OpenClawGatewayException.class)
+                .extracting("gatewayErrorCode")
+                .isEqualTo("UNAUTHORIZED");
+        assertThat(transport.isConnected()).isFalse();
 
         client.close();
     }
@@ -66,8 +104,9 @@ class OpenClawGatewayRpcClientTest {
         List<OpenClawAgentSummary> agents = client.listAgents();
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
-        assertThat(transport.sentRequests.getFirst().method()).isEqualTo("agents.list");
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        assertThat(businessRequests.getFirst().method()).isEqualTo("agents.list");
         assertThat(agents)
                 .containsExactly(
                         new OpenClawAgentSummary("agent-1", "Backend Agent"),
@@ -118,8 +157,9 @@ class OpenClawGatewayRpcClientTest {
                 client.createAgent(new OpenClawAgentCreateCommand("Backend Agent", "~/.openclaw/workspace-1", null));
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
-        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        OpenClawRpcRequest request = businessRequests.getFirst();
         assertThat(request.method()).isEqualTo("agents.create");
         assertThat(request.params()).containsEntry("name", "Backend Agent");
         assertThat(request.params()).containsEntry("workspace", "~/.openclaw/workspace-1");
@@ -161,8 +201,9 @@ class OpenClawGatewayRpcClientTest {
         client.setAgentFile(new OpenClawAgentFileCommand("openclaw-agent-1", "AGENTS.md", "You are a backend agent."));
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
-        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        OpenClawRpcRequest request = businessRequests.getFirst();
         assertThat(request.method()).isEqualTo("agents.files.set");
         assertThat(request.params()).containsEntry("agentId", "openclaw-agent-1");
         assertThat(request.params()).containsEntry("name", "AGENTS.md");
@@ -194,8 +235,9 @@ class OpenClawGatewayRpcClientTest {
                 "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
-        OpenClawRpcRequest request = transport.sentRequests.getFirst();
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        OpenClawRpcRequest request = businessRequests.getFirst();
         assertThat(request.method()).isEqualTo("chat.send");
         assertThat(request.params())
                 .containsEntry("sessionKey", "agent:openclaw-agent-1:workspace-1-execution-10")
@@ -241,8 +283,9 @@ class OpenClawGatewayRpcClientTest {
                 "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1"));
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
-        assertThat(transport.sentRequests.getFirst().method()).isEqualTo("chat.send");
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        assertThat(businessRequests.getFirst().method()).isEqualTo("chat.send");
         assertThat(result)
                 .isEqualTo(new OpenClawChatResult(
                         "agent:openclaw-agent-1:workspace-1-execution-10", "작업을 완료했습니다."));
@@ -322,7 +365,7 @@ class OpenClawGatewayRpcClientTest {
         OpenClawChatResult result = client.sendChat(command);
 
         // then
-        assertThat(transport.sentRequests).hasSize(1);
+        assertThat(businessRequests(transport)).hasSize(1);
         assertThat(result.finalText()).isEqualTo("첫 요청 완료");
 
         client.close();
@@ -389,6 +432,12 @@ class OpenClawGatewayRpcClientTest {
                 Duration.ofSeconds(1));
     }
 
+    private List<OpenClawRpcRequest> businessRequests(FakeGatewayTransport transport) {
+        return transport.sentRequests.stream()
+                .filter(request -> !"connect".equals(request.method()))
+                .toList();
+    }
+
     private static class FakeGatewayTransport implements OpenClawGatewayTransport {
 
         private OpenClawGatewayConnectionContext connectedContext;
@@ -396,6 +445,7 @@ class OpenClawGatewayRpcClientTest {
         private OpenClawGatewayEventHandler eventHandler;
         private Consumer<OpenClawGatewayException> failureHandler;
         private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
+        private boolean autoRespondToConnect = true;
         private Consumer<OpenClawRpcRequest> onSend = request -> {};
 
         @Override
@@ -413,6 +463,10 @@ class OpenClawGatewayRpcClientTest {
         @Override
         public void send(OpenClawRpcRequest request) {
             sentRequests.add(request);
+            if (autoRespondToConnect && "connect".equals(request.method())) {
+                respond(OpenClawRpcResponse.success(request.id(), Map.of()));
+                return;
+            }
             onSend.accept(request);
         }
 
