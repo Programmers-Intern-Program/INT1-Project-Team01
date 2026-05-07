@@ -1,7 +1,9 @@
 package back.domain.gateway.client.support;
 
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.rpc.OpenClawGatewayEventHandler;
 import back.domain.gateway.client.rpc.OpenClawRpcResponseHandler;
+import back.domain.gateway.client.rpc.dto.OpenClawGatewayEvent;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcRequest;
 import back.domain.gateway.client.rpc.dto.OpenClawRpcResponse;
 import back.domain.gateway.client.transport.OpenClawGatewayTransport;
@@ -14,6 +16,7 @@ public class MockOpenClawGatewayTransport implements OpenClawGatewayTransport {
 
     private OpenClawGatewayConnectionContext connectedContext;
     private OpenClawRpcResponseHandler responseHandler;
+    private OpenClawGatewayEventHandler eventHandler;
     private Consumer<OpenClawGatewayException> failureHandler;
     private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
     private Consumer<OpenClawRpcRequest> onSend = request -> {};
@@ -22,9 +25,11 @@ public class MockOpenClawGatewayTransport implements OpenClawGatewayTransport {
     public void connect(
             OpenClawGatewayConnectionContext context,
             OpenClawRpcResponseHandler responseHandler,
+            OpenClawGatewayEventHandler eventHandler,
             Consumer<OpenClawGatewayException> failureHandler) {
         this.connectedContext = context;
         this.responseHandler = responseHandler;
+        this.eventHandler = eventHandler;
         this.failureHandler = failureHandler;
     }
 
@@ -61,6 +66,11 @@ public class MockOpenClawGatewayTransport implements OpenClawGatewayTransport {
         responseHandler.handle(response);
     }
 
+    public void emit(OpenClawGatewayEvent event) {
+        requireConnected();
+        eventHandler.handle(event);
+    }
+
     public void disconnect() {
         requireConnected();
         connectedContext = null;
@@ -73,7 +83,7 @@ public class MockOpenClawGatewayTransport implements OpenClawGatewayTransport {
     }
 
     private void requireConnected() {
-        if (connectedContext == null || responseHandler == null || failureHandler == null) {
+        if (connectedContext == null || responseHandler == null || eventHandler == null || failureHandler == null) {
             throw new IllegalStateException("Mock OpenClaw Gateway transport is not connected");
         }
     }
