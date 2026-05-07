@@ -105,6 +105,19 @@ public class WorkspaceController implements WorkspaceControllerDocs {
         );
     }
 
+    // Workspace 삭제 (소프트 삭제)
+    @Override
+    @DeleteMapping("/{workspaceId}")
+    public ResponseEntity<RsData<Void>> deleteWorkspace(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
+            @PathVariable long workspaceId) {
+        long memberId = resolveAuthenticatedMemberId(authenticatedMember);
+        workspaceService.deleteWorkspace(workspaceId, memberId);
+        return ResponseEntity.ok(
+                new RsData<>("워크스페이스가 삭제되었습니다.")
+        );
+    }
+
     // Workspace 멤버 목록 조회
     @Override
     @GetMapping("/{workspaceId}/members")

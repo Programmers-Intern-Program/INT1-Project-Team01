@@ -96,6 +96,14 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return toWorkspaceResponse(workspace, workspaceMember.getRole());
     }
 
+    // Workspace 소프트 삭제 (Admin만 가능)
+    @Override
+    @Transactional
+    public void deleteWorkspace(long workspaceId, long memberId) {
+        WorkspaceMember requester = workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+        requester.getWorkspace().softDelete();
+    }
+
     // Workspace 멤버 조회
     @Override
     public List<WorkspaceMemberInfoRes> listMembers(long workspaceId, long memberId) {
@@ -369,12 +377,12 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     // 초대 토큰을 기반으로 수락 URL을 생성한다
     private String buildInviteUrl(String token) {
         String normalizedBaseUrl = inviteBaseUrl == null || inviteBaseUrl.isBlank()
-                ? "http://localhost:8080/api/v1/invites"
+                ? "http://localhost:3000/invites"
                 : inviteBaseUrl.trim();
         if (normalizedBaseUrl.endsWith("/")) {
-            return normalizedBaseUrl + token + "/accept";
+            return normalizedBaseUrl + token;
         }
-        return normalizedBaseUrl + "/" + token + "/accept";
+        return normalizedBaseUrl + "/" + token;
     }
 
     // 초대 목록 상태 필터를 파싱한다. null/blank면 PENDING을 기본값으로 사용한다
