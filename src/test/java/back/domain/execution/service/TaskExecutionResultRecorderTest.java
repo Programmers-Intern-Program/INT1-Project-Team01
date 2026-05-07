@@ -6,11 +6,11 @@ import static org.mockito.Mockito.verify;
 
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskArtifactSaveRequest;
-import back.domain.execution.entity.AgentReport;
-import back.domain.execution.entity.TaskArtifact;
+import back.domain.execution.entity.ExecutionAgentReport;
+import back.domain.execution.entity.ExecutionTaskArtifact;
 import back.domain.execution.entity.TaskExecution;
-import back.domain.execution.repository.AgentReportRepository;
-import back.domain.execution.repository.TaskArtifactRepository;
+import back.domain.execution.repository.ExecutionAgentReportRepository;
+import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.gateway.client.OpenClawChatResult;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,10 +30,10 @@ class TaskExecutionResultRecorderTest {
     private AgentExecutionResultParser agentExecutionResultParser;
 
     @Mock
-    private AgentReportRepository agentReportRepository;
+    private ExecutionAgentReportRepository agentReportRepository;
 
     @Mock
-    private TaskArtifactRepository taskArtifactRepository;
+    private ExecutionTaskArtifactRepository taskArtifactRepository;
 
     @InjectMocks
     private TaskExecutionResultRecorder recorder;
@@ -60,8 +60,8 @@ class TaskExecutionResultRecorderTest {
         recorder.recordResult(execution, result);
 
         // then
-        ArgumentCaptor<AgentReport> reportCaptor = ArgumentCaptor.forClass(AgentReport.class);
-        ArgumentCaptor<TaskArtifact> artifactCaptor = ArgumentCaptor.forClass(TaskArtifact.class);
+        ArgumentCaptor<ExecutionAgentReport> reportCaptor = ArgumentCaptor.forClass(ExecutionAgentReport.class);
+        ArgumentCaptor<ExecutionTaskArtifact> artifactCaptor = ArgumentCaptor.forClass(ExecutionTaskArtifact.class);
         verify(agentReportRepository).save(reportCaptor.capture());
         verify(taskArtifactRepository).save(artifactCaptor.capture());
         assertThat(reportCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
@@ -96,7 +96,7 @@ class TaskExecutionResultRecorderTest {
         recorder.recordFailure(execution);
 
         // then
-        ArgumentCaptor<AgentReport> reportCaptor = ArgumentCaptor.forClass(AgentReport.class);
+        ArgumentCaptor<ExecutionAgentReport> reportCaptor = ArgumentCaptor.forClass(ExecutionAgentReport.class);
         verify(agentReportRepository).save(reportCaptor.capture());
         assertThat(reportCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
         assertThat(reportCaptor.getValue().getStatus()).isEqualTo("FAILED");

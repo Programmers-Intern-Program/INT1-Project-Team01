@@ -15,12 +15,12 @@ import lombok.NoArgsConstructor;
         value = "CT_CONSTRUCTOR_THROW",
         justification = "JPA entity constructors validate domain invariants and this entity has no finalizer.")
 @Getter
-@Entity
+@Entity(name = "ExecutionTaskArtifact")
 @Table(
-        name = "task_artifacts",
-        indexes = @Index(name = "idx_task_artifacts_execution", columnList = "task_execution_id"))
+        name = "execution_task_artifacts",
+        indexes = @Index(name = "idx_execution_task_artifacts_execution", columnList = "task_execution_id"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class TaskArtifact extends BaseEntity {
+public class ExecutionTaskArtifact extends BaseEntity {
 
     @Column(name = "task_execution_id", nullable = false)
     private Long taskExecutionId;
@@ -34,18 +34,18 @@ public class TaskArtifact extends BaseEntity {
     @Column(length = 1000)
     private String url;
 
-    private TaskArtifact(Long taskExecutionId, TaskArtifactSaveRequest request) {
+    private ExecutionTaskArtifact(Long taskExecutionId, TaskArtifactSaveRequest request) {
         this.taskExecutionId = requireId(taskExecutionId, "taskExecutionId");
         this.artifactType = limitLength(request.artifactType(), 80);
         this.name = limitLength(request.name(), 200);
         this.url = limitLength(request.url(), 1000);
     }
 
-    public static TaskArtifact create(Long taskExecutionId, TaskArtifactSaveRequest request) {
+    public static ExecutionTaskArtifact create(Long taskExecutionId, TaskArtifactSaveRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("request must not be null");
         }
-        return new TaskArtifact(taskExecutionId, request);
+        return new ExecutionTaskArtifact(taskExecutionId, request);
     }
 
     private static Long requireId(Long value, String fieldName) {

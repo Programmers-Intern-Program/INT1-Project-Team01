@@ -15,14 +15,14 @@ import lombok.NoArgsConstructor;
         value = "CT_CONSTRUCTOR_THROW",
         justification = "JPA entity constructors validate domain invariants and this entity has no finalizer.")
 @Getter
-@Entity
+@Entity(name = "ExecutionAgentReport")
 @Table(
-        name = "agent_reports",
+        name = "execution_agent_reports",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_agent_report_task_execution", columnNames = "task_execution_id")
+                @UniqueConstraint(name = "uk_execution_agent_report_task_execution", columnNames = "task_execution_id")
         })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class AgentReport extends BaseEntity {
+public class ExecutionAgentReport extends BaseEntity {
 
     @Column(name = "task_execution_id", nullable = false)
     private Long taskExecutionId;
@@ -39,7 +39,7 @@ public class AgentReport extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String recommendedAction;
 
-    private AgentReport(Long taskExecutionId, AgentReportSaveRequest request) {
+    private ExecutionAgentReport(Long taskExecutionId, AgentReportSaveRequest request) {
         this.taskExecutionId = requireId(taskExecutionId, "taskExecutionId");
         this.status = limitLength(request.status(), 30);
         this.summary = limitLength(request.summary(), 500);
@@ -47,11 +47,11 @@ public class AgentReport extends BaseEntity {
         this.recommendedAction = request.recommendedAction();
     }
 
-    public static AgentReport create(Long taskExecutionId, AgentReportSaveRequest request) {
+    public static ExecutionAgentReport create(Long taskExecutionId, AgentReportSaveRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("request must not be null");
         }
-        return new AgentReport(taskExecutionId, request);
+        return new ExecutionAgentReport(taskExecutionId, request);
     }
 
     private static Long requireId(Long value, String fieldName) {

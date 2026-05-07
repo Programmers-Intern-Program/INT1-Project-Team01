@@ -1,11 +1,11 @@
 package back.domain.execution.service;
 
 import back.domain.execution.dto.request.AgentReportSaveRequest;
-import back.domain.execution.entity.AgentReport;
-import back.domain.execution.entity.TaskArtifact;
+import back.domain.execution.entity.ExecutionAgentReport;
+import back.domain.execution.entity.ExecutionTaskArtifact;
 import back.domain.execution.entity.TaskExecution;
-import back.domain.execution.repository.AgentReportRepository;
-import back.domain.execution.repository.TaskArtifactRepository;
+import back.domain.execution.repository.ExecutionAgentReportRepository;
+import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.gateway.client.OpenClawChatResult;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +19,8 @@ public class TaskExecutionResultRecorder {
     private static final String FAILED_SUMMARY = "Agent 실행에 실패했습니다.";
 
     private final AgentExecutionResultParser agentExecutionResultParser;
-    private final AgentReportRepository agentReportRepository;
-    private final TaskArtifactRepository taskArtifactRepository;
+    private final ExecutionAgentReportRepository agentReportRepository;
+    private final ExecutionTaskArtifactRepository taskArtifactRepository;
 
     public AgentExecutionResult parse(OpenClawChatResult chatResult) {
         Objects.requireNonNull(chatResult);
@@ -30,15 +30,15 @@ public class TaskExecutionResultRecorder {
     public void recordResult(TaskExecution execution, AgentExecutionResult result) {
         Objects.requireNonNull(execution);
         Objects.requireNonNull(result);
-        agentReportRepository.save(AgentReport.create(execution.getId(), result.report()));
+        agentReportRepository.save(ExecutionAgentReport.create(execution.getId(), result.report()));
         result.artifacts().stream()
-                .map(artifact -> TaskArtifact.create(execution.getId(), artifact))
+                .map(artifact -> ExecutionTaskArtifact.create(execution.getId(), artifact))
                 .forEach(taskArtifactRepository::save);
     }
 
     public void recordFailure(TaskExecution execution) {
         Objects.requireNonNull(execution);
-        agentReportRepository.save(AgentReport.create(
+        agentReportRepository.save(ExecutionAgentReport.create(
                 execution.getId(),
                 new AgentReportSaveRequest(
                         FAILED_STATUS,
