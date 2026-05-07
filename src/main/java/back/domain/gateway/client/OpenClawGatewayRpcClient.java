@@ -31,8 +31,11 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
+    private static final String CONNECT_METHOD = "connect";
     private static final String CHAT_SEND_METHOD = "chat.send";
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
+    private static final int PROTOCOL_MIN = 3;
+    private static final int PROTOCOL_MAX = 3;
 
     private final OpenClawGatewayTransport transport;
     private final OpenClawPendingRequests pendingRequests;
@@ -87,6 +90,12 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     @Override
     public void connect(OpenClawGatewayConnectionContext context) {
         transport.connect(context, this::handleResponse, this::handleEvent, this::handleFailure);
+        try {
+            sendConnect(context);
+        } catch (RuntimeException exception) {
+            transport.close();
+            throw exception;
+        }
     }
 
     @Override
@@ -202,6 +211,30 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             pendingRequests.cancel(requestId);
             throw OpenClawGatewayException.sendFailed(method, requestId, exception);
         }
+    }
+
+    private void sendConnect(OpenClawGatewayConnectionContext context) {
+        sendRpc(CONNECT_METHOD, connectParams(context));
+    }
+
+    private Map<String, Object> connectParams(OpenClawGatewayConnectionContext context) {
+        return Map.of(
+                "minProtocol",
+                PROTOCOL_MIN,
+                "maxProtocol",
+                PROTOCOL_MAX,
+                "client",
+                Map.of(
+                        "id", "gateway-client",
+                        "version", "1.0.0",
+                        "platform", "java",
+                        "mode", "backend"),
+                "role",
+                "operator",
+                "scopes",
+                List.of("operator.read", "operator.write", "operator.admin"),
+                "auth",
+                Map.of("token", context.token()));
     }
 
     private void handleResponse(OpenClawRpcResponse response) {
