@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
 import back.domain.execution.entity.TaskExecution;
@@ -66,6 +68,9 @@ class TaskExecutionRunnerImplTest {
     @Mock
     private OpenClawGatewayClient openClawGatewayClient;
 
+    @Mock
+    private TaskExecutionResultRecorder taskExecutionResultRecorder;
+
     @InjectMocks
     private TaskExecutionRunnerImpl taskExecutionRunner;
 
@@ -107,15 +112,19 @@ class TaskExecutionRunnerImplTest {
         // given
         TaskExecutionRunCommand command =
                 new TaskExecutionRunCommand(1L, 50L, 9L, "회원가입 API를 리뷰해줘", true);
+        OpenClawChatResult chatResult =
+                new OpenClawChatResult("agent:openclaw-agent-1:workspace-1-execution-200", "작업을 완료했습니다.");
+        AgentExecutionResult agentResult = new AgentExecutionResult(
+                new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
+                null);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentStatus.READY))
                 .willReturn(Optional.of(readyAgent));
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
-        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
-                .willReturn(new OpenClawChatResult(
-                        "agent:openclaw-agent-1:workspace-1-execution-200", "작업을 완료했습니다."));
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class))).willReturn(chatResult);
+        given(taskExecutionResultRecorder.parse(chatResult)).willReturn(agentResult);
 
         // when
         TaskExecutionRunResult result = taskExecutionRunner.run(command);
@@ -138,8 +147,39 @@ class TaskExecutionRunnerImplTest {
                 .contains("taskExecutionId: 200")
                 .contains("workdirPath: /tmp/aioffice/workspaces/1/executions/200/repo")
                 .contains("createPr: true")
+                .contains("Final report must be a JSON object.")
+                .contains("Allowed status values: COMPLETED, FAILED, CANCELED.")
                 .contains("회원가입 API를 리뷰해줘")
                 .doesNotContain("gateway-secret-token");
+        verify(taskExecutionResultRecorder).recordResult(any(TaskExecution.class), eq(agentResult));
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Agent final report가 FAILED이면 chat.send 성공 후에도 TaskExecution을 FAILED로 저장한다")
+    void run_agentReportFailed_marksFailed() {
+        // given
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, "작업 실행", false);
+        OpenClawChatResult chatResult = new OpenClawChatResult("session-1", "final report");
+        AgentExecutionResult agentResult = new AgentExecutionResult(
+                new AgentReportSaveRequest("FAILED", "작업 실패", "테스트 실패", "테스트 로그를 확인하세요."),
+                null);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentStatus.READY))
+                .willReturn(Optional.of(readyAgent));
+        given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class))).willReturn(chatResult);
+        given(taskExecutionResultRecorder.parse(chatResult)).willReturn(agentResult);
+
+        // when
+        TaskExecutionRunResult result = taskExecutionRunner.run(command);
+
+        // then
+        assertThat(result.status()).isEqualTo(TaskExecutionStatus.FAILED);
+        assertThat(result.failureReason()).isEqualTo("테스트 실패");
+        verify(taskExecutionResultRecorder).recordResult(any(TaskExecution.class), eq(agentResult));
         verify(openClawGatewayClient).close();
     }
 
@@ -180,6 +220,7 @@ class TaskExecutionRunnerImplTest {
         // then
         assertThat(result.status()).isEqualTo(TaskExecutionStatus.FAILED);
         assertThat(result.failureReason()).isEqualTo("워크스페이스 Gateway 설정이 없습니다.");
+        verify(taskExecutionResultRecorder).recordFailure(any(TaskExecution.class));
         verify(openClawGatewayClientFactory, never()).create();
     }
 
@@ -203,6 +244,7 @@ class TaskExecutionRunnerImplTest {
         // then
         assertThat(result.status()).isEqualTo(TaskExecutionStatus.FAILED);
         assertThat(result.failureReason()).isEqualTo("OpenClaw Gateway 요청 시간이 초과되었습니다.");
+        verify(taskExecutionResultRecorder).recordFailure(any(TaskExecution.class));
         verify(openClawGatewayClient).close();
     }
 }
