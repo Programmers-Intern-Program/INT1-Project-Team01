@@ -1,5 +1,7 @@
 package back.domain.workspace.entity;
 
+import java.time.LocalDateTime;
+
 import back.domain.member.entity.Member;
 import back.global.jpa.entity.BaseEntity;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -13,6 +15,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLRestriction;
 
 @SuppressFBWarnings(
         value = {"EI_EXPOSE_REP", "CT_CONSTRUCTOR_THROW"},
@@ -21,6 +24,7 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "workspaces")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@SQLRestriction("deleted_at IS NULL")
 public class Workspace extends BaseEntity {
 
     @Column(name = "name", nullable = false, length = 100)
@@ -32,6 +36,9 @@ public class Workspace extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_member_id", nullable = false)
     private Member createdByMember;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     private Workspace(String name, String description, Member createdByMember) {
         this.name = requireNotBlank(name, "name");
@@ -48,6 +55,12 @@ public class Workspace extends BaseEntity {
             this.name = requireNotBlank(name, "name");
         }
         this.description = normalizeDescription(description);
+    }
+
+    public void softDelete() {
+        if (this.deletedAt == null) {
+            this.deletedAt = LocalDateTime.now();
+        }
     }
 
     private static Member requireMember(Member member) {

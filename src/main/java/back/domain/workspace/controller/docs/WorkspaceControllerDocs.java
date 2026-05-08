@@ -250,6 +250,42 @@ public interface WorkspaceControllerDocs {
                     """)))
             @Valid UpdateWorkspaceReq request);
 
+    @Operation(summary = "워크스페이스 삭제", description = "워크스페이스를 소프트 삭제합니다. ADMIN 역할만 가능하며, 삭제 후에는 모든 조회에서 제외됩니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "워크스페이스 삭제 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스가 삭제되었습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"로그인이 필요합니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "ADMIN 권한 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스 관리자 권한이 필요합니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "워크스페이스를 찾을 수 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
+    })
+    ResponseEntity<RsData<Void>> deleteWorkspace(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
+
     @Operation(summary = "워크스페이스 멤버 목록 조회", description = "워크스페이스에 속한 모든 멤버 목록을 조회합니다. 워크스페이스 멤버만 조회할 수 있습니다.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({

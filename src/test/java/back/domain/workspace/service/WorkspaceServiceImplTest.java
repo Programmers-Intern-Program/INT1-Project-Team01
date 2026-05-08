@@ -79,6 +79,7 @@ class WorkspaceServiceImplTest {
                 workspaceInviteRepository,
                 inviteEmailService,
                 workspaceAccessValidator);
+        ReflectionTestUtils.setField(workspaceService, "inviteBaseUrl", "http://localhost:8080/api/v1/invites");
     }
 
     @Test
@@ -190,6 +191,46 @@ class WorkspaceServiceImplTest {
 
         // when & then
         assertThatThrownBy(() -> workspaceService.updateWorkspace(1L, 1L, new UpdateWorkspaceReq("이름", null)))
+                .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
+    @DisplayName("워크스페이스 삭제 성공 - 소프트 삭제")
+    void deleteWorkspace_success() {
+        // given
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+
+        // when
+        workspaceService.deleteWorkspace(1L, 1L);
+
+        // then
+        assertThat(workspace.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("워크스페이스 삭제 실패 - 관리자 아님")
+    void deleteWorkspace_notAdmin_throwsException() {
+        // given
+        WorkspaceMember memberRole = WorkspaceMember.create(workspace, member, WorkspaceMemberRole.MEMBER);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L)).willReturn(Optional.of(memberRole));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.deleteWorkspace(1L, 1L))
+                .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
+    @DisplayName("워크스페이스 삭제 실패 - 워크스페이스 없음")
+    void deleteWorkspace_workspaceNotFound_throwsException() {
+        // given
+        given(workspaceRepository.findById(1L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.deleteWorkspace(1L, 1L))
                 .isInstanceOf(ServiceException.class);
     }
 

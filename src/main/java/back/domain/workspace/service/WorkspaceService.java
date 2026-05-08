@@ -59,6 +59,16 @@ public interface WorkspaceService {
     WorkspaceInfoRes updateWorkspace(long workspaceId, long memberId, UpdateWorkspaceReq request);
 
     /**
+     * 워크스페이스를 소프트 삭제합니다. 삭제된 워크스페이스는 모든 조회에서 제외됩니다.
+     *
+     * @param workspaceId 삭제할 워크스페이스 ID
+     * @param memberId    요청자의 회원 ID
+     * @throws ServiceException 워크스페이스가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 ADMIN이 아닌 경우 (FORBIDDEN)
+     */
+    void deleteWorkspace(long workspaceId, long memberId);
+
+    /**
      * 워크스페이스에 속한 멤버 목록을 반환합니다.
      *
      * @param workspaceId 조회할 워크스페이스 ID
