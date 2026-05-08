@@ -6,6 +6,7 @@ import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.repository.WorkspaceRepository;
+import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -18,13 +19,13 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
 
     private final SlackIntegrationRepository slackIntegrationRepository;
     private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceAccessValidator workspaceAccessValidator;
 
     @Override
     @Transactional
     public SlackIntegrationInfoRes createSlackIntegration(Long workspaceId, Long memberId, SlackIntegrationCreateReq req) {
 
-        // TODO: Workspace 검증 로직 호출 (ADMIN인지 확인) [IT-9]
-        // 예: workspaceValidator.checkAdminPermission(workspaceId, memberId);
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         Workspace workspace = workspaceRepository.findById(workspaceId)
                 .orElseThrow(() -> new ServiceException(
