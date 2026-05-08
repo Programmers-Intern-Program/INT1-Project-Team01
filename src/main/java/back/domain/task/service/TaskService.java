@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import back.domain.execution.entity.ExecutionAgentReport;
+import back.domain.execution.entity.ExecutionTaskArtifact;
 import back.domain.execution.entity.TaskExecution;
 import back.domain.execution.repository.ExecutionAgentReportRepository;
 import back.domain.execution.repository.ExecutionTaskArtifactRepository;
@@ -22,13 +23,16 @@ import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
+import back.domain.task.dto.response.TaskMessageResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskMessage;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
 import back.domain.task.repository.TaskExecutionLogRepository;
+import back.domain.task.repository.TaskMessageRepository;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
 import back.domain.task.entity.TaskArtifact;
@@ -49,6 +53,7 @@ public class TaskService {
     private final TaskExecutionLogRepository taskExecutionLogRepository;
     private final AgentReportRepository agentReportRepository;
     private final TaskArtifactRepository taskArtifactRepository;
+    private final TaskMessageRepository taskMessageRepository;
     private final WorkspaceRepository workspaceRepository;
 
     @Transactional
@@ -132,6 +137,24 @@ public class TaskService {
         return getLegacyTaskReports(taskId);
     }
 
+    public List<TaskMessageResponse> getTaskMessages(Long workspaceId, Long taskId) {
+        getTaskOrThrow(workspaceId, taskId);
+
+        List<TaskMessage> messages =
+                taskMessageRepository.findByWorkspaceIdAndTaskIdOrderByCreatedAtAscIdAsc(workspaceId, taskId);
+        if (messages.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, List<TaskArtifactResponse>> artifactsByExecutionId = getArtifactsByExecutionId(messages);
+        return messages.stream()
+                .map(message -> TaskMessageResponse.of(
+                        message,
+                        artifactsByExecutionId.getOrDefault(message.getTaskExecutionId(), List.of())
+                ))
+                .toList();
+    }
+
     private List<AgentReportResponse> getLatestExecutionReports(Long taskId, TaskExecution latestExecution) {
         return executionAgentReportRepository.findByTaskExecutionId(latestExecution.getId())
                 .map(report -> List.of(toAgentReportResponse(taskId, latestExecution, report)))
@@ -175,6 +198,24 @@ public class TaskService {
                         artifactsByReportId.getOrDefault(report.getId(), List.of())
                 ))
                 .toList();
+    }
+
+    private Map<Long, List<TaskArtifactResponse>> getArtifactsByExecutionId(List<TaskMessage> messages) {
+        List<Long> executionIds = messages.stream()
+                .map(TaskMessage::getTaskExecutionId)
+                .filter(taskExecutionId -> taskExecutionId != null)
+                .distinct()
+                .toList();
+        if (executionIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return executionTaskArtifactRepository.findAllByTaskExecutionIdInOrderByTaskExecutionIdAscIdAsc(executionIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        ExecutionTaskArtifact::getTaskExecutionId,
+                        Collectors.mapping(TaskArtifactResponse::from, Collectors.toList())
+                ));
     }
 
     private Task getTaskOrThrow(Long workspaceId, Long taskId) {

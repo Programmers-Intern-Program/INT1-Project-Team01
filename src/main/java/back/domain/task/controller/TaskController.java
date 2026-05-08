@@ -15,6 +15,7 @@ import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
+import back.domain.task.dto.response.TaskMessageResponse;
 import back.domain.task.dto.response.TaskRunResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.service.TaskRunService;
@@ -68,5 +69,11 @@ public class TaskController {
     public ResponseEntity<List<AgentReportResponse>> getTaskReports(
             @PathVariable Long workspaceId, @PathVariable Long taskId) {
         return ResponseEntity.ok(taskService.getTaskReports(workspaceId, taskId));
+    }
+
+    @GetMapping("/{taskId}/messages")
+    public ResponseEntity<List<TaskMessageResponse>> getTaskMessages(
+            @PathVariable Long workspaceId, @PathVariable Long taskId) {
+        return ResponseEntity.ok(taskService.getTaskMessages(workspaceId, taskId));
     }
 }

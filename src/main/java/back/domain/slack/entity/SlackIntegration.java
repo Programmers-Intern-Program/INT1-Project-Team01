@@ -32,6 +32,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SlackIntegration extends BaseEntity {
 
+    // TODO: [IT-9] 설계 문서 상 ID 참조를 해야 함. 수정 필요
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "workspace_id", nullable = false)
     private Workspace workspace;

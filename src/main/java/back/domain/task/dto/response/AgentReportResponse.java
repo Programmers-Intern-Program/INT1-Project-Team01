@@ -6,7 +6,6 @@ import back.domain.task.entity.TaskStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Locale;
 
 public record AgentReportResponse(
         Long reportId,
@@ -47,27 +46,12 @@ public record AgentReportResponse(
         return new AgentReportResponse(
                 report.getId(),
                 taskId,
-                toTaskStatus(report.getStatus()),
+                TaskResponseStatusMapper.fromAgentStatus(report.getStatus()),
                 report.getSummary(),
                 report.getDetail(),
                 report.getRecommendedAction(),
                 artifacts,
                 report.getCreatedAt()
         );
-    }
-
-    private static TaskStatus toTaskStatus(String value) {
-        if (value == null || value.isBlank()) {
-            return TaskStatus.FAILED;
-        }
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        if ("SUCCEEDED".equals(normalized) || "SUCCESS".equals(normalized) || "DONE".equals(normalized)) {
-            return TaskStatus.COMPLETED;
-        }
-        try {
-            return TaskStatus.valueOf(normalized);
-        } catch (IllegalArgumentException exception) {
-            return TaskStatus.FAILED;
-        }
     }
 }

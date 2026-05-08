@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ExecutionTaskArtifactRepository extends JpaRepository<ExecutionTaskArtifact, Long> {
 
     List<ExecutionTaskArtifact> findAllByTaskExecutionIdOrderByIdAsc(Long taskExecutionId);
+
+    List<ExecutionTaskArtifact> findAllByTaskExecutionIdInOrderByTaskExecutionIdAscIdAsc(List<Long> taskExecutionIds);
 }
