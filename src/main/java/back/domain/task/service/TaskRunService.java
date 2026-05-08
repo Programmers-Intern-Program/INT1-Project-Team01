@@ -9,7 +9,9 @@ import back.domain.execution.service.TaskExecutionRunner;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.response.TaskRunResponse;
 import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskMessage;
 import back.domain.task.entity.TaskStatus;
+import back.domain.task.repository.TaskMessageRepository;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.exception.CommonErrorCode;
@@ -23,13 +25,28 @@ import lombok.extern.slf4j.Slf4j;
 public class TaskRunService {
 
     private final TaskRepository taskRepository;
+    private final TaskMessageRepository taskMessageRepository;
     private final WorkspaceRepository workspaceRepository;
     private final TaskExecutionRunner taskExecutionRunner;
 
     public TaskRunResponse createAndRunTask(Long workspaceId, TaskRunRequest request) {
         validateWorkspaceExists(workspaceId);
         Task task = createInProgressTask(workspaceId, request);
+        return runTask(task, request.shouldCreatePr());
+    }
 
+    public TaskRunResponse createTaskForRun(Long workspaceId, TaskRunRequest request) {
+        validateWorkspaceExists(workspaceId);
+        Task task = createInProgressTask(workspaceId, request);
+        return TaskRunResponse.accepted(task);
+    }
+
+    public TaskRunResponse runTask(Long workspaceId, Long taskId, boolean createPr) {
+        Task task = getTaskOrThrow(workspaceId, taskId);
+        return runTask(task, createPr);
+    }
+
+    private TaskRunResponse runTask(Task task, boolean createPr) {
         TaskExecutionRunResult executionResult;
         try {
             executionResult = taskExecutionRunner.run(new TaskExecutionRunCommand(
@@ -38,7 +55,7 @@ public class TaskRunService {
                     task.getAssignedAgentId(),
                     task.getRepositoryId(),
                     resolveExecutionPrompt(task),
-                    request.shouldCreatePr()));
+                    createPr));
         } catch (RuntimeException exception) {
             markTaskFailedBestEffort(task.getWorkspaceId(), task.getId(), exception);
             throw exception;
@@ -62,7 +79,12 @@ public class TaskRunService {
                 request.sourceId(),
                 request.originalRequest());
         task.updateStatus(TaskStatus.IN_PROGRESS);
-        return taskRepository.save(task);
+        Task savedTask = taskRepository.save(task);
+        taskMessageRepository.save(TaskMessage.userRequest(
+                savedTask.getWorkspaceId(),
+                savedTask.getId(),
+                resolveExecutionPrompt(savedTask)));
+        return savedTask;
     }
 
     private Task markTaskStatus(Long workspaceId, Long taskId, TaskStatus taskStatus) {

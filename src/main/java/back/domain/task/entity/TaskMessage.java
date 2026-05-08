@@ -93,6 +93,19 @@ public class TaskMessage extends BaseEntity {
                 recommendedAction);
     }
 
+    public static TaskMessage userRequest(Long workspaceId, Long taskId, String content) {
+        return new TaskMessage(
+                workspaceId,
+                taskId,
+                null,
+                TaskMessageRole.USER,
+                null,
+                content,
+                null,
+                null,
+                null);
+    }
+
     private static Long requireId(Long value, String fieldName) {
         if (value == null || value <= 0) {
             throw new IllegalArgumentException(fieldName + " must be positive");
