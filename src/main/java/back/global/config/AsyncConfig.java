@@ -59,4 +59,23 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "taskExecutionTaskExecutor")
+    public Executor taskExecutionTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("task-execution-async-");
+        executor.setRejectedExecutionHandler((runnable, poolExecutor) ->
+                log.warn(
+                        "[AsyncConfig#taskExecutionTaskExecutor] 작업 실행 큐가 포화되어 요청이 거절되었습니다. "
+                                + "activeCount={}, queueSize={}",
+                        poolExecutor.getActiveCount(),
+                        poolExecutor.getQueue().size()));
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }
