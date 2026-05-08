@@ -82,13 +82,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 CommonErrorCode.NOT_FOUND,
                 "[TaskExecutionRunnerImpl#createQueuedExecution] workspace not found",
                 "워크스페이스가 존재하지 않습니다."));
-        Agent agent = agentRepository
-                .findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
-                        command.workspaceId(), AgentStatus.READY)
-                .orElseThrow(() -> new ServiceException(
-                        CommonErrorCode.NOT_FOUND,
-                        "[TaskExecutionRunnerImpl#createQueuedExecution] ready agent not found",
-                        "실행 가능한 READY Agent가 없습니다."));
+        Agent agent = resolveExecutionAgent(command);
 
         TaskExecution execution = taskExecutionRepository.save(TaskExecution.queued(
                 command.workspaceId(),
@@ -99,6 +93,48 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 resolveBranchName(command)));
         execution.assignRuntimeContext(resolveWorkdirPath(execution), resolveSessionKey(execution));
         return taskExecutionRepository.save(execution);
+    }
+
+    private Agent resolveExecutionAgent(TaskExecutionRunCommand command) {
+        if (command.assignedAgentId() != null) {
+            return resolveAssignedAgent(command.workspaceId(), command.assignedAgentId());
+        }
+        return agentRepository
+                .findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        command.workspaceId(), AgentStatus.READY)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[TaskExecutionRunnerImpl#resolveExecutionAgent] ready agent not found",
+                        "실행 가능한 READY Agent가 없습니다."));
+    }
+
+    private Agent resolveAssignedAgent(Long workspaceId, Long assignedAgentId) {
+        Agent agent = agentRepository
+                .findByIdAndWorkspaceId(assignedAgentId, workspaceId)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[TaskExecutionRunnerImpl#resolveAssignedAgent] assigned agent not found. "
+                                + "workspaceId=" + workspaceId + ", agentId=" + assignedAgentId,
+                        "선택한 Agent를 찾을 수 없습니다."));
+        validateExecutableAgent(agent);
+        return agent;
+    }
+
+    private void validateExecutableAgent(Agent agent) {
+        if (agent.getStatus() != AgentStatus.READY) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST_STATE,
+                    "[TaskExecutionRunnerImpl#validateExecutableAgent] assigned agent is not READY. "
+                            + "agentId=" + agent.getId() + ", status=" + agent.getStatus(),
+                    "선택한 Agent가 READY 상태가 아닙니다.");
+        }
+        if (agent.getOpenClawAgentId() == null || agent.getOpenClawAgentId().isBlank()) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST_STATE,
+                    "[TaskExecutionRunnerImpl#validateExecutableAgent] assigned agent has no OpenClaw agent id. "
+                            + "agentId=" + agent.getId(),
+                    "선택한 Agent가 OpenClaw Agent와 동기화되지 않았습니다.");
+        }
     }
 
     private void markRunning(TaskExecution execution) {
