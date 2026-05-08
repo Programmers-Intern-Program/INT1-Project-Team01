@@ -368,6 +368,11 @@ class TaskServiceTest {
         assertThat(command.repositoryId()).isEqualTo(3L);
         assertThat(command.prompt()).isEqualTo("이 PR 리뷰해줘");
         assertThat(command.createPr()).isTrue();
+
+        List<TaskMessageResponse> messages = taskService.getTaskMessages(workspaceId, response.taskId());
+        assertThat(messages).hasSize(1);
+        assertThat(messages.getFirst().role()).isEqualTo(TaskMessageRole.USER);
+        assertThat(messages.getFirst().content()).isEqualTo("이 PR 리뷰해줘");
     }
 
     @Test
