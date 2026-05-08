@@ -67,12 +67,7 @@ public class AsyncConfig {
         executor.setMaxPoolSize(10);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("task-execution-async-");
-        executor.setRejectedExecutionHandler((runnable, poolExecutor) ->
-                log.warn(
-                        "[AsyncConfig#taskExecutionTaskExecutor] 작업 실행 큐가 포화되어 요청이 거절되었습니다. "
-                                + "activeCount={}, queueSize={}",
-                        poolExecutor.getActiveCount(),
-                        poolExecutor.getQueue().size()));
+        // 기본 AbortPolicy를 사용해 큐 포화 시 @Async 호출자에게 TaskRejectedException을 전파한다.
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
         executor.initialize();
