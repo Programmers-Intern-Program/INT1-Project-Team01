@@ -4,6 +4,7 @@ import back.domain.slack.dto.request.SlackMessageReq;
 import back.domain.slack.dto.response.SlackMessageRes;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -13,6 +14,10 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@SuppressFBWarnings(
+        value = "EI_EXPOSE_REP2",
+        justification = "RestClient는 Spring이 관리하는 스레드 안전 객체이며 불변으로 사용되므로 내부 표현 노출 위험이 없음"
+)
 public class SlackClientImpl implements SlackClient {
 
     private final RestClient restClient;
