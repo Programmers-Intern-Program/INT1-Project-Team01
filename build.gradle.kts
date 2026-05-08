@@ -110,6 +110,7 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 			element = "CLASS"
 			excludes = listOf(
 				"**.dto.**",               // dto 패키지 안에 있는 모든 클래스 제외
+				"**.enum.**",              // enum 패키지 안에 있는 모든 클래스 제외
 				"**.config.**",            // config 패키지 안에 있는 모든 클래스 제외
 				"**.*Application*",        // 메인 실행 클래스 제외
 				"**.global.exception.*",   // CommonErrorCode, ServiceException, ErrorCode
@@ -117,6 +118,7 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 				"**.global.response.*",    // RsData
 				"**.entity.*",             // Member 등 엔티티
 				"**.util.*",               // Ut.Json 등 유틸
+				"**.event.*Event"          // Event 객체 제외 (이벤트 관련 DTO)
 			)
 			limit {
 				counter = "LINE"

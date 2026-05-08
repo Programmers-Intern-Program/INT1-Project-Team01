@@ -60,7 +60,7 @@ class SlackEventServiceImplTest {
 
     private SlackEventReq buildRequest(String eventId, String teamId, String channelId) {
         SlackEventReq.SlackEventDetail event = new SlackEventReq.SlackEventDetail(
-                "app_mention", channelId, null, "안녕!", null);
+                "app_mention", channelId, null, "안녕!", null, null);
         return new SlackEventReq("event_callback", null, teamId, eventId, event);
     }
 
