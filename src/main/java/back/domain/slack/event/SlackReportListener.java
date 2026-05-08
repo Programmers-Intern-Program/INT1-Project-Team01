@@ -58,6 +58,7 @@ public class SlackReportListener {
             String channelId = refParts[1];
             String threadTs = refParts[2];
 
+            // Slack 앱은 워크스페이스(team) 단위로 설치되므로 동일 teamId 내에서는 채널이 달라도 botToken이 동일해 조회시 channelId 사용이 불필요
             SlackIntegration integration = integrationRepository.findFirstBySlackTeamId(teamId)
                     .orElseThrow(() -> new ServiceException(
                             CommonErrorCode.NOT_FOUND,
