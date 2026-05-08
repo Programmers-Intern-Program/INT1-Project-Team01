@@ -4,9 +4,7 @@ import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
-import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.entity.WorkspaceMember;
-import back.domain.workspace.repository.WorkspaceRepository;
 import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
@@ -18,8 +16,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,20 +30,15 @@ class SlackIntegrationServiceImplTest {
     private SlackIntegrationRepository slackIntegrationRepository;
 
     @Mock
-    private WorkspaceRepository workspaceRepository;
-
-    @Mock
-    private WorkspaceAccessValidator workspaceAccessValidator;
+    private WorkspaceAccessValidator workspaceAccessValidator; // workspaceRepository mock 삭제됨
 
     @InjectMocks
     private SlackIntegrationServiceImpl slackIntegrationService;
 
-    private Workspace workspace;
     private WorkspaceMember workspaceMember;
 
     @BeforeEach
     void setUp() {
-        workspace = Mockito.mock(Workspace.class);
         workspaceMember = Mockito.mock(WorkspaceMember.class);
     }
 
@@ -62,7 +53,7 @@ class SlackIntegrationServiceImplTest {
         );
 
         SlackIntegration mockEntity = SlackIntegration.builder()
-                .workspace(workspace)
+                .workspaceId(workspaceId)
                 .slackTeamId(req.slackTeamId())
                 .slackChannelId(req.slackChannelId())
                 .botToken(req.botToken())
@@ -71,7 +62,6 @@ class SlackIntegrationServiceImplTest {
                 .build();
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
         given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId()))
                 .willReturn(false);
         given(slackIntegrationRepository.save(any(SlackIntegration.class)))
@@ -84,7 +74,7 @@ class SlackIntegrationServiceImplTest {
         assertThat(res).isNotNull();
         assertThat(res.slackTeamId()).isEqualTo("T12345");
         assertThat(res.maskedBotToken()).isEqualTo("xoxb-****test");
-        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId); // 호출되었는지 검증
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
         verify(slackIntegrationRepository).save(any(SlackIntegration.class));
     }
 
@@ -137,7 +127,6 @@ class SlackIntegrationServiceImplTest {
         );
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
         given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId()))
                 .willReturn(true);
 

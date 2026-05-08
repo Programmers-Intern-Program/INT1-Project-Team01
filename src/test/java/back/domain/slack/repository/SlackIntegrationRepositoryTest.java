@@ -53,7 +53,7 @@ class SlackIntegrationRepositoryTest {
         String plainSigningSecret = "real-signing-secret";
 
         SlackIntegration integration = SlackIntegration.builder()
-                .workspace(workspace)
+                .workspaceId(workspace.getId())
                 .slackTeamId("T12345")
                 .slackChannelId("C12345")
                 .botToken(plainBotToken)
@@ -64,10 +64,10 @@ class SlackIntegrationRepositoryTest {
         // when
         SlackIntegration savedIntegration = repository.saveAndFlush(integration);
 
-        // then 1
+        // then 1: 애플리케이션 레이어에서는 복호화된 평문으로 조회됨
         assertThat(savedIntegration.getBotToken()).isEqualTo(plainBotToken);
 
-        // then 2
+        // then 2: 실제 DB(JdbcTemplate 사용)에는 암호화된 문자열이 저장됨
         String rawDbToken = jdbcTemplate.queryForObject(
                 "SELECT bot_token_encrypted FROM slack_integrations WHERE id = ?",
                 String.class,
