@@ -11,10 +11,12 @@ import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 @Slf4j
 @Component
@@ -26,8 +28,8 @@ public class SlackReportListener {
     private final SlackClient slackClient;
 
     @Async("slackEventTaskExecutor")
-    @EventListener
-    @Transactional(readOnly = true)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public void onOrchestratorSessionFinished(OrchestratorSessionFinishedEvent event) {
         log.info("오케스트레이터 세션 완료 이벤트 수신. Slack 보고 준비. sessionId: {}", event.sessionId());
 
