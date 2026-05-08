@@ -42,6 +42,7 @@ import back.domain.task.dto.response.TaskCreateResponse;
 import back.domain.task.dto.response.TaskDetailResponse;
 import back.domain.task.dto.response.TaskListResponse;
 import back.domain.task.dto.response.TaskLogResponse;
+import back.domain.task.dto.response.TaskMessageResponse;
 import back.domain.task.dto.response.AgentReportResponse;
 import back.domain.task.dto.response.TaskRunResponse;
 import back.domain.task.dto.response.TaskStatusUpdateResponse;
@@ -50,11 +51,14 @@ import back.domain.task.entity.AgentReport;
 import back.domain.task.entity.ArtifactType;
 import back.domain.task.entity.SourceType;
 import back.domain.task.entity.TaskArtifact;
+import back.domain.task.entity.TaskMessage;
+import back.domain.task.entity.TaskMessageRole;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.entity.TaskType;
 import back.domain.task.repository.AgentReportRepository;
 import back.domain.task.repository.TaskArtifactRepository;
+import back.domain.task.repository.TaskMessageRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.repository.WorkspaceRepository;
 
@@ -88,6 +92,9 @@ class TaskServiceTest {
 
     @Autowired
     private TaskArtifactRepository taskArtifactRepository;
+
+    @Autowired
+    private TaskMessageRepository taskMessageRepository;
 
     @MockitoBean
     private TaskExecutionRunner taskExecutionRunner;
@@ -269,6 +276,54 @@ class TaskServiceTest {
                         ArtifactType.FILE_PATH,
                         "수정 파일",
                         "src/main/java/back/domain/task/service/TaskService.java"));
+    }
+
+    @Test
+    @DisplayName("Task 메시지 조회는 실행 응답 메시지와 산출물을 반환한다")
+    void getTaskMessagesWithExecutionResponse() {
+        // given
+        TaskCreateResponse created = taskService.createTask(workspaceId, createRequest());
+        TaskExecution execution = taskExecutionRepository.save(TaskExecution.queued(
+                workspaceId,
+                created.taskId(),
+                1L,
+                "openclaw-agent-1",
+                3L,
+                "feature/pr-review"));
+        executionTaskArtifactRepository.save(ExecutionTaskArtifact.create(
+                execution.getId(),
+                new TaskArtifactSaveRequest(
+                        "PR_URL",
+                        "생성된 PR",
+                        "https://github.com/example/repo/pull/1")));
+        TaskMessage message = taskMessageRepository.save(TaskMessage.assistantResponse(
+                workspaceId,
+                created.taskId(),
+                execution.getId(),
+                "COMPLETED",
+                "PR 리뷰가 완료되었습니다.\n\n산출물\n- [PR_URL] 생성된 PR",
+                "PR 리뷰가 완료되었습니다.",
+                "입력값 검증 개선 포인트를 확인했습니다.",
+                "DTO validation 추가를 권장합니다."));
+
+        // when
+        List<TaskMessageResponse> responses = taskService.getTaskMessages(workspaceId, created.taskId());
+
+        // then
+        assertThat(responses).hasSize(1);
+        TaskMessageResponse response = responses.getFirst();
+        assertThat(response.messageId()).isEqualTo(message.getId());
+        assertThat(response.taskId()).isEqualTo(created.taskId());
+        assertThat(response.taskExecutionId()).isEqualTo(execution.getId());
+        assertThat(response.role()).isEqualTo(TaskMessageRole.ASSISTANT);
+        assertThat(response.status()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(response.content()).contains("PR 리뷰가 완료되었습니다.", "산출물");
+        assertThat(response.artifacts())
+                .extracting(TaskArtifactResponse::artifactType, TaskArtifactResponse::name, TaskArtifactResponse::url)
+                .containsExactly(tuple(
+                        ArtifactType.PR_URL,
+                        "생성된 PR",
+                        "https://github.com/example/repo/pull/1"));
     }
 
     @Test
