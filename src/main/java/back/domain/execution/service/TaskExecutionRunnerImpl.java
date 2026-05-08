@@ -17,6 +17,7 @@ import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,9 @@ import org.springframework.transaction.support.TransactionOperations;
 
 @Service
 @RequiredArgsConstructor
+@SuppressFBWarnings(
+        value = "EI_EXPOSE_REP2",
+        justification = "Spring injects service collaborators managed by the application context.")
 public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
 
     private static final String DEFAULT_WORKDIR_ROOT = "/data/aioffice/workspaces";

@@ -12,6 +12,9 @@ import back.domain.execution.entity.TaskExecution;
 import back.domain.execution.repository.ExecutionAgentReportRepository;
 import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.gateway.client.OpenClawChatResult;
+import back.domain.task.entity.TaskMessage;
+import back.domain.task.entity.TaskMessageRole;
+import back.domain.task.repository.TaskMessageRepository;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +37,9 @@ class TaskExecutionResultRecorderTest {
 
     @Mock
     private ExecutionTaskArtifactRepository taskArtifactRepository;
+
+    @Mock
+    private TaskMessageRepository taskMessageRepository;
 
     @InjectMocks
     private TaskExecutionResultRecorder recorder;
@@ -62,12 +68,20 @@ class TaskExecutionResultRecorderTest {
         // then
         ArgumentCaptor<ExecutionAgentReport> reportCaptor = ArgumentCaptor.forClass(ExecutionAgentReport.class);
         ArgumentCaptor<ExecutionTaskArtifact> artifactCaptor = ArgumentCaptor.forClass(ExecutionTaskArtifact.class);
+        ArgumentCaptor<TaskMessage> messageCaptor = ArgumentCaptor.forClass(TaskMessage.class);
         verify(agentReportRepository).save(reportCaptor.capture());
         verify(taskArtifactRepository).save(artifactCaptor.capture());
+        verify(taskMessageRepository).save(messageCaptor.capture());
         assertThat(reportCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
         assertThat(reportCaptor.getValue().getSummary()).isEqualTo("완료");
         assertThat(artifactCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
         assertThat(artifactCaptor.getValue().getArtifactType()).isEqualTo("PR_URL");
+        assertThat(messageCaptor.getValue().getWorkspaceId()).isEqualTo(1L);
+        assertThat(messageCaptor.getValue().getTaskId()).isEqualTo(2L);
+        assertThat(messageCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
+        assertThat(messageCaptor.getValue().getRole()).isEqualTo(TaskMessageRole.ASSISTANT);
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("완료", "상세 내용", "권장 조치: 리뷰하세요.", "산출물", "[PR_URL] 생성된 PR");
     }
 
     @Test
@@ -97,9 +111,17 @@ class TaskExecutionResultRecorderTest {
 
         // then
         ArgumentCaptor<ExecutionAgentReport> reportCaptor = ArgumentCaptor.forClass(ExecutionAgentReport.class);
+        ArgumentCaptor<TaskMessage> messageCaptor = ArgumentCaptor.forClass(TaskMessage.class);
         verify(agentReportRepository).save(reportCaptor.capture());
+        verify(taskMessageRepository).save(messageCaptor.capture());
         assertThat(reportCaptor.getValue().getTaskExecutionId()).isEqualTo(10L);
         assertThat(reportCaptor.getValue().getStatus()).isEqualTo("FAILED");
         assertThat(reportCaptor.getValue().getDetail()).isEqualTo("Gateway timeout");
+        assertThat(messageCaptor.getValue().getStatus()).isEqualTo("FAILED");
+        assertThat(messageCaptor.getValue().getContent())
+                .contains(
+                        "Agent 실행에 실패했습니다.",
+                        "Gateway timeout",
+                        "Gateway 설정과 OpenClaw Agent 실행 상태를 확인하세요.");
     }
 }
