@@ -1,7 +1,5 @@
 package back.domain.task.service;
 
-import org.springframework.stereotype.Service;
-
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
 import back.domain.execution.entity.TaskExecutionStatus;
@@ -18,6 +16,8 @@ import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionOperations;
 
 @Service
 @Slf4j
@@ -28,22 +28,27 @@ public class TaskRunService {
     private final TaskMessageRepository taskMessageRepository;
     private final WorkspaceRepository workspaceRepository;
     private final TaskExecutionRunner taskExecutionRunner;
+    private final TransactionOperations transactionOperations;
 
     public TaskRunResponse createAndRunTask(Long workspaceId, TaskRunRequest request) {
         validateWorkspaceExists(workspaceId);
-        Task task = createInProgressTask(workspaceId, request);
+        Task task = createInProgressTaskInTransaction(workspaceId, request);
         return runTask(task, request.shouldCreatePr());
     }
 
     public TaskRunResponse createTaskForRun(Long workspaceId, TaskRunRequest request) {
         validateWorkspaceExists(workspaceId);
-        Task task = createInProgressTask(workspaceId, request);
+        Task task = createInProgressTaskInTransaction(workspaceId, request);
         return TaskRunResponse.accepted(task);
     }
 
     public TaskRunResponse runTask(Long workspaceId, Long taskId, boolean createPr) {
         Task task = getTaskOrThrow(workspaceId, taskId);
         return runTask(task, createPr);
+    }
+
+    public void markTaskFailed(Long workspaceId, Long taskId) {
+        markTaskStatus(workspaceId, taskId, TaskStatus.FAILED);
     }
 
     private TaskRunResponse runTask(Task task, boolean createPr) {
@@ -85,6 +90,11 @@ public class TaskRunService {
                 savedTask.getId(),
                 resolveExecutionPrompt(savedTask)));
         return savedTask;
+    }
+
+    private Task createInProgressTaskInTransaction(Long workspaceId, TaskRunRequest request) {
+        return requireTransactionResult(transactionOperations.execute(
+                status -> createInProgressTask(workspaceId, request)));
     }
 
     private Task markTaskStatus(Long workspaceId, Long taskId, TaskStatus taskStatus) {
@@ -154,5 +164,12 @@ public class TaskRunService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static <T> T requireTransactionResult(T result) {
+        if (result == null) {
+            throw new IllegalStateException("Task 생성 트랜잭션 결과가 비어 있습니다.");
+        }
+        return result;
     }
 }
