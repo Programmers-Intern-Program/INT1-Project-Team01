@@ -150,7 +150,7 @@ public class TaskService {
         return messages.stream()
                 .map(message -> TaskMessageResponse.of(
                         message,
-                        artifactsByExecutionId.getOrDefault(message.getTaskExecutionId(), List.of())
+                        getArtifactsForMessage(artifactsByExecutionId, message)
                 ))
                 .toList();
     }
@@ -216,6 +216,17 @@ public class TaskService {
                         ExecutionTaskArtifact::getTaskExecutionId,
                         Collectors.mapping(TaskArtifactResponse::from, Collectors.toList())
                 ));
+    }
+
+    private List<TaskArtifactResponse> getArtifactsForMessage(
+            Map<Long, List<TaskArtifactResponse>> artifactsByExecutionId,
+            TaskMessage message
+    ) {
+        Long taskExecutionId = message.getTaskExecutionId();
+        if (taskExecutionId == null) {
+            return List.of();
+        }
+        return artifactsByExecutionId.getOrDefault(taskExecutionId, List.of());
     }
 
     private Task getTaskOrThrow(Long workspaceId, Long taskId) {

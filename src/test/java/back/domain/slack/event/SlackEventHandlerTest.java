@@ -10,9 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
@@ -24,7 +22,6 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class SlackEventHandlerTest {
 
-    @InjectMocks
     private SlackEventHandler slackEventHandler;
 
     @Mock
@@ -33,15 +30,15 @@ class SlackEventHandlerTest {
     @Mock
     private OrchestratorSessionPort orchestratorSessionPort;
 
-    // JsonMapper는 실제 객체를 사용하여 파싱 로직을 직접 테스트합니다.
-    @Spy
-    private JsonMapper jsonMapper = new JsonMapper();
-
     private SlackEventLog mockEventLog;
     private final Long eventLogId = 1L;
 
     @BeforeEach
     void setUp() {
+        slackEventHandler = new SlackEventHandler(
+                slackEventLogRepository,
+                orchestratorSessionPort,
+                new JsonMapper());
         mockEventLog = mock(SlackEventLog.class);
     }
 
