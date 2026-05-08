@@ -32,6 +32,7 @@ services:
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
       CUSTOM_JWT_SECRET_KEY: ${CUSTOM_JWT_SECRET_KEY}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET}
     depends_on:
       - postgres-dev
     expose:
