@@ -1,11 +1,12 @@
 package back.domain.execution.dto.request;
 
 public record TaskExecutionRunCommand(
-        Long workspaceId, Long taskId, Long repositoryId, String prompt, boolean createPr) {
+        Long workspaceId, Long taskId, Long assignedAgentId, Long repositoryId, String prompt, boolean createPr) {
 
     public TaskExecutionRunCommand {
         workspaceId = requireId(workspaceId, "workspaceId");
         taskId = requireId(taskId, "taskId");
+        assignedAgentId = requireOptionalId(assignedAgentId, "assignedAgentId");
         repositoryId = requireOptionalId(repositoryId, "repositoryId");
         prompt = requireNotBlank(prompt, "prompt");
     }

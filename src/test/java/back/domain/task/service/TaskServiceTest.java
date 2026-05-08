@@ -364,6 +364,7 @@ class TaskServiceTest {
         TaskExecutionRunCommand command = commandCaptor.getValue();
         assertThat(command.workspaceId()).isEqualTo(workspaceId);
         assertThat(command.taskId()).isEqualTo(response.taskId());
+        assertThat(command.assignedAgentId()).isEqualTo(1L);
         assertThat(command.repositoryId()).isEqualTo(3L);
         assertThat(command.prompt()).isEqualTo("이 PR 리뷰해줘");
         assertThat(command.createPr()).isTrue();
