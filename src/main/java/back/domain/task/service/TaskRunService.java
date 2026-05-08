@@ -35,6 +35,7 @@ public class TaskRunService {
             executionResult = taskExecutionRunner.run(new TaskExecutionRunCommand(
                     task.getWorkspaceId(),
                     task.getId(),
+                    task.getAssignedAgentId(),
                     task.getRepositoryId(),
                     resolveExecutionPrompt(task),
                     request.shouldCreatePr()));
