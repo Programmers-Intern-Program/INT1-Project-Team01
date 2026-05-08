@@ -161,10 +161,13 @@ class GoogleTokenInfoVerifierTest {
                     "sub": "sub123",
                     "email": "test@test.com",
                     "name": "테스트유저",
-                    "aud": "%s",
-                    "iss": "%s",
-                    "email_verified": %s
+                    "aud": "$AUD",
+                    "iss": "$ISS",
+                    "email_verified": $EMAIL_VERIFIED
                 }
-                """.formatted(aud, iss, emailVerified);
+                """
+                .replace("$AUD", aud)
+                .replace("$ISS", iss)
+                .replace("$EMAIL_VERIFIED", emailVerified);
     }
 }
