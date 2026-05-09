@@ -257,7 +257,7 @@ class ChatServiceTest {
 
     @Test
     @DisplayName("기존 ChatSession 일반 채팅은 신규 메시지만 응답한다")
-    void sendMessage_existingSessionReusesOpenClawSessionKey() {
+    void sendMessage_existingSessionReturnsNewMessagesOnly() {
         // given
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
@@ -305,7 +305,7 @@ class ChatServiceTest {
 
     @Test
     @DisplayName("기존 Slack thread 채팅은 신규 메시지만 응답한다")
-    void sendSlackMessage_sameThreadReusesChatSessionAndOpenClawSessionKey() {
+    void sendSlackMessage_sameThreadReturnsNewMessagesOnly() {
         // given
         String sourceRef = "T123:C123:999.000";
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
@@ -560,6 +560,42 @@ class ChatServiceTest {
     }
 
     @Test
+    @DisplayName("채팅 세션 메시지 polling은 limit 초과 데이터가 있으면 hasMore를 반환한다")
+    void getSessionMessages_limitExceeded_returnsHasMore() {
+        // given
+        ChatSession session = createPollingChatSession();
+        savePollingMessages(session.getId(), 4);
+
+        // when
+        ChatMessagesResponse response = chatService.getSessionMessages(workspaceId, session.getId(), 0L, 2);
+
+        // then
+        assertThat(response.messages()).hasSize(2);
+        assertThat(response.hasMore()).isTrue();
+        assertThat(response.nextCursor()).isEqualTo(response.messages().getLast().messageId());
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::content)
+                .containsExactly("polling message 1", "polling message 2");
+    }
+
+    @Test
+    @DisplayName("채팅 세션 메시지 polling은 limit 최대값을 100개로 제한한다")
+    void getSessionMessages_limitOverMax_capsToMaxLimit() {
+        // given
+        ChatSession session = createPollingChatSession();
+        savePollingMessages(session.getId(), 101);
+
+        // when
+        ChatMessagesResponse response = chatService.getSessionMessages(workspaceId, session.getId(), 0L, 1000);
+
+        // then
+        assertThat(response.messages()).hasSize(100);
+        assertThat(response.hasMore()).isTrue();
+        assertThat(response.nextCursor()).isEqualTo(response.messages().getLast().messageId());
+        assertThat(response.messages().getLast().content()).isEqualTo("polling message 100");
+    }
+
+    @Test
     @DisplayName("기존 ChatSession은 같은 Agent로만 재사용할 수 있다")
     void sendMessage_agentMismatch_throwsException() {
         // given
@@ -618,6 +654,22 @@ class ChatServiceTest {
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
         return agentRepository.save(agent).getId();
+    }
+
+    private ChatSession createPollingChatSession() {
+        return chatSessionRepository.save(ChatSession.start(
+                workspaceId,
+                agentId,
+                ChatSessionSource.WEB,
+                null,
+                "polling-session-" + UUID.randomUUID()));
+    }
+
+    private void savePollingMessages(Long chatSessionId, int count) {
+        for (int index = 1; index <= count; index++) {
+            chatMessageRepository.save(
+                    ChatMessage.user(workspaceId, chatSessionId, "polling message " + index));
+        }
     }
 
     private Long createCreatingAgent(String name) {
