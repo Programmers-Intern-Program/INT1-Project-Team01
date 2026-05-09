@@ -1,9 +1,5 @@
 package back.domain.chat.service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -41,6 +37,7 @@ import back.domain.task.service.TaskService;
 import back.domain.task.service.TaskRunService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import back.global.util.HashUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -593,7 +590,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private String createSlackOpenClawSessionKey(Long workspaceId, Long agentId, String sourceRef) {
-        String sourceRefHash = sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
+        String sourceRefHash = HashUtils.sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
         return "workspace-" + workspaceId + "-agent-" + agentId + "-slack-" + sourceRefHash;
     }
 
@@ -673,16 +670,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private String sourceRefHash(String sourceRef) {
-        return sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
-    }
-
-    private String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 algorithm is unavailable.", exception);
-        }
+        return HashUtils.sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
     }
 
     private String createIdempotencyKey(Long chatSessionId, Long userMessageId) {
