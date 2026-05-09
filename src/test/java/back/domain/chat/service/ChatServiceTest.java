@@ -32,6 +32,7 @@ import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
 import back.domain.chat.dto.request.SlackChatMessageSendCommand;
 import back.domain.chat.dto.response.ChatMessageResponse;
+import back.domain.chat.dto.response.ChatMessagesResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
 import back.domain.chat.entity.ChatMessage;
 import back.domain.chat.entity.ChatMessageRole;
@@ -255,8 +256,8 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("같은 ChatSession으로 보낸 일반 채팅은 같은 OpenClaw sessionKey를 재사용한다")
-    void sendMessage_existingSessionReusesOpenClawSessionKey() {
+    @DisplayName("기존 ChatSession 일반 채팅은 신규 메시지만 응답한다")
+    void sendMessage_existingSessionReturnsNewMessagesOnly() {
         // given
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
@@ -269,7 +270,15 @@ class ChatServiceTest {
         // when
         ChatMessageSendResponse second = chatService.sendMessage(
                 workspaceId,
-                new ChatMessageSendRequest("두 번째 메시지", agentId, null, null, null, null, false, first.chatSessionId()));
+                new ChatMessageSendRequest(
+                        "두 번째 메시지",
+                        agentId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        first.chatSessionId()));
 
         // then
         ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
@@ -280,6 +289,14 @@ class ChatServiceTest {
         assertThat(second.messages())
                 .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
                 .containsExactly(
+                        tuple(ChatMessageRole.USER, "두 번째 메시지"),
+                        tuple(ChatMessageRole.ASSISTANT, "두 번째 응답"));
+
+        ChatMessagesResponse persistedMessages =
+                chatService.getSessionMessages(workspaceId, second.chatSessionId(), null, null);
+        assertThat(persistedMessages.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
                         tuple(ChatMessageRole.USER, "첫 메시지"),
                         tuple(ChatMessageRole.ASSISTANT, "첫 응답"),
                         tuple(ChatMessageRole.USER, "두 번째 메시지"),
@@ -287,8 +304,8 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("같은 Slack thread 요청은 같은 ChatSession과 OpenClaw sessionKey를 재사용한다")
-    void sendSlackMessage_sameThreadReusesChatSessionAndOpenClawSessionKey() {
+    @DisplayName("기존 Slack thread 채팅은 신규 메시지만 응답한다")
+    void sendSlackMessage_sameThreadReturnsNewMessagesOnly() {
         // given
         String sourceRef = "T123:C123:999.000";
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
@@ -299,8 +316,9 @@ class ChatServiceTest {
         // when
         ChatMessageSendResponse first =
                 chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "첫 메시지"));
-        ChatMessageSendResponse second =
-                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "두 번째 메시지"));
+        ChatMessageSendResponse second = chatService.sendSlackMessage(
+                workspaceId,
+                new SlackChatMessageSendCommand(sourceRef, "두 번째 메시지"));
 
         // then
         assertThat(second.chatSessionId()).isEqualTo(first.chatSessionId());
@@ -319,6 +337,14 @@ class ChatServiceTest {
                 .doesNotContain("T123")
                 .doesNotContain("C123");
         assertThat(second.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "두 번째 메시지"),
+                        tuple(ChatMessageRole.ASSISTANT, "두 번째 Slack 응답"));
+
+        ChatMessagesResponse persistedMessages =
+                chatService.getSessionMessages(workspaceId, second.chatSessionId(), null, null);
+        assertThat(persistedMessages.messages())
                 .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
                 .containsExactly(
                         tuple(ChatMessageRole.USER, "첫 메시지"),
@@ -485,14 +511,88 @@ class ChatServiceTest {
                 new ChatMessageSendRequest("조회할 메시지", agentId, null, null, null, null, false));
 
         // when
-        List<ChatMessageResponse> messages = chatService.getSessionMessages(workspaceId, sent.chatSessionId());
+        ChatMessagesResponse messages = chatService.getSessionMessages(workspaceId, sent.chatSessionId(), null, null);
 
         // then
-        assertThat(messages)
+        assertThat(messages.messages())
                 .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
                 .containsExactly(
                         tuple(ChatMessageRole.USER, "조회할 메시지"),
                         tuple(ChatMessageRole.ASSISTANT, "Agent 응답입니다."));
+    }
+
+    @Test
+    @DisplayName("채팅 세션 메시지 polling은 afterMessageId 이후 신규 메시지만 조회한다")
+    void getSessionMessages_afterMessageId_returnsNewMessagesOnly() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(
+                        new OpenClawChatResult("gateway-session", "첫 응답"),
+                        new OpenClawChatResult("gateway-session", "두 번째 응답"));
+        ChatMessageSendResponse first = chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("첫 메시지", agentId, null, null, null, null, false));
+        Long lastReceivedMessageId = first.messages().getLast().messageId();
+        ChatMessageSendResponse second = chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest(
+                        "두 번째 메시지",
+                        agentId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        first.chatSessionId()));
+
+        // when
+        ChatMessagesResponse messages =
+                chatService.getSessionMessages(workspaceId, first.chatSessionId(), lastReceivedMessageId, 50);
+
+        // then
+        assertThat(messages.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "두 번째 메시지"),
+                        tuple(ChatMessageRole.ASSISTANT, "두 번째 응답"));
+        assertThat(messages.nextCursor()).isEqualTo(second.messages().getLast().messageId());
+        assertThat(messages.hasMore()).isFalse();
+    }
+
+    @Test
+    @DisplayName("채팅 세션 메시지 polling은 limit 초과 데이터가 있으면 hasMore를 반환한다")
+    void getSessionMessages_limitExceeded_returnsHasMore() {
+        // given
+        ChatSession session = createPollingChatSession();
+        savePollingMessages(session.getId(), 4);
+
+        // when
+        ChatMessagesResponse response = chatService.getSessionMessages(workspaceId, session.getId(), 0L, 2);
+
+        // then
+        assertThat(response.messages()).hasSize(2);
+        assertThat(response.hasMore()).isTrue();
+        assertThat(response.nextCursor()).isEqualTo(response.messages().getLast().messageId());
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::content)
+                .containsExactly("polling message 1", "polling message 2");
+    }
+
+    @Test
+    @DisplayName("채팅 세션 메시지 polling은 limit 최대값을 100개로 제한한다")
+    void getSessionMessages_limitOverMax_capsToMaxLimit() {
+        // given
+        ChatSession session = createPollingChatSession();
+        savePollingMessages(session.getId(), 101);
+
+        // when
+        ChatMessagesResponse response = chatService.getSessionMessages(workspaceId, session.getId(), 0L, 1000);
+
+        // then
+        assertThat(response.messages()).hasSize(100);
+        assertThat(response.hasMore()).isTrue();
+        assertThat(response.nextCursor()).isEqualTo(response.messages().getLast().messageId());
+        assertThat(response.messages().getLast().content()).isEqualTo("polling message 100");
     }
 
     @Test
@@ -554,6 +654,22 @@ class ChatServiceTest {
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
         return agentRepository.save(agent).getId();
+    }
+
+    private ChatSession createPollingChatSession() {
+        return chatSessionRepository.save(ChatSession.start(
+                workspaceId,
+                agentId,
+                ChatSessionSource.WEB,
+                null,
+                "polling-session-" + UUID.randomUUID()));
+    }
+
+    private void savePollingMessages(Long chatSessionId, int count) {
+        for (int index = 1; index <= count; index++) {
+            chatMessageRepository.save(
+                    ChatMessage.user(workspaceId, chatSessionId, "polling message " + index));
+        }
     }
 
     private Long createCreatingAgent(String name) {
