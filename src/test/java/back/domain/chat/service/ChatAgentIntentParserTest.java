@@ -69,4 +69,46 @@ class ChatAgentIntentParserTest {
         assertThat(intent.task().repositoryId()).isEqualTo(3L);
         assertThat(intent.task().createPr()).isTrue();
     }
+
+    @Test
+    @DisplayName("코드펜스에 감싼 TASK intent JSON도 파싱한다")
+    void parse_fencedTaskJson_returnsTaskIntent() {
+        // when
+        ChatAgentIntent intent = parser.parse("""
+                아래 JSON으로 처리하면 됩니다.
+
+                ```json
+                {
+                  "intent": "TASK",
+                  "message": "문서 작업을 시작하겠습니다.",
+                  "task": {
+                    "title": "README 정리",
+                    "taskType": "DOCUMENTATION"
+                  }
+                }
+                ```
+                """);
+
+        // then
+        assertThat(intent.type()).isEqualTo(ChatAgentIntentType.TASK);
+        assertThat(intent.message()).isEqualTo("문서 작업을 시작하겠습니다.");
+        assertThat(intent.task().title()).isEqualTo("README 정리");
+        assertThat(intent.task().taskType()).isEqualTo(TaskType.DOCUMENTATION);
+    }
+
+    @Test
+    @DisplayName("설명 문구 사이에 있는 TASK intent JSON도 파싱한다")
+    void parse_embeddedTaskJson_returnsTaskIntent() {
+        // when
+        ChatAgentIntent intent = parser.parse("""
+                요청을 작업으로 처리합니다.
+                {"intent":"TASK","message":"테스트를 작성하겠습니다.","task":{"title":"테스트 작성"}}
+                작업을 시작할게요.
+                """);
+
+        // then
+        assertThat(intent.type()).isEqualTo(ChatAgentIntentType.TASK);
+        assertThat(intent.message()).isEqualTo("테스트를 작성하겠습니다.");
+        assertThat(intent.task().title()).isEqualTo("테스트 작성");
+    }
 }

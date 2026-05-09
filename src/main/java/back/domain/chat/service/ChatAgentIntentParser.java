@@ -1,7 +1,11 @@
 package back.domain.chat.service;
 
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
@@ -15,31 +19,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ChatAgentIntentParser {
 
     private static final String DEFAULT_TASK_MESSAGE = "작업을 시작하겠습니다.";
+    private static final Pattern JSON_FENCE = Pattern.compile("(?s)```(?:json)?\\s*(\\{.*?})\\s*```");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ChatAgentIntent parse(String rawText) {
         String fallbackMessage = normalizeMessage(rawText);
-        if (!looksLikeJson(fallbackMessage)) {
-            return ChatAgentIntent.chat(fallbackMessage);
-        }
+        return parseFirstJson(fallbackMessage)
+                .map(node -> parseJsonIntent(node, fallbackMessage))
+                .orElseGet(() -> ChatAgentIntent.chat(fallbackMessage));
+    }
 
-        JsonNode rootNode;
-        try {
-            rootNode = objectMapper.readTree(fallbackMessage);
-        } catch (JsonProcessingException exception) {
-            return ChatAgentIntent.chat(fallbackMessage);
-        }
-
-        if (!rootNode.isObject()) {
-            return ChatAgentIntent.chat(fallbackMessage);
-        }
-
+    private ChatAgentIntent parseJsonIntent(JsonNode rootNode, String fallbackMessage) {
         String intent = optionalText(rootNode, "intent");
         if (!"TASK".equalsIgnoreCase(intent)) {
             return ChatAgentIntent.chat(resolveMessage(rootNode, fallbackMessage));
         }
-
         return ChatAgentIntent.task(
                 resolveMessage(rootNode, DEFAULT_TASK_MESSAGE),
                 parseTaskSpec(rootNode.path("task")));
@@ -70,8 +65,43 @@ public class ChatAgentIntentParser {
         return rawText.trim();
     }
 
-    private boolean looksLikeJson(String value) {
-        return value.startsWith("{") && value.endsWith("}");
+    private Optional<JsonNode> parseFirstJson(String rawText) {
+        for (String candidate : jsonCandidates(rawText)) {
+            Optional<JsonNode> parsed = parseJson(candidate);
+            if (parsed.isPresent()) {
+                return parsed;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Set<String> jsonCandidates(String rawText) {
+        Set<String> candidates = new LinkedHashSet<>();
+        if (!rawText.isBlank()) {
+            candidates.add(rawText);
+        }
+        Matcher matcher = JSON_FENCE.matcher(rawText);
+        while (matcher.find()) {
+            candidates.add(matcher.group(1).trim());
+        }
+        int firstBrace = rawText.indexOf('{');
+        int lastBrace = rawText.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            candidates.add(rawText.substring(firstBrace, lastBrace + 1).trim());
+        }
+        return candidates;
+    }
+
+    private Optional<JsonNode> parseJson(String value) {
+        try {
+            JsonNode node = objectMapper.readTree(value);
+            if (node != null && node.isObject()) {
+                return Optional.of(node);
+            }
+            return Optional.empty();
+        } catch (JsonProcessingException exception) {
+            return Optional.empty();
+        }
     }
 
     private String optionalText(JsonNode node, String fieldName) {
