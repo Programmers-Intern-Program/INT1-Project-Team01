@@ -91,6 +91,9 @@ public class ChatMessage extends BaseEntity {
         if (this.taskId != null && !this.taskId.equals(nextTaskId)) {
             throw new IllegalStateException("message is already linked to another task");
         }
+        if (this.taskExecutionId != null && !this.taskExecutionId.equals(nextTaskExecutionId)) {
+            throw new IllegalStateException("message is already linked to another task execution");
+        }
         this.taskId = nextTaskId;
         this.taskExecutionId = nextTaskExecutionId;
     }

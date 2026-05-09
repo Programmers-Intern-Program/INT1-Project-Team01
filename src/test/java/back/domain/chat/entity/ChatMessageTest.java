@@ -50,6 +50,37 @@ class ChatMessageTest {
     }
 
     @Test
+    @DisplayName("TaskExecution 연결은 null에서 값으로 한 번만 갱신할 수 있다")
+    void linkTask_upgradesTaskExecutionIdOnce() {
+        // given
+        ChatMessage message = ChatMessage.user(1L, 2L, "작업으로 전환할 메시지");
+        message.linkTask(3L, null);
+
+        // when
+        message.linkTask(3L, 4L);
+
+        // then
+        assertThat(message.getTaskId()).isEqualTo(3L);
+        assertThat(message.getTaskExecutionId()).isEqualTo(4L);
+    }
+
+    @Test
+    @DisplayName("이미 연결된 TaskExecution은 삭제하거나 변경할 수 없다")
+    void linkTask_alreadyLinkedToTaskExecution_throwsException() {
+        // given
+        ChatMessage message = ChatMessage.user(1L, 2L, "작업으로 전환할 메시지");
+        message.linkTask(3L, 4L);
+
+        // when & then
+        assertThatThrownBy(() -> message.linkTask(3L, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("task execution");
+        assertThatThrownBy(() -> message.linkTask(3L, 5L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("task execution");
+    }
+
+    @Test
     @DisplayName("이미 다른 Task와 연결된 메시지는 다른 Task로 바꿀 수 없다")
     void linkTask_alreadyLinkedToAnotherTask_throwsException() {
         // given
