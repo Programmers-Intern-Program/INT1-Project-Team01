@@ -430,9 +430,36 @@ class TaskServiceTest {
                 .singleElement()
                 .satisfies(event -> {
                     assertThat(event.sourceRef()).isEqualTo("T123:C456:1715059800.123");
-                    assertThat(event.message()).contains("Task 실행에 실패했습니다.", "runner failed");
+                    assertThat(event.message()).isEqualTo("Task 실행에 실패했습니다.");
                     assertThat(event.deduplicationKey()).startsWith("slack-task-").endsWith("-failed");
                 });
+    }
+
+    @Test
+    @DisplayName("Slack Task 실행 결과에 executionId가 없으면 중복 방지 키를 비워둔다")
+    void createAndRunSlackTaskWithoutExecutionIdPublishesReplyWithoutDeduplicationKey() {
+        // given
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
+            TaskExecutionRunCommand command = invocation.getArgument(0);
+            return new TaskExecutionRunResult(
+                    null,
+                    command.taskId(),
+                    command.workspaceId(),
+                    100L,
+                    TaskExecutionStatus.SUCCEEDED,
+                    "/tmp/aioffice/workspaces/1/executions/20/repo",
+                    "workspace-1-execution-20",
+                    "작업을 완료했습니다.",
+                    null);
+        });
+
+        // when
+        taskRunService.createAndRunTask(workspaceId, createSlackRunRequest());
+
+        // then
+        assertThat(applicationEvents.stream(SlackReplyRequestedEvent.class).toList())
+                .singleElement()
+                .satisfies(event -> assertThat(event.deduplicationKey()).isNull());
     }
 
     @Test

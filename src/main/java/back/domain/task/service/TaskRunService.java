@@ -177,7 +177,7 @@ public class TaskRunService {
         eventPublisher.publishEvent(new SlackReplyRequestedEvent(
                 task.getSourceId(),
                 resolveSlackTaskResultMessage(response),
-                "slack-task-" + task.getId() + "-execution-" + response.taskExecutionId()));
+                resolveSlackTaskResultDeduplicationKey(task, response)));
     }
 
     private void publishSlackTaskFailure(Task task, RuntimeException exception) {
@@ -229,10 +229,14 @@ public class TaskRunService {
         if (exception instanceof ServiceException serviceException && hasText(serviceException.getClientMessage())) {
             return "Task 실행에 실패했습니다.\n\n" + serviceException.getClientMessage();
         }
-        if (hasText(exception.getMessage())) {
-            return "Task 실행에 실패했습니다.\n\n" + exception.getMessage();
-        }
         return "Task 실행에 실패했습니다.";
+    }
+
+    private String resolveSlackTaskResultDeduplicationKey(Task task, TaskRunResponse response) {
+        if (response.taskExecutionId() == null) {
+            return null;
+        }
+        return "slack-task-" + task.getId() + "-execution-" + response.taskExecutionId();
     }
 
     private String resolveExecutionPrompt(Task task) {

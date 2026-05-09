@@ -9,14 +9,16 @@ import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
-import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -25,14 +27,17 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class SlackReportListener {
 
+    private static final int DEDUPLICATION_CACHE_MAX_SIZE = 10_000;
+    private static final Duration DEDUPLICATION_KEY_TTL = Duration.ofHours(6);
+
     private final OrchestratorSessionRepository sessionRepository;
     private final SlackIntegrationRepository integrationRepository;
     private final SlackClient slackClient;
-    private final Set<String> sentReplyKeys = ConcurrentHashMap.newKeySet();
+    private final SlackReplyDeduplicationCache sentReplyKeys =
+            new SlackReplyDeduplicationCache(DEDUPLICATION_CACHE_MAX_SIZE, DEDUPLICATION_KEY_TTL);
 
     @Async("slackEventTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public void onOrchestratorSessionFinished(OrchestratorSessionFinishedEvent event) {
         log.info("오케스트레이터 세션 완료 이벤트 수신. Slack 보고 준비. sessionId: {}", event.sessionId());
 
@@ -63,7 +68,6 @@ public class SlackReportListener {
 
     @Async("slackEventTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public void onSlackReplyRequested(SlackReplyRequestedEvent event) {
         log.info("Slack 응답 요청 이벤트 수신. sourceRef: {}", event.sourceRef());
 
@@ -109,7 +113,7 @@ public class SlackReportListener {
         if (deduplicationKey == null) {
             return false;
         }
-        return !sentReplyKeys.add(deduplicationKey);
+        return !sentReplyKeys.markIfAbsent(deduplicationKey);
     }
 
     private void releaseReplyKey(String deduplicationKey) {
@@ -139,4 +143,56 @@ public class SlackReportListener {
     }
 
     private record SlackSourceRef(String teamId, String channelId, String threadTs) {}
+
+    private static final class SlackReplyDeduplicationCache {
+
+        private final int maxSize;
+        private final Duration ttl;
+        private final Map<String, Instant> keys = new ConcurrentHashMap<>();
+        private final Queue<Entry> insertionOrder = new ConcurrentLinkedQueue<>();
+
+        private SlackReplyDeduplicationCache(int maxSize, Duration ttl) {
+            this.maxSize = maxSize;
+            this.ttl = ttl;
+        }
+
+        private boolean markIfAbsent(String key) {
+            Instant now = Instant.now();
+            removeExpired(now);
+            reduceToMaxSize();
+
+            Instant previous = keys.putIfAbsent(key, now);
+            if (previous != null) {
+                return false;
+            }
+            insertionOrder.add(new Entry(key, now));
+            return true;
+        }
+
+        private void remove(String key) {
+            keys.remove(key);
+        }
+
+        private void removeExpired(Instant now) {
+            Instant threshold = now.minus(ttl);
+            Entry entry = insertionOrder.peek();
+            while (entry != null && entry.createdAt().isBefore(threshold)) {
+                insertionOrder.poll();
+                keys.remove(entry.key(), entry.createdAt());
+                entry = insertionOrder.peek();
+            }
+        }
+
+        private void reduceToMaxSize() {
+            while (keys.size() >= maxSize) {
+                Entry oldest = insertionOrder.poll();
+                if (oldest == null) {
+                    return;
+                }
+                keys.remove(oldest.key(), oldest.createdAt());
+            }
+        }
+
+        private record Entry(String key, Instant createdAt) {}
+    }
 }
