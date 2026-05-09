@@ -28,9 +28,23 @@ public record ChatMessageSendRequest(
         @Size(max = 100, message = "제목은 100자 이하여야 합니다.")
         String title,
 
-        Boolean createPr) {
+        Boolean createPr,
+
+        @Positive(message = "chatSessionId는 양수여야 합니다.")
+        Long chatSessionId) {
 
     private static final int TITLE_PREVIEW_LENGTH = 60;
+
+    public ChatMessageSendRequest(
+            String message,
+            Long agentId,
+            Long repositoryId,
+            TaskType taskType,
+            TaskPriority priority,
+            String title,
+            Boolean createPr) {
+        this(message, agentId, repositoryId, taskType, priority, title, createPr, null);
+    }
 
     public TaskRunRequest toTaskRunRequest() {
         String normalizedMessage = message.trim();
