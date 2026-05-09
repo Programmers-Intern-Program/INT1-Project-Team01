@@ -4,7 +4,9 @@ import java.time.LocalDateTime;
 
 import back.domain.chat.entity.ChatMessage;
 import back.domain.chat.entity.ChatMessageRole;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatMessageResponse(
         Long messageId,
         Long chatSessionId,
