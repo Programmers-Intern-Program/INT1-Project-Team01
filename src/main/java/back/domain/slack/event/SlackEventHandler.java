@@ -2,10 +2,9 @@ package back.domain.slack.event;
 
 import back.domain.slack.entity.SlackEventLog;
 import back.domain.slack.entity.SlackIntegration;
+import back.domain.slack.port.SlackConversationPort;
 import back.domain.slack.repository.SlackEventLogRepository;
-import back.domain.slack.port.OrchestratorSessionPort;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import tools.jackson.databind.JsonNode;
@@ -14,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.regex.Pattern;
 
@@ -27,12 +25,12 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 @SuppressFBWarnings(
         value = "EI_EXPOSE_REP2",
-        justification ="스프링 DI 컨테이너가 주입하는 빈이므로 외부 변조 위험 없음"
+        justification = "스프링 DI 컨테이너가 주입하는 빈이므로 외부 변조 위험 없음"
 )
 public class SlackEventHandler {
 
     private final SlackEventLogRepository slackEventLogRepository;
-    private final OrchestratorSessionPort orchestratorSessionPort;
+    private final SlackConversationPort slackConversationPort;
     private final JsonMapper jsonMapper;
 
     private static final Pattern SLACK_MENTION_PATTERN = Pattern.compile("<@[A-Z0-9]+>");
@@ -41,14 +39,11 @@ public class SlackEventHandler {
      * 비동기 환경에서 슬랙 이벤트를 파싱하고 Orchestrator 세션 생성을 요청합니다.
      *
      * <p>@Async로 별도 스레드에서 실행되므로 호출자 트랜잭션과 분리됩니다.
-     * @Transactional은 이 메서드 단독으로 새 트랜잭션을 열어 eventLog 상태 변경(markAsProcessed 등)을
-     * DB에 반영하기 위해 사용합니다.
      */
     @Async("slackEventTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handleSlackEvent(SlackEventReceivedEvent event) {
-        SlackEventLog eventLog = slackEventLogRepository.findById(event.eventLogId())
+        SlackEventLog eventLog = slackEventLogRepository.findByIdWithIntegrationAndWorkspace(event.eventLogId())
                 .orElseThrow(() -> new IllegalArgumentException("이벤트 로그를 찾을 수 없습니다. ID: " + event.eventLogId()));
 
         try {
@@ -56,6 +51,7 @@ public class SlackEventHandler {
             if (integration == null) {
                 log.warn("SlackEventLog에 연결된 Integration 정보가 없습니다. logId: {}", event.eventLogId());
                 eventLog.markAsIgnored("SlackEventLog에 연결된 Integration 정보가 없습니다.");
+                slackEventLogRepository.save(eventLog);
                 return;
             }
 
@@ -78,14 +74,16 @@ public class SlackEventHandler {
 
             if (cleanText.isBlank()) {
                 eventLog.markAsIgnored("파싱 후 실행할 명령어(Text)가 존재하지 않습니다.");
+                slackEventLogRepository.save(eventLog);
                 return;
             }
 
-            orchestratorSessionPort.createSession(workspaceId, sourceRef, targetTs, cleanText);
+            slackConversationPort.sendMessage(workspaceId, sourceRef, cleanText);
 
             eventLog.markAsProcessed();
+            slackEventLogRepository.save(eventLog);
             log.info(
-                    "Slack 이벤트 파싱 및 세션 생성 요청 완료. targetTs: {}",
+                    "Slack 이벤트 파싱 및 Agent 대화 처리 완료. targetTs: {}",
                     targetTs
             );
 
@@ -95,6 +93,7 @@ public class SlackEventHandler {
                     event.eventLogId(), e
             );
             eventLog.markAsFailed(e.getMessage());
+            slackEventLogRepository.save(eventLog);
         }
     }
 
