@@ -28,7 +28,17 @@ class ChatTaskExecutionDispatcherTest {
         chatTaskExecutionDispatcher.run(1L, 2L, true);
 
         // then
-        verify(taskRunService).runTask(1L, 2L, true);
+        verify(taskRunService).runTask(1L, 2L, true, null);
+    }
+
+    @Test
+    @DisplayName("채팅 Task 실행 시 OpenClaw sessionKey override를 TaskRunService에 전달한다")
+    void run_withOpenClawSessionKeyOverride_delegatesTaskRunService() {
+        // when
+        chatTaskExecutionDispatcher.run(1L, 2L, true, "workspace-1-agent-1-chat-fixed");
+
+        // then
+        verify(taskRunService).runTask(1L, 2L, true, "workspace-1-agent-1-chat-fixed");
     }
 
     @Test
@@ -37,11 +47,11 @@ class ChatTaskExecutionDispatcherTest {
         // given
         willThrow(new RuntimeException("runner failed"))
                 .given(taskRunService)
-                .runTask(1L, 2L, false);
+                .runTask(1L, 2L, false, null);
 
         // when & then
         assertThatCode(() -> chatTaskExecutionDispatcher.run(1L, 2L, false))
                 .doesNotThrowAnyException();
-        verify(taskRunService).runTask(1L, 2L, false);
+        verify(taskRunService).runTask(1L, 2L, false, null);
     }
 }
