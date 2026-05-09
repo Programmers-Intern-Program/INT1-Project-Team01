@@ -160,7 +160,8 @@ public class ChatServiceImpl implements ChatService {
                 new ChatTaskDispatch(
                         savedSession.getWorkspaceId(),
                         taskResponse.taskId(),
-                        taskRequest.shouldCreatePr()));
+                        taskRequest.shouldCreatePr(),
+                        savedSession.getOpenClawSessionKey()));
     }
 
     private void linkUserMessageToTask(Long userMessageId, Long taskId) {
@@ -444,7 +445,11 @@ public class ChatServiceImpl implements ChatService {
                 return;
             }
             try {
-                dispatcher.run(dispatch.workspaceId(), dispatch.taskId(), dispatch.createPr());
+                dispatcher.run(
+                        dispatch.workspaceId(),
+                        dispatch.taskId(),
+                        dispatch.createPr(),
+                        dispatch.openClawSessionKeyOverride());
             } catch (RuntimeException exception) {
                 log.warn(
                         "Failed to dispatch chat task execution. workspaceId={}, taskId={}",
@@ -455,5 +460,9 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    private record ChatTaskDispatch(Long workspaceId, Long taskId, boolean createPr) {}
+    private record ChatTaskDispatch(
+            Long workspaceId,
+            Long taskId,
+            boolean createPr,
+            String openClawSessionKeyOverride) {}
 }
