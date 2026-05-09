@@ -1,6 +1,7 @@
 package back.domain.chat.adapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -25,6 +26,8 @@ import back.domain.chat.entity.ChatMessageRole;
 import back.domain.chat.service.ChatService;
 import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.domain.task.entity.TaskStatus;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 
 @ExtendWith(MockitoExtension.class)
 class SlackConversationAdapterTest {
@@ -101,5 +104,58 @@ class SlackConversationAdapterTest {
         // then
         assertThat(finalText).isEqualTo("작업을 시작하겠습니다.");
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("Slack 메시지 처리 중 서비스 예외가 발생하면 사용자 안내 메시지를 Slack reply 이벤트로 발행한다")
+    void sendMessage_serviceExceptionPublishesFailureReply() {
+        // given
+        ServiceException exception = new ServiceException(
+                CommonErrorCode.BAD_REQUEST,
+                "gateway timeout detail",
+                "OpenClaw 응답 시간이 초과되었습니다.");
+        given(chatService.sendSlackMessage(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .willThrow(exception);
+
+        // when & then
+        assertThatThrownBy(() -> adapter.sendMessage(
+                1L,
+                "T123:C123:999.000",
+                "backend-agent",
+                "로그인 API 구현해줘"))
+                .isSameAs(exception);
+
+        ArgumentCaptor<SlackReplyRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(SlackReplyRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().sourceRef()).isEqualTo("T123:C123:999.000");
+        assertThat(eventCaptor.getValue().message()).isEqualTo("OpenClaw 응답 시간이 초과되었습니다.");
+        assertThat(eventCaptor.getValue().deduplicationKey()).startsWith("slack-chat-failure-");
+    }
+
+    @Test
+    @DisplayName("Slack 메시지 처리 중 일반 예외가 발생하면 내부 상세를 숨긴 실패 메시지를 발행한다")
+    void sendMessage_runtimeExceptionPublishesGenericFailureReply() {
+        // given
+        RuntimeException exception = new RuntimeException("internal secret token detail");
+        given(chatService.sendSlackMessage(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .willThrow(exception);
+
+        // when & then
+        assertThatThrownBy(() -> adapter.sendMessage(
+                1L,
+                "T123:C123:999.000",
+                "backend-agent",
+                "로그인 API 구현해줘"))
+                .isSameAs(exception);
+
+        ArgumentCaptor<SlackReplyRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(SlackReplyRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().sourceRef()).isEqualTo("T123:C123:999.000");
+        assertThat(eventCaptor.getValue().message())
+                .isEqualTo("Agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        assertThat(eventCaptor.getValue().message()).doesNotContain("internal secret");
+        assertThat(eventCaptor.getValue().deduplicationKey()).startsWith("slack-chat-failure-");
     }
 }
