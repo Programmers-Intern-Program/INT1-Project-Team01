@@ -1,6 +1,7 @@
 package back.domain.chat.controller;
 
 import back.domain.chat.dto.request.ChatMessageSendRequest;
+import back.domain.chat.dto.response.ChatMessageResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
 import back.domain.chat.service.ChatService;
 import back.domain.task.dto.response.TaskMessageResponse;
@@ -26,6 +27,12 @@ public class ChatController {
     public ResponseEntity<ChatMessageSendResponse> sendMessage(
             @PathVariable Long workspaceId, @Valid @RequestBody ChatMessageSendRequest request) {
         return ResponseEntity.ok(chatService.sendMessage(workspaceId, request));
+    }
+
+    @GetMapping("/sessions/{chatSessionId}/messages")
+    public ResponseEntity<List<ChatMessageResponse>> getSessionMessages(
+            @PathVariable Long workspaceId, @PathVariable Long chatSessionId) {
+        return ResponseEntity.ok(chatService.getSessionMessages(workspaceId, chatSessionId));
     }
 
     @GetMapping("/tasks/{taskId}/messages")

@@ -1,13 +1,15 @@
 package back.domain.chat.dto.response;
 
-import back.domain.execution.entity.TaskExecutionStatus;
-import back.domain.task.dto.response.TaskMessageResponse;
-import back.domain.task.dto.response.TaskRunResponse;
-import back.domain.task.entity.TaskStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import back.domain.execution.entity.TaskExecutionStatus;
+import back.domain.task.entity.TaskStatus;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatMessageSendResponse(
+        Long chatSessionId,
         Long taskId,
         Long workspaceId,
         Long assignedAgentId,
@@ -17,23 +19,9 @@ public record ChatMessageSendResponse(
         String finalText,
         String failureReason,
         LocalDateTime createdAt,
-        List<TaskMessageResponse> messages) {
+        List<ChatMessageResponse> messages) {
 
     public ChatMessageSendResponse {
         messages = messages == null ? List.of() : List.copyOf(messages);
-    }
-
-    public static ChatMessageSendResponse from(TaskRunResponse runResponse, List<TaskMessageResponse> messages) {
-        return new ChatMessageSendResponse(
-                runResponse.taskId(),
-                runResponse.workspaceId(),
-                runResponse.assignedAgentId(),
-                runResponse.taskStatus(),
-                runResponse.taskExecutionId(),
-                runResponse.executionStatus(),
-                runResponse.finalText(),
-                runResponse.failureReason(),
-                runResponse.createdAt(),
-                messages);
     }
 }
