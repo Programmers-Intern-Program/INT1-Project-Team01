@@ -91,7 +91,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 agent.getOpenClawAgentId(),
                 command.repositoryId(),
                 resolveBranchName(command)));
-        execution.assignRuntimeContext(resolveWorkdirPath(execution), resolveSessionKey(execution));
+        execution.assignRuntimeContext(resolveWorkdirPath(execution), resolveSessionKey(execution, command));
         return taskExecutionRepository.save(execution);
     }
 
@@ -211,7 +211,10 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 + "/repo";
     }
 
-    private String resolveSessionKey(TaskExecution execution) {
+    private String resolveSessionKey(TaskExecution execution, TaskExecutionRunCommand command) {
+        if (command.openClawSessionKeyOverride() != null) {
+            return command.openClawSessionKeyOverride();
+        }
         return "workspace-" + execution.getWorkspaceId() + "-execution-" + execution.getId();
     }
 
