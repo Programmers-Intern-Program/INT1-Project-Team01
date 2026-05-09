@@ -36,6 +36,14 @@ class ChatSessionTest {
     }
 
     @Test
+    @DisplayName("Slack ChatSession은 sourceRef가 필수값이다")
+    void start_slackWithoutSourceRef_throwsException() {
+        assertThatThrownBy(() -> ChatSession.start(1L, 2L, ChatSessionSource.SLACK, " ", "workspace-1-slack-session"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sourceRef");
+    }
+
+    @Test
     @DisplayName("ChatSession은 close/reopen으로 세션 상태를 변경한다")
     void closeAndReopen_updatesStatus() {
         // given

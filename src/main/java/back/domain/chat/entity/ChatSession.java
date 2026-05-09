@@ -23,8 +23,7 @@ import lombok.NoArgsConstructor;
 @Table(
         name = "chat_sessions",
         indexes = {
-            @Index(name = "idx_chat_sessions_workspace_agent_status", columnList = "workspace_id, agent_id, status"),
-            @Index(name = "idx_chat_sessions_workspace_source_ref", columnList = "workspace_id, source, source_ref")
+            @Index(name = "idx_chat_sessions_workspace_agent_status", columnList = "workspace_id, agent_id, status")
         },
         uniqueConstraints = {
             @UniqueConstraint(
@@ -65,7 +64,7 @@ public class ChatSession extends BaseEntity {
         this.workspaceId = requireId(workspaceId, "workspaceId");
         this.agentId = requireId(agentId, "agentId");
         this.source = requireSource(source);
-        this.sourceRef = normalizeOptional(sourceRef, "sourceRef", SOURCE_REF_MAX_LENGTH);
+        this.sourceRef = normalizeSourceRef(this.source, sourceRef);
         this.openClawSessionKey =
                 requireNotBlank(openClawSessionKey, "openClawSessionKey", OPEN_CLAW_SESSION_KEY_MAX_LENGTH);
         this.status = ChatSessionStatus.ACTIVE;
@@ -115,6 +114,13 @@ public class ChatSession extends BaseEntity {
             return null;
         }
         return normalizeRequired(value, fieldName, maxLength);
+    }
+
+    private static String normalizeSourceRef(ChatSessionSource source, String sourceRef) {
+        if (source == ChatSessionSource.SLACK) {
+            return requireNotBlank(sourceRef, "sourceRef", SOURCE_REF_MAX_LENGTH);
+        }
+        return normalizeOptional(sourceRef, "sourceRef", SOURCE_REF_MAX_LENGTH);
     }
 
     private static String normalizeRequired(String value, String fieldName, int maxLength) {
