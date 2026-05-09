@@ -27,12 +27,18 @@ import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
 import back.domain.chat.dto.response.ChatMessageResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
+import back.domain.chat.entity.ChatMessage;
 import back.domain.chat.entity.ChatMessageRole;
+import back.domain.chat.entity.ChatSession;
+import back.domain.chat.entity.ChatSessionStatus;
+import back.domain.chat.repository.ChatMessageRepository;
+import back.domain.chat.repository.ChatSessionRepository;
 import back.domain.gateway.client.OpenClawChatCommand;
 import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
@@ -59,6 +65,12 @@ class ChatServiceTest {
     private AgentRepository agentRepository;
 
     @Autowired
+    private ChatSessionRepository chatSessionRepository;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
     private TaskRepository taskRepository;
 
     @MockitoBean
@@ -69,6 +81,7 @@ class ChatServiceTest {
 
     private OpenClawGatewayClient openClawGatewayClient;
     private Long workspaceId;
+    private Long memberId;
     private Long agentId;
 
     @BeforeEach
@@ -81,6 +94,7 @@ class ChatServiceTest {
         agent.markReady();
         Agent savedAgent = agentRepository.save(agent);
         workspaceId = workspace.getId();
+        memberId = member.getId();
         agentId = savedAgent.getId();
 
         openClawGatewayClient = mock(OpenClawGatewayClient.class);
@@ -193,9 +207,36 @@ class ChatServiceTest {
                 });
     }
 
+    @Test
+    @DisplayName("OpenClaw 호출 실패 시 시스템 메시지로 실패 사유를 기록한다")
+    void sendMessage_openClawFailure_recordsSystemMessage() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willThrow(OpenClawGatewayException.rpcTimeout("chat.send", "request-1"));
+        ChatMessageSendRequest request =
+                new ChatMessageSendRequest("실패도 기록해줘", agentId, null, null, null, null, false);
+
+        // when & then
+        assertThatThrownBy(() -> chatService.sendMessage(workspaceId, request))
+                .isInstanceOfSatisfying(ServiceException.class, exception ->
+                        assertThat(exception.getClientMessage()).contains("요청 시간이 초과"));
+
+        List<ChatSession> sessions = chatSessionRepository
+                .findByWorkspaceIdAndAgentIdAndStatusOrderByLastMessageAtDescIdDesc(
+                        workspaceId, agentId, ChatSessionStatus.ACTIVE);
+        assertThat(sessions).hasSize(1);
+        List<ChatMessage> messages = chatMessageRepository
+                .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtAscIdAsc(workspaceId, sessions.get(0).getId());
+        assertThat(messages)
+                .extracting(ChatMessage::getRole, ChatMessage::getContent)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "실패도 기록해줘"),
+                        tuple(ChatMessageRole.SYSTEM, "OpenClaw Gateway 요청 시간이 초과되었습니다."));
+    }
+
     private Long createReadyAgent(String name, String openClawAgentId) {
         Workspace workspace = workspaceRepository.findById(workspaceId).orElseThrow();
-        Agent agent = Agent.create(workspace, name, "~/.openclaw/workspace-1", 1L);
+        Agent agent = Agent.create(workspace, name, "~/.openclaw/workspace-1", memberId);
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
         return agentRepository.save(agent).getId();
