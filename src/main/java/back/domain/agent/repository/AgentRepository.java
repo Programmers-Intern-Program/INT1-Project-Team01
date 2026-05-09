@@ -11,6 +11,8 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
 
     boolean existsByWorkspaceIdAndName(Long workspaceId, String name);
 
+    Optional<Agent> findByWorkspaceIdAndName(Long workspaceId, String name);
+
     Optional<Agent> findByIdAndWorkspaceId(Long agentId, Long workspaceId);
 
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(

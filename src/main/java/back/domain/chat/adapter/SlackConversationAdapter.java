@@ -15,9 +15,9 @@ public class SlackConversationAdapter implements SlackConversationPort {
     private final ChatService chatService;
 
     @Override
-    public String sendMessage(Long workspaceId, String sourceRef, String text) {
+    public String sendMessage(Long workspaceId, String sourceRef, String agentName, String text) {
         ChatMessageSendResponse response =
-                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, text));
+                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, text, agentName));
         return response.finalText();
     }
 }

@@ -31,6 +31,7 @@ public class SlackEventHandler {
 
     private final SlackEventLogRepository slackEventLogRepository;
     private final SlackConversationPort slackConversationPort;
+    private final SlackAgentCommandParser slackAgentCommandParser;
     private final JsonMapper jsonMapper;
 
     private static final Pattern SLACK_MENTION_PATTERN = Pattern.compile("<@[A-Z0-9]+>");
@@ -69,17 +70,22 @@ public class SlackEventHandler {
             JsonNode threadTsNode = eventNode.path("thread_ts");
             String threadTs = !threadTsNode.isMissingNode() ? threadTsNode.asString() : null;
 
-            String cleanText = sanitizeText(rawText);
+            SlackAgentCommandParser.ParsedCommand parsedCommand =
+                    slackAgentCommandParser.parse(sanitizeText(rawText));
             String targetTs = (threadTs != null && !threadTs.isBlank()) ? threadTs : ts;
             String sourceRef = String.format("%s:%s:%s", teamId, channelId, targetTs);
 
-            if (cleanText.isBlank()) {
+            if (parsedCommand.message().isBlank()) {
                 eventLog.markAsIgnored("파싱 후 실행할 명령어(Text)가 존재하지 않습니다.");
                 slackEventLogRepository.save(eventLog);
                 return;
             }
 
-            slackConversationPort.sendMessage(workspaceId, sourceRef, cleanText);
+            slackConversationPort.sendMessage(
+                    workspaceId,
+                    sourceRef,
+                    parsedCommand.agentName(),
+                    parsedCommand.message());
 
             eventLog.markAsProcessed();
             slackEventLogRepository.save(eventLog);

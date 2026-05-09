@@ -6,6 +6,7 @@ import back.domain.task.entity.TaskType;
 public record SlackChatMessageSendCommand(
         String sourceRef,
         String message,
+        String agentName,
         Long agentId,
         Long repositoryId,
         TaskType taskType,
@@ -14,6 +15,10 @@ public record SlackChatMessageSendCommand(
         Boolean createPr) {
 
     public SlackChatMessageSendCommand(String sourceRef, String message) {
-        this(sourceRef, message, null, null, null, null, null, false);
+        this(sourceRef, message, null);
+    }
+
+    public SlackChatMessageSendCommand(String sourceRef, String message, String agentName) {
+        this(sourceRef, message, agentName, null, null, null, null, null, false);
     }
 }

@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -323,6 +324,86 @@ class ChatServiceTest {
     }
 
     @Test
+    @DisplayName("Slack 메시지에서 Agent 이름을 지정하면 해당 Agent로 OpenClaw 채팅을 보낸다")
+    void sendSlackMessage_namedAgentUsesSelectedAgent() {
+        // given
+        String sourceRef = "T123:C123:999.001";
+        Long backendAgentId = createReadyAgent("backend-agent", "openclaw-agent-2");
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("gateway-session", "backend-agent 응답"));
+
+        // when
+        ChatMessageSendResponse response = chatService.sendSlackMessage(
+                workspaceId,
+                new SlackChatMessageSendCommand(sourceRef, "로그인 API 구현해줘", "backend-agent"));
+
+        // then
+        assertThat(response.assignedAgentId()).isEqualTo(backendAgentId);
+        assertThat(response.finalText()).isEqualTo("backend-agent 응답");
+        ChatSession session = chatSessionRepository.findByIdAndWorkspaceId(response.chatSessionId(), workspaceId)
+                .orElseThrow();
+        assertThat(session.getAgentId()).isEqualTo(backendAgentId);
+
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().openClawAgentId()).isEqualTo("openclaw-agent-2");
+    }
+
+    @Test
+    @DisplayName("Slack 메시지에서 지정한 Agent를 찾을 수 없으면 안내 응답을 반환하고 Gateway를 호출하지 않는다")
+    void sendSlackMessage_namedAgentNotFoundReturnsGuidance() {
+        // given
+        String sourceRef = "T123:C123:999.002";
+
+        // when
+        ChatMessageSendResponse response = chatService.sendSlackMessage(
+                workspaceId,
+                new SlackChatMessageSendCommand(sourceRef, "로그인 API 구현해줘", "missing-agent"));
+
+        // then
+        assertThat(response.chatSessionId()).isNull();
+        assertThat(response.finalText()).contains("요청한 Agent를 찾을 수 없습니다");
+        verify(openClawGatewayClient, never()).sendChat(any(OpenClawChatCommand.class));
+    }
+
+    @Test
+    @DisplayName("Slack 메시지에서 지정한 Agent가 READY가 아니면 안내 응답을 반환하고 Gateway를 호출하지 않는다")
+    void sendSlackMessage_namedAgentNotReadyReturnsGuidance() {
+        // given
+        String sourceRef = "T123:C123:999.003";
+        createCreatingAgent("creating-agent");
+
+        // when
+        ChatMessageSendResponse response = chatService.sendSlackMessage(
+                workspaceId,
+                new SlackChatMessageSendCommand(sourceRef, "로그인 API 구현해줘", "creating-agent"));
+
+        // then
+        assertThat(response.chatSessionId()).isNull();
+        assertThat(response.finalText()).contains("READY 상태가 아닙니다");
+        verify(openClawGatewayClient, never()).sendChat(any(OpenClawChatCommand.class));
+    }
+
+    @Test
+    @DisplayName("이미 Agent가 연결된 Slack thread에서 다른 Agent를 지정하면 안내 응답을 반환한다")
+    void sendSlackMessage_existingSlackThreadRejectsDifferentNamedAgent() {
+        // given
+        String sourceRef = "T123:C123:999.004";
+        createReadyAgent("backend-agent", "openclaw-agent-2");
+        chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "첫 메시지"));
+
+        // when
+        ChatMessageSendResponse response = chatService.sendSlackMessage(
+                workspaceId,
+                new SlackChatMessageSendCommand(sourceRef, "다른 Agent로 실행해줘", "backend-agent"));
+
+        // then
+        assertThat(response.chatSessionId()).isNull();
+        assertThat(response.finalText()).contains("다른 Agent와 연결");
+        verify(openClawGatewayClient, times(1)).sendChat(any(OpenClawChatCommand.class));
+    }
+
+    @Test
     @DisplayName("Slack TASK intent는 Slack sourceRef를 가진 Task로 저장한다")
     void sendSlackMessage_taskIntentCreatesSlackTask() {
         // given
@@ -433,6 +514,12 @@ class ChatServiceTest {
         Agent agent = Agent.create(workspace, name, "~/.openclaw/workspace-1", memberId);
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
+        return agentRepository.save(agent).getId();
+    }
+
+    private Long createCreatingAgent(String name) {
+        Workspace workspace = workspaceRepository.findById(workspaceId).orElseThrow();
+        Agent agent = Agent.create(workspace, name, "~/.openclaw/workspace-1", memberId);
         return agentRepository.save(agent).getId();
     }
 }

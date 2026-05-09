@@ -37,7 +37,7 @@ class SlackConversationAdapterTest {
                         10L, null, 1L, 2L, null, null, null, "Agent 응답", null, null, List.of()));
 
         // when
-        String finalText = adapter.sendMessage(1L, "T123:C123:999.000", "로그인 API 구현해줘");
+        String finalText = adapter.sendMessage(1L, "T123:C123:999.000", "backend-agent", "로그인 API 구현해줘");
 
         // then
         ArgumentCaptor<SlackChatMessageSendCommand> captor =
@@ -45,6 +45,7 @@ class SlackConversationAdapterTest {
         verify(chatService).sendSlackMessage(eq(1L), captor.capture());
         assertThat(finalText).isEqualTo("Agent 응답");
         assertThat(captor.getValue().sourceRef()).isEqualTo("T123:C123:999.000");
+        assertThat(captor.getValue().agentName()).isEqualTo("backend-agent");
         assertThat(captor.getValue().message()).isEqualTo("로그인 API 구현해줘");
     }
 }

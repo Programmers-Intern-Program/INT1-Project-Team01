@@ -69,11 +69,74 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatMessageSendResponse sendSlackMessage(Long workspaceId, SlackChatMessageSendCommand command) {
-        return sendMessageInternal(workspaceId, ChatSendCommand.from(command));
+        ChatSendCommand chatCommand = ChatSendCommand.from(command);
+        if (chatCommand.agentName() == null) {
+            return sendMessageInternal(workspaceId, chatCommand);
+        }
+        return sendSlackMessageWithNamedAgent(workspaceId, chatCommand);
+    }
+
+    private ChatMessageSendResponse sendSlackMessageWithNamedAgent(Long workspaceId, ChatSendCommand command) {
+        Agent agent = agentRepository.findByWorkspaceIdAndName(workspaceId, command.agentName())
+                .orElse(null);
+        if (agent == null) {
+            return slackGuidanceResponse(
+                    workspaceId,
+                    "요청한 Agent를 찾을 수 없습니다. /agent " + command.agentName() + " 이름을 확인해 주세요.");
+        }
+
+        String unavailableMessage = resolveSlackNamedAgentUnavailableMessage(agent);
+        if (unavailableMessage != null) {
+            return slackGuidanceResponse(workspaceId, unavailableMessage);
+        }
+
+        ChatSession existingSourceSession = findSourceSession(workspaceId, command);
+        if (existingSourceSession != null && !existingSourceSession.getAgentId().equals(agent.getId())) {
+            return slackGuidanceResponse(
+                    workspaceId,
+                    "이미 이 Slack thread는 다른 Agent와 연결되어 있습니다. 새 thread에서 다시 요청해 주세요.");
+        }
+
+        return sendMessageInternal(
+                workspaceId,
+                command.withAgentId(agent.getId()),
+                ChatSendPrefetch.withNamedAgent(agent, existingSourceSession));
+    }
+
+    private String resolveSlackNamedAgentUnavailableMessage(Agent agent) {
+        if (agent.getStatus() != AgentStatus.READY) {
+            return "요청한 Agent가 READY 상태가 아닙니다. 현재 상태: " + agent.getStatus();
+        }
+        if (agent.getOpenClawAgentId() == null || agent.getOpenClawAgentId().isBlank()) {
+            return "요청한 Agent가 OpenClaw Agent와 동기화되지 않았습니다.";
+        }
+        return null;
+    }
+
+    private ChatMessageSendResponse slackGuidanceResponse(Long workspaceId, String message) {
+        return new ChatMessageSendResponse(
+                null,
+                null,
+                workspaceId,
+                null,
+                null,
+                null,
+                null,
+                message,
+                null,
+                null,
+                List.of());
     }
 
     private ChatMessageSendResponse sendMessageInternal(Long workspaceId, ChatSendCommand command) {
-        ChatSendContext context = createChatSendContextInTransaction(workspaceId, command);
+        return sendMessageInternal(workspaceId, command, ChatSendPrefetch.empty());
+    }
+
+    private ChatMessageSendResponse sendMessageInternal(
+            Long workspaceId,
+            ChatSendCommand command,
+            ChatSendPrefetch prefetch) {
+        ChatSendContext context = createChatSendContextInTransaction(workspaceId, command, prefetch);
 
         OpenClawChatResult chatResult;
         try {
@@ -94,10 +157,13 @@ public class ChatServiceImpl implements ChatService {
         return sendResult.response();
     }
 
-    private ChatSendContext createChatSendContextInTransaction(Long workspaceId, ChatSendCommand command) {
+    private ChatSendContext createChatSendContextInTransaction(
+            Long workspaceId,
+            ChatSendCommand command,
+            ChatSendPrefetch prefetch) {
         try {
             return requireTransactionResult(
-                    transactionOperations.execute(status -> createChatSendContext(workspaceId, command)));
+                    transactionOperations.execute(status -> createChatSendContext(workspaceId, command, prefetch)));
         } catch (DataIntegrityViolationException exception) {
             if (command.source() != ChatSessionSource.SLACK) {
                 throw exception;
@@ -108,13 +174,17 @@ public class ChatServiceImpl implements ChatService {
                     workspaceId,
                     command.sourceRef());
             return requireTransactionResult(
-                    transactionOperations.execute(status -> createChatSendContext(workspaceId, command)));
+                    transactionOperations.execute(status ->
+                            createChatSendContext(workspaceId, command, prefetch.retrySourceSessionLookup())));
         }
     }
 
-    private ChatSendContext createChatSendContext(Long workspaceId, ChatSendCommand command) {
-        ChatSession existingSourceSession = findSourceSession(workspaceId, command);
-        Agent agent = resolveAgent(workspaceId, command, existingSourceSession);
+    private ChatSendContext createChatSendContext(
+            Long workspaceId,
+            ChatSendCommand command,
+            ChatSendPrefetch prefetch) {
+        ChatSession existingSourceSession = resolvePrefetchedSourceSession(workspaceId, command, prefetch);
+        Agent agent = resolvePrefetchedAgent(workspaceId, command, existingSourceSession, prefetch);
         ChatSession session = resolveSession(workspaceId, command, agent, existingSourceSession);
         String normalizedMessage = command.message().trim();
         ChatMessage userMessage = chatMessageRepository.save(
@@ -122,6 +192,28 @@ public class ChatServiceImpl implements ChatService {
         session.recordMessage();
         ChatSession savedSession = chatSessionRepository.save(session);
         return new ChatSendContext(agent, savedSession, userMessage, normalizedMessage);
+    }
+
+    private ChatSession resolvePrefetchedSourceSession(
+            Long workspaceId,
+            ChatSendCommand command,
+            ChatSendPrefetch prefetch) {
+        if (prefetch.sourceSessionResolved()) {
+            return prefetch.sourceSession();
+        }
+        return findSourceSession(workspaceId, command);
+    }
+
+    private Agent resolvePrefetchedAgent(
+            Long workspaceId,
+            ChatSendCommand command,
+            ChatSession existingSourceSession,
+            ChatSendPrefetch prefetch) {
+        if (prefetch.agent() == null) {
+            return resolveAgent(workspaceId, command, existingSourceSession);
+        }
+        validateAgentReady(prefetch.agent());
+        return prefetch.agent();
     }
 
     private ChatSendResult recordAgentResponse(
@@ -529,6 +621,7 @@ public class ChatServiceImpl implements ChatService {
     private record ChatSendCommand(
             String message,
             Long agentId,
+            String agentName,
             Long repositoryId,
             TaskType taskType,
             TaskPriority priority,
@@ -542,6 +635,7 @@ public class ChatServiceImpl implements ChatService {
             return new ChatSendCommand(
                     request.message(),
                     request.agentId(),
+                    null,
                     request.repositoryId(),
                     request.taskType(),
                     request.priority(),
@@ -556,6 +650,7 @@ public class ChatServiceImpl implements ChatService {
             return new ChatSendCommand(
                     command.message(),
                     command.agentId(),
+                    normalizeOptionalText(command.agentName()),
                     command.repositoryId(),
                     command.taskType(),
                     command.priority(),
@@ -566,6 +661,21 @@ public class ChatServiceImpl implements ChatService {
                     requireSourceRef(command.sourceRef()));
         }
 
+        private ChatSendCommand withAgentId(Long resolvedAgentId) {
+            return new ChatSendCommand(
+                    message,
+                    resolvedAgentId,
+                    agentName,
+                    repositoryId,
+                    taskType,
+                    priority,
+                    title,
+                    createPr,
+                    chatSessionId,
+                    source,
+                    sourceRef);
+        }
+
         private static String requireSourceRef(String sourceRef) {
             if (sourceRef == null || sourceRef.isBlank()) {
                 throw new ServiceException(
@@ -574,6 +684,31 @@ public class ChatServiceImpl implements ChatService {
                         "Slack thread 참조값은 필수입니다.");
             }
             return sourceRef.trim();
+        }
+
+        private static String normalizeOptionalText(String value) {
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return value.trim();
+        }
+    }
+
+    private record ChatSendPrefetch(
+            Agent agent,
+            ChatSession sourceSession,
+            boolean sourceSessionResolved) {
+
+        private static ChatSendPrefetch empty() {
+            return new ChatSendPrefetch(null, null, false);
+        }
+
+        private static ChatSendPrefetch withNamedAgent(Agent agent, ChatSession sourceSession) {
+            return new ChatSendPrefetch(agent, sourceSession, true);
+        }
+
+        private ChatSendPrefetch retrySourceSessionLookup() {
+            return new ChatSendPrefetch(agent, null, false);
         }
     }
 

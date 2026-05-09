@@ -15,7 +15,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -38,6 +37,7 @@ class SlackEventHandlerTest {
         slackEventHandler = new SlackEventHandler(
                 slackEventLogRepository,
                 slackConversationPort,
+                new SlackAgentCommandParser(),
                 new JsonMapper());
         mockEventLog = mock(SlackEventLog.class);
     }
@@ -76,7 +76,37 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(slackConversationPort).sendMessage(1L, "T123:C123:999.000", "로그인 API 구현해줘");
+        verify(slackConversationPort).sendMessage(1L, "T123:C123:999.000", null, "로그인 API 구현해줘");
+        verify(mockEventLog).markAsProcessed();
+        verify(slackEventLogRepository).save(mockEventLog);
+    }
+
+    @Test
+    @DisplayName("/agent 문법이 포함된 메시지는 Agent 이름과 실행 메시지를 분리해 Port에 전달한다.")
+    void handleSlackEvent_agentCommandParsesAgentName() {
+        // given
+        givenIntegrationExists();
+        String rawPayload = """
+                {
+                  "team_id": "T123",
+                  "event": {
+                    "channel": "C123",
+                    "text": "<@U12345> /agent backend-agent 로그인 API 구현해줘",
+                    "ts": "1000.000",
+                    "thread_ts": "999.000"
+                  }
+                }
+                """;
+        when(slackEventLogRepository.findByIdWithIntegrationAndWorkspace(eventLogId))
+                .thenReturn(Optional.of(mockEventLog));
+        when(mockEventLog.getRawPayload()).thenReturn(rawPayload);
+
+        // when
+        slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
+
+        // then
+        verify(slackConversationPort)
+                .sendMessage(1L, "T123:C123:999.000", "backend-agent", "로그인 API 구현해줘");
         verify(mockEventLog).markAsProcessed();
         verify(slackEventLogRepository).save(mockEventLog);
     }
@@ -104,7 +134,7 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString());
+        verifyNoInteractions(slackConversationPort);
         verify(mockEventLog).markAsIgnored(anyString());
         verify(slackEventLogRepository).save(mockEventLog);
     }
@@ -121,7 +151,7 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString());
+        verifyNoInteractions(slackConversationPort);
         verify(mockEventLog).markAsIgnored(anyString());
         verify(slackEventLogRepository).save(mockEventLog);
     }
