@@ -314,6 +314,10 @@ class ChatServiceTest {
         verify(openClawGatewayClient, times(2)).sendChat(commandCaptor.capture());
         List<OpenClawChatCommand> commands = commandCaptor.getAllValues();
         assertThat(commands.get(0).sessionKey()).isEqualTo(commands.get(1).sessionKey());
+        assertThat(commands.get(0).sessionKey())
+                .startsWith("workspace-" + workspaceId + "-agent-" + agentId + "-slack-")
+                .doesNotContain("T123")
+                .doesNotContain("C123");
         assertThat(second.messages())
                 .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
                 .containsExactly(
@@ -321,6 +325,41 @@ class ChatServiceTest {
                         tuple(ChatMessageRole.ASSISTANT, "첫 Slack 응답"),
                         tuple(ChatMessageRole.USER, "두 번째 메시지"),
                         tuple(ChatMessageRole.ASSISTANT, "두 번째 Slack 응답"));
+    }
+
+    @Test
+    @DisplayName("기존 Slack ChatSession의 legacy OpenClaw sessionKey는 해시 기반 키로 보정한다")
+    void sendSlackMessage_existingLegacySlackSessionNormalizesOpenClawSessionKey() {
+        // given
+        String sourceRef = "T123:C123:999.005";
+        String legacySessionKey = "workspace-" + workspaceId + "-slack-T123-C123-999.005";
+        ChatSession legacySession = chatSessionRepository.save(ChatSession.start(
+                workspaceId,
+                agentId,
+                ChatSessionSource.SLACK,
+                sourceRef,
+                legacySessionKey));
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("gateway-session", "legacy 보정 응답"));
+
+        // when
+        ChatMessageSendResponse response =
+                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "legacy 세션 확인"));
+
+        // then
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        String normalizedSessionKey = commandCaptor.getValue().sessionKey();
+        assertThat(response.chatSessionId()).isEqualTo(legacySession.getId());
+        assertThat(normalizedSessionKey)
+                .startsWith("workspace-" + workspaceId + "-agent-" + agentId + "-slack-")
+                .isNotEqualTo(legacySessionKey)
+                .doesNotContain("T123")
+                .doesNotContain("C123");
+
+        ChatSession savedSession = chatSessionRepository.findByIdAndWorkspaceId(legacySession.getId(), workspaceId)
+                .orElseThrow();
+        assertThat(savedSession.getOpenClawSessionKey()).isEqualTo(normalizedSessionKey);
     }
 
     @Test
