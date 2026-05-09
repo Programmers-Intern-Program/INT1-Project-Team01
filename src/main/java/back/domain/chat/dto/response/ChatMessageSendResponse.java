@@ -1,10 +1,13 @@
 package back.domain.chat.dto.response;
 
-import back.domain.execution.entity.TaskExecutionStatus;
-import back.domain.task.entity.TaskStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import back.domain.execution.entity.TaskExecutionStatus;
+import back.domain.task.entity.TaskStatus;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatMessageSendResponse(
         Long chatSessionId,
         Long taskId,
