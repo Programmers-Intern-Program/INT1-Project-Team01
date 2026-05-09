@@ -15,7 +15,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -135,7 +134,7 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString(), anyString());
+        verifyNoInteractions(slackConversationPort);
         verify(mockEventLog).markAsIgnored(anyString());
         verify(slackEventLogRepository).save(mockEventLog);
     }
@@ -152,7 +151,7 @@ class SlackEventHandlerTest {
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString(), anyString());
+        verifyNoInteractions(slackConversationPort);
         verify(mockEventLog).markAsIgnored(anyString());
         verify(slackEventLogRepository).save(mockEventLog);
     }
