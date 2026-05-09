@@ -10,8 +10,9 @@ public interface SlackConversationPort {
      *
      * @param workspaceId 내부 워크스페이스 ID
      * @param sourceRef   Slack thread 참조값(teamId:channelId:threadTs)
+     * @param agentName   Slack 메시지에서 지정한 Agent 이름. 지정하지 않으면 null
      * @param text        멘션 태그가 제거된 사용자 메시지
      * @return Agent가 반환한 최종 응답 텍스트
      */
-    String sendMessage(Long workspaceId, String sourceRef, String text);
+    String sendMessage(Long workspaceId, String sourceRef, String agentName, String text);
 }
