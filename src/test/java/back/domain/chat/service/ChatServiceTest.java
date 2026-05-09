@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -210,7 +213,10 @@ class ChatServiceTest {
         assertThat(task.getTaskType()).isEqualTo(TaskType.FEATURE_IMPLEMENTATION);
         assertThat(task.getPriority()).isEqualTo(TaskPriority.HIGH);
         assertThat(task.getRepositoryId()).isEqualTo(7L);
-        verify(chatTaskExecutionDispatcher).run(workspaceId, response.taskId(), true);
+        ChatSession session = chatSessionRepository.findByIdAndWorkspaceId(response.chatSessionId(), workspaceId)
+                .orElseThrow();
+        verify(chatTaskExecutionDispatcher)
+                .run(workspaceId, response.taskId(), true, session.getOpenClawSessionKey());
     }
 
     @Test
@@ -231,7 +237,7 @@ class ChatServiceTest {
                                 """));
         doThrow(new RuntimeException("queue full"))
                 .when(chatTaskExecutionDispatcher)
-                .run(any(), any(), any(Boolean.class));
+                .run(anyLong(), anyLong(), anyBoolean(), anyString());
         ChatMessageSendRequest request =
                 new ChatMessageSendRequest("테스트 작성해줘", agentId, null, null, null, null, false);
 

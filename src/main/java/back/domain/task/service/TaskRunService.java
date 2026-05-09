@@ -33,7 +33,7 @@ public class TaskRunService {
     public TaskRunResponse createAndRunTask(Long workspaceId, TaskRunRequest request) {
         validateWorkspaceExists(workspaceId);
         Task task = createInProgressTaskInTransaction(workspaceId, request);
-        return runTask(task, request.shouldCreatePr());
+        return runTask(task, request.shouldCreatePr(), null);
     }
 
     public TaskRunResponse createTaskForRun(Long workspaceId, TaskRunRequest request) {
@@ -44,14 +44,23 @@ public class TaskRunService {
 
     public TaskRunResponse runTask(Long workspaceId, Long taskId, boolean createPr) {
         Task task = getTaskOrThrow(workspaceId, taskId);
-        return runTask(task, createPr);
+        return runTask(task, createPr, null);
+    }
+
+    public TaskRunResponse runTask(
+            Long workspaceId,
+            Long taskId,
+            boolean createPr,
+            String openClawSessionKeyOverride) {
+        Task task = getTaskOrThrow(workspaceId, taskId);
+        return runTask(task, createPr, openClawSessionKeyOverride);
     }
 
     public void markTaskFailed(Long workspaceId, Long taskId) {
         markTaskStatus(workspaceId, taskId, TaskStatus.FAILED);
     }
 
-    private TaskRunResponse runTask(Task task, boolean createPr) {
+    private TaskRunResponse runTask(Task task, boolean createPr, String openClawSessionKeyOverride) {
         TaskExecutionRunResult executionResult;
         try {
             executionResult = taskExecutionRunner.run(new TaskExecutionRunCommand(
@@ -60,7 +69,8 @@ public class TaskRunService {
                     task.getAssignedAgentId(),
                     task.getRepositoryId(),
                     resolveExecutionPrompt(task),
-                    createPr));
+                    createPr,
+                    openClawSessionKeyOverride));
         } catch (RuntimeException exception) {
             markTaskFailedBestEffort(task.getWorkspaceId(), task.getId(), exception);
             throw exception;

@@ -19,6 +19,27 @@ class TaskExecutionRunCommandTest {
     }
 
     @Test
+    @DisplayName("openClawSessionKeyOverride는 null이면 허용한다")
+    void create_nullOpenClawSessionKeyOverride_success() {
+        // when
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 2L, null, null, "작업 실행", false);
+
+        // then
+        assertThat(command.openClawSessionKeyOverride()).isNull();
+    }
+
+    @Test
+    @DisplayName("openClawSessionKeyOverride는 값이 있으면 trim해서 저장한다")
+    void create_openClawSessionKeyOverride_success() {
+        // when
+        TaskExecutionRunCommand command =
+                new TaskExecutionRunCommand(1L, 2L, null, null, "작업 실행", false, " chat-session-key ");
+
+        // then
+        assertThat(command.openClawSessionKeyOverride()).isEqualTo("chat-session-key");
+    }
+
+    @Test
     @DisplayName("assignedAgentId는 null이면 허용한다")
     void create_nullAssignedAgentId_success() {
         // when
@@ -42,5 +63,16 @@ class TaskExecutionRunCommandTest {
         assertThatThrownBy(() -> new TaskExecutionRunCommand(1L, 2L, 3L, 0L, "작업 실행", false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("repositoryId");
+    }
+
+    @Test
+    @DisplayName("openClawSessionKeyOverride는 220자를 넘으면 예외를 던진다")
+    void create_invalidOpenClawSessionKeyOverride_throwsException() {
+        String longSessionKey = "a".repeat(221);
+
+        assertThatThrownBy(() ->
+                        new TaskExecutionRunCommand(1L, 2L, 3L, null, "작업 실행", false, longSessionKey))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("openClawSessionKeyOverride");
     }
 }

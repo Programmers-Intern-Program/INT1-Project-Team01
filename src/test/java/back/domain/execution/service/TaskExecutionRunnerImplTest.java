@@ -157,6 +157,46 @@ class TaskExecutionRunnerImplTest {
     }
 
     @Test
+    @DisplayName("sessionKey override가 있으면 TaskExecution에서 해당 OpenClaw sessionKey를 사용한다")
+    void run_withSessionKeyOverride_usesOverrideSessionKey() {
+        // given
+        TaskExecutionRunCommand command =
+                new TaskExecutionRunCommand(
+                        1L,
+                        50L,
+                        100L,
+                        null,
+                        "채팅에서 시작한 작업 실행",
+                        false,
+                        "workspace-1-agent-100-chat-fixed");
+        OpenClawChatResult chatResult = new OpenClawChatResult(
+                "agent:openclaw-agent-1:workspace-1-agent-100-chat-fixed",
+                "작업을 완료했습니다.");
+        AgentExecutionResult agentResult = new AgentExecutionResult(
+                new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
+                null);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findByIdAndWorkspaceId(100L, 1L))
+                .willReturn(Optional.of(readyAgent));
+        given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class))).willReturn(chatResult);
+        given(taskExecutionResultRecorder.parse(chatResult)).willReturn(agentResult);
+
+        // when
+        TaskExecutionRunResult result = taskExecutionRunner.run(command);
+
+        // then
+        assertThat(result.openClawSessionKey()).isEqualTo("workspace-1-agent-100-chat-fixed");
+
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().sessionKey()).isEqualTo("workspace-1-agent-100-chat-fixed");
+        assertThat(commandCaptor.getValue().fullSessionKey())
+                .isEqualTo("agent:openclaw-agent-1:workspace-1-agent-100-chat-fixed");
+    }
+
+    @Test
     @DisplayName("Agent final report가 FAILED이면 chat.send 성공 후에도 TaskExecution을 FAILED로 저장한다")
     void run_agentReportFailed_marksFailed() {
         // given
