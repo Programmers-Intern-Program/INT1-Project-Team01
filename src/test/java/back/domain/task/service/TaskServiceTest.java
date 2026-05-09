@@ -19,6 +19,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 import back.domain.execution.dto.request.AgentReportSaveRequest;
@@ -35,6 +37,7 @@ import back.domain.execution.repository.TaskExecutionRepository;
 import back.domain.execution.service.TaskExecutionRunner;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
@@ -64,6 +67,7 @@ import back.domain.workspace.repository.WorkspaceRepository;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Transactional
+@RecordApplicationEvents
 class TaskServiceTest {
 
     @Autowired
@@ -95,6 +99,9 @@ class TaskServiceTest {
 
     @Autowired
     private TaskMessageRepository taskMessageRepository;
+
+    @Autowired
+    private ApplicationEvents applicationEvents;
 
     @MockitoBean
     private TaskExecutionRunner taskExecutionRunner;
@@ -377,6 +384,58 @@ class TaskServiceTest {
     }
 
     @Test
+    @DisplayName("Slack 출처 Task 실행이 완료되면 Slack reply 이벤트를 발행한다")
+    void createAndRunSlackTaskPublishesSlackReplyEvent() {
+        // given
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
+            TaskExecutionRunCommand command = invocation.getArgument(0);
+            return new TaskExecutionRunResult(
+                    20L,
+                    command.taskId(),
+                    command.workspaceId(),
+                    100L,
+                    TaskExecutionStatus.SUCCEEDED,
+                    "/tmp/aioffice/workspaces/1/executions/20/repo",
+                    "workspace-1-execution-20",
+                    "작업을 완료했습니다.",
+                    null);
+        });
+
+        // when
+        TaskRunResponse response = taskRunService.createAndRunTask(workspaceId, createSlackRunRequest());
+
+        // then
+        assertThat(response.taskStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(applicationEvents.stream(SlackReplyRequestedEvent.class).toList())
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.sourceRef()).isEqualTo("T123:C456:1715059800.123");
+                    assertThat(event.message()).isEqualTo("작업을 완료했습니다.");
+                    assertThat(event.deduplicationKey())
+                            .isEqualTo("slack-task-" + response.taskId() + "-execution-20");
+                });
+    }
+
+    @Test
+    @DisplayName("Slack 출처 Task 실행 중 예외가 발생하면 실패 Slack reply 이벤트를 발행한다")
+    void createAndRunSlackTaskWithRunnerExceptionPublishesFailureReplyEvent() {
+        // given
+        RuntimeException runnerException = new IllegalStateException("runner failed");
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willThrow(runnerException);
+
+        // when & then
+        assertThatThrownBy(() -> taskRunService.createAndRunTask(workspaceId, createSlackRunRequest()))
+                .isSameAs(runnerException);
+        assertThat(applicationEvents.stream(SlackReplyRequestedEvent.class).toList())
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.sourceRef()).isEqualTo("T123:C456:1715059800.123");
+                    assertThat(event.message()).contains("Task 실행에 실패했습니다.", "runner failed");
+                    assertThat(event.deduplicationKey()).startsWith("slack-task-").endsWith("-failed");
+                });
+    }
+
+    @Test
     @DisplayName("Task 실행 시 OpenClaw sessionKey override를 Runner에 전달한다")
     void runTaskWithOpenClawSessionKeyOverride() {
         // given
@@ -482,5 +541,19 @@ class TaskServiceTest {
                 "dashboard-test",
                 "이 PR 리뷰해줘",
                 true);
+    }
+
+    private TaskRunRequest createSlackRunRequest() {
+        return new TaskRunRequest(
+                "Slack 요청 작업",
+                "Slack thread에서 요청한 작업입니다.",
+                TaskType.FEATURE_IMPLEMENTATION,
+                TaskPriority.MEDIUM,
+                1L,
+                3L,
+                SourceType.SLACK,
+                "T123:C456:1715059800.123",
+                "로그인 API 구현해줘",
+                false);
     }
 }
