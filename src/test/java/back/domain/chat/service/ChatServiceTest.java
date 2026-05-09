@@ -42,6 +42,10 @@ import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.task.entity.Task;
+import back.domain.task.entity.TaskPriority;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.entity.TaskType;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.repository.WorkspaceRepository;
@@ -78,6 +82,9 @@ class ChatServiceTest {
 
     @MockitoBean
     private OpenClawGatewayClientFactory openClawGatewayClientFactory;
+
+    @MockitoBean
+    private ChatTaskExecutionDispatcher chatTaskExecutionDispatcher;
 
     private OpenClawGatewayClient openClawGatewayClient;
     private Long workspaceId;
@@ -128,6 +135,81 @@ class ChatServiceTest {
         assertThat(taskRepository.findByWorkspaceId(workspaceId, PageRequest.of(0, 10)).getContent()).isEmpty();
         verify(openClawGatewayClient).connect(any(OpenClawGatewayConnectionContext.class));
         verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("CHAT intent 응답은 message만 일반 채팅으로 저장한다")
+    void sendMessage_chatIntentStoresMessageOnly() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "CHAT",
+                                  "message": "일반 채팅 응답입니다."
+                                }
+                                """));
+        ChatMessageSendRequest request =
+                new ChatMessageSendRequest("일반 대화야", agentId, null, null, null, null, false);
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(workspaceId, request);
+
+        // then
+        assertThat(response.taskId()).isNull();
+        assertThat(response.finalText()).isEqualTo("일반 채팅 응답입니다.");
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "일반 대화야"),
+                        tuple(ChatMessageRole.ASSISTANT, "일반 채팅 응답입니다."));
+        assertThat(taskRepository.findByWorkspaceId(workspaceId, PageRequest.of(0, 10)).getContent()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("TASK intent 응답은 Task를 생성하고 채팅 메시지에 연결한다")
+    void sendMessage_taskIntentCreatesTaskAndLinksMessages() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "TASK",
+                                  "message": "작업을 시작하겠습니다.",
+                                  "task": {
+                                    "title": "로그인 API 구현",
+                                    "description": "로그인 API와 테스트 코드를 작성합니다.",
+                                    "taskType": "FEATURE_IMPLEMENTATION",
+                                    "priority": "HIGH",
+                                    "repositoryId": 7,
+                                    "createPr": true
+                                  }
+                                }
+                                """));
+        ChatMessageSendRequest request =
+                new ChatMessageSendRequest("로그인 API 구현해줘", agentId, null, null, null, null, false);
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(workspaceId, request);
+
+        // then
+        assertThat(response.taskId()).isNotNull();
+        assertThat(response.taskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(response.finalText()).isEqualTo("작업을 시작하겠습니다.");
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content, ChatMessageResponse::taskId)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "로그인 API 구현해줘", response.taskId()),
+                        tuple(ChatMessageRole.ASSISTANT, "작업을 시작하겠습니다.", response.taskId()));
+        Task task = taskRepository.findByIdAndWorkspaceId(response.taskId(), workspaceId).orElseThrow();
+        assertThat(task.getTitle()).isEqualTo("로그인 API 구현");
+        assertThat(task.getDescription()).isEqualTo("로그인 API와 테스트 코드를 작성합니다.");
+        assertThat(task.getTaskType()).isEqualTo(TaskType.FEATURE_IMPLEMENTATION);
+        assertThat(task.getPriority()).isEqualTo(TaskPriority.HIGH);
+        assertThat(task.getRepositoryId()).isEqualTo(7L);
+        verify(chatTaskExecutionDispatcher).run(workspaceId, response.taskId(), true);
     }
 
     @Test
