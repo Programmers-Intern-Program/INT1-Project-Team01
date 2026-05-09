@@ -1,9 +1,11 @@
 package back.domain.chat.service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
@@ -33,6 +35,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
+    private static final String GATEWAY_FAILURE_MESSAGE = "Agent 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+    private final TransactionOperations transactionOperations;
     private final TaskService taskService;
     private final AgentRepository agentRepository;
     private final ChatSessionRepository chatSessionRepository;
@@ -42,29 +47,55 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatMessageSendResponse sendMessage(Long workspaceId, ChatMessageSendRequest request) {
+        ChatSendContext context = requireTransactionResult(
+                transactionOperations.execute(status -> createChatSendContext(workspaceId, request)));
+
+        OpenClawChatResult chatResult;
+        try {
+            chatResult = sendOpenClawChat(
+                    context.session(),
+                    context.agent(),
+                    context.normalizedMessage(),
+                    context.userMessage().getId());
+        } catch (RuntimeException exception) {
+            recordFailureMessageSafely(context.session(), exception);
+            throw exception;
+        }
+
+        return requireTransactionResult(
+                transactionOperations.execute(status -> recordAssistantResponse(context, chatResult)));
+    }
+
+    private ChatSendContext createChatSendContext(Long workspaceId, ChatMessageSendRequest request) {
         Agent agent = resolveAgent(workspaceId, request.agentId());
         ChatSession session = resolveSession(workspaceId, request, agent);
         String normalizedMessage = request.message().trim();
         ChatMessage userMessage = chatMessageRepository.save(
                 ChatMessage.user(workspaceId, session.getId(), normalizedMessage));
-
-        OpenClawChatResult chatResult = sendOpenClawChat(session, agent, normalizedMessage, userMessage.getId());
-        chatMessageRepository.save(ChatMessage.assistant(workspaceId, session.getId(), chatResult.finalText()));
         session.recordMessage();
-        chatSessionRepository.save(session);
+        ChatSession savedSession = chatSessionRepository.save(session);
+        return new ChatSendContext(agent, savedSession, userMessage, normalizedMessage);
+    }
 
-        List<ChatMessageResponse> messages = getSessionMessages(workspaceId, session.getId());
+    private ChatMessageSendResponse recordAssistantResponse(ChatSendContext context, OpenClawChatResult chatResult) {
+        ChatSession session = context.session();
+        chatMessageRepository.save(
+                ChatMessage.assistant(session.getWorkspaceId(), session.getId(), chatResult.finalText()));
+        session.recordMessage();
+        ChatSession savedSession = chatSessionRepository.save(session);
+
+        List<ChatMessageResponse> messages = getSessionMessages(savedSession.getWorkspaceId(), savedSession.getId());
         return new ChatMessageSendResponse(
-                session.getId(),
+                savedSession.getId(),
                 null,
-                workspaceId,
-                agent.getId(),
+                savedSession.getWorkspaceId(),
+                context.agent().getId(),
                 null,
                 null,
                 null,
                 chatResult.finalText(),
                 null,
-                session.getCreatedAt(),
+                savedSession.getCreatedAt(),
                 messages);
     }
 
@@ -169,6 +200,41 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    private void recordFailureMessageSafely(ChatSession session, RuntimeException exception) {
+        try {
+            recordFailureMessage(session, resolveFailureMessage(exception));
+        } catch (RuntimeException recordException) {
+            exception.addSuppressed(recordException);
+        }
+    }
+
+    private void recordFailureMessage(ChatSession session, String failureMessage) {
+        requireTransactionResult(transactionOperations.execute(status -> {
+            ChatSession currentSession = chatSessionRepository
+                    .findByIdAndWorkspaceId(session.getId(), session.getWorkspaceId())
+                    .orElseThrow(() -> new ServiceException(
+                            CommonErrorCode.NOT_FOUND,
+                            "[ChatServiceImpl#recordFailureMessage] chat session not found. workspaceId="
+                                    + session.getWorkspaceId() + ", chatSessionId=" + session.getId(),
+                            "채팅 세션을 찾을 수 없습니다."));
+            chatMessageRepository.save(
+                    ChatMessage.system(currentSession.getWorkspaceId(), currentSession.getId(), failureMessage));
+            currentSession.recordMessage();
+            chatSessionRepository.save(currentSession);
+            return currentSession.getId();
+        }));
+    }
+
+    private String resolveFailureMessage(RuntimeException exception) {
+        if (exception instanceof ServiceException serviceException) {
+            String clientMessage = serviceException.getClientMessage();
+            if (clientMessage != null && !clientMessage.isBlank()) {
+                return clientMessage;
+            }
+        }
+        return GATEWAY_FAILURE_MESSAGE;
+    }
+
     private String createWebOpenClawSessionKey(Long workspaceId, Long agentId) {
         return "workspace-" + workspaceId + "-agent-" + agentId + "-chat-" + UUID.randomUUID();
     }
@@ -176,4 +242,14 @@ public class ChatServiceImpl implements ChatService {
     private String createIdempotencyKey(Long chatSessionId, Long userMessageId) {
         return "chat-session-" + chatSessionId + "-message-" + userMessageId;
     }
+
+    private <T> T requireTransactionResult(T result) {
+        return Objects.requireNonNull(result, "transaction result must not be null");
+    }
+
+    private record ChatSendContext(
+            Agent agent,
+            ChatSession session,
+            ChatMessage userMessage,
+            String normalizedMessage) {}
 }
