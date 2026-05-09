@@ -1,10 +1,5 @@
 package back.domain.chat.adapter;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +10,7 @@ import back.domain.chat.service.ChatService;
 import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.domain.slack.port.SlackConversationPort;
 import back.global.exception.ServiceException;
+import back.global.util.HashUtils;
 import lombok.RequiredArgsConstructor;
 
 @Component
@@ -85,7 +81,7 @@ public class SlackConversationAdapter implements SlackConversationPort {
 
     private String resolveFailureReplyKey(String sourceRef, String agentName, String text) {
         String keySource = normalize(sourceRef) + "|" + normalize(agentName) + "|" + normalize(text);
-        return "slack-chat-failure-" + sha256Hex(keySource).substring(0, FAILURE_REPLY_KEY_HASH_LENGTH);
+        return "slack-chat-failure-" + HashUtils.sha256Hex(keySource).substring(0, FAILURE_REPLY_KEY_HASH_LENGTH);
     }
 
     private String normalize(String value) {
@@ -95,12 +91,4 @@ public class SlackConversationAdapter implements SlackConversationPort {
         return value.trim();
     }
 
-    private String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 algorithm is unavailable.", exception);
-        }
-    }
 }
