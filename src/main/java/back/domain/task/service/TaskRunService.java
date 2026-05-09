@@ -4,10 +4,13 @@ import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
 import back.domain.execution.entity.TaskExecutionStatus;
 import back.domain.execution.service.TaskExecutionRunner;
+import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.response.TaskRunResponse;
+import back.domain.task.entity.SourceType;
 import back.domain.task.entity.Task;
 import back.domain.task.entity.TaskMessage;
+import back.domain.task.entity.TaskMessageRole;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.TaskMessageRepository;
 import back.domain.task.repository.TaskRepository;
@@ -16,6 +19,7 @@ import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -29,6 +33,7 @@ public class TaskRunService {
     private final WorkspaceRepository workspaceRepository;
     private final TaskExecutionRunner taskExecutionRunner;
     private final TransactionOperations transactionOperations;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TaskRunResponse createAndRunTask(Long workspaceId, TaskRunRequest request) {
         validateWorkspaceExists(workspaceId);
@@ -73,12 +78,15 @@ public class TaskRunService {
                     openClawSessionKeyOverride));
         } catch (RuntimeException exception) {
             markTaskFailedBestEffort(task.getWorkspaceId(), task.getId(), exception);
+            publishSlackTaskFailure(task, exception);
             throw exception;
         }
 
         Task finishedTask =
                 markTaskStatus(task.getWorkspaceId(), task.getId(), resolveTaskStatus(executionResult.status()));
-        return TaskRunResponse.from(finishedTask, executionResult);
+        TaskRunResponse response = TaskRunResponse.from(finishedTask, executionResult);
+        publishSlackTaskResult(finishedTask, response);
+        return response;
     }
 
     private Task createInProgressTask(Long workspaceId, TaskRunRequest request) {
@@ -160,6 +168,75 @@ public class TaskRunService {
         return taskStatus == TaskStatus.COMPLETED
                 || taskStatus == TaskStatus.FAILED
                 || taskStatus == TaskStatus.CANCELED;
+    }
+
+    private void publishSlackTaskResult(Task task, TaskRunResponse response) {
+        if (!isSlackTask(task)) {
+            return;
+        }
+        eventPublisher.publishEvent(new SlackReplyRequestedEvent(
+                task.getSourceId(),
+                resolveSlackTaskResultMessage(response),
+                resolveSlackTaskResultDeduplicationKey(task, response)));
+    }
+
+    private void publishSlackTaskFailure(Task task, RuntimeException exception) {
+        if (!isSlackTask(task)) {
+            return;
+        }
+        eventPublisher.publishEvent(new SlackReplyRequestedEvent(
+                task.getSourceId(),
+                resolveSlackTaskFailureMessage(exception),
+                "slack-task-" + task.getId() + "-failed"));
+    }
+
+    private boolean isSlackTask(Task task) {
+        return task.getSourceType() == SourceType.SLACK
+                && task.getSourceId() != null
+                && !task.getSourceId().isBlank();
+    }
+
+    private String resolveSlackTaskResultMessage(TaskRunResponse response) {
+        if (response.taskExecutionId() == null) {
+            return fallbackSlackTaskResultMessage(response);
+        }
+        return taskMessageRepository
+                .findFirstByWorkspaceIdAndTaskIdAndTaskExecutionIdAndRoleOrderByCreatedAtDescIdDesc(
+                        response.workspaceId(),
+                        response.taskId(),
+                        response.taskExecutionId(),
+                        TaskMessageRole.ASSISTANT)
+                .map(TaskMessage::getContent)
+                .orElseGet(() -> fallbackSlackTaskResultMessage(response));
+    }
+
+    private String fallbackSlackTaskResultMessage(TaskRunResponse response) {
+        if (hasText(response.failureReason())) {
+            return "Task 실행에 실패했습니다.\n\n" + response.failureReason();
+        }
+        if (hasText(response.finalText())) {
+            return response.finalText();
+        }
+        return switch (response.taskStatus()) {
+            case COMPLETED -> "Task 실행이 완료되었습니다.";
+            case FAILED -> "Task 실행에 실패했습니다.";
+            case CANCELED -> "Task 실행이 취소되었습니다.";
+            default -> "Task 실행 상태가 변경되었습니다. 현재 상태: " + response.taskStatus();
+        };
+    }
+
+    private String resolveSlackTaskFailureMessage(RuntimeException exception) {
+        if (exception instanceof ServiceException serviceException && hasText(serviceException.getClientMessage())) {
+            return "Task 실행에 실패했습니다.\n\n" + serviceException.getClientMessage();
+        }
+        return "Task 실행에 실패했습니다.";
+    }
+
+    private String resolveSlackTaskResultDeduplicationKey(Task task, TaskRunResponse response) {
+        if (response.taskExecutionId() == null) {
+            return null;
+        }
+        return "slack-task-" + task.getId() + "-execution-" + response.taskExecutionId();
     }
 
     private String resolveExecutionPrompt(Task task) {
