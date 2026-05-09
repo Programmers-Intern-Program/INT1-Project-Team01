@@ -36,9 +36,10 @@ public class SlackEventHandler {
     private static final Pattern SLACK_MENTION_PATTERN = Pattern.compile("<@[A-Z0-9]+>");
 
     /**
-     * 비동기 환경에서 슬랙 이벤트를 파싱하고 Orchestrator 세션 생성을 요청합니다.
+     * 비동기 환경에서 Slack 이벤트를 파싱하고 공통 Agent 대화 흐름으로 전달합니다.
      *
-     * <p>@Async로 별도 스레드에서 실행되므로 호출자 트랜잭션과 분리됩니다.
+     * <p>@Async로 별도 스레드에서 실행되므로 호출자 트랜잭션과 분리되며,
+     * 처리 결과에 따라 SlackEventLog 상태를 저장합니다.
      */
     @Async("slackEventTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

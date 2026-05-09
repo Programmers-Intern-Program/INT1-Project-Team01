@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -72,8 +73,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatMessageSendResponse sendMessageInternal(Long workspaceId, ChatSendCommand command) {
-        ChatSendContext context = requireTransactionResult(
-                transactionOperations.execute(status -> createChatSendContext(workspaceId, command)));
+        ChatSendContext context = createChatSendContextInTransaction(workspaceId, command);
 
         OpenClawChatResult chatResult;
         try {
@@ -92,6 +92,24 @@ public class ChatServiceImpl implements ChatService {
                 transactionOperations.execute(status -> recordAgentResponse(context, command, agentIntent)));
         sendResult.dispatch(chatTaskExecutionDispatcher);
         return sendResult.response();
+    }
+
+    private ChatSendContext createChatSendContextInTransaction(Long workspaceId, ChatSendCommand command) {
+        try {
+            return requireTransactionResult(
+                    transactionOperations.execute(status -> createChatSendContext(workspaceId, command)));
+        } catch (DataIntegrityViolationException exception) {
+            if (command.source() != ChatSessionSource.SLACK) {
+                throw exception;
+            }
+            log.info(
+                    "Concurrent Slack ChatSession creation detected. "
+                            + "Retry with existing session. workspaceId={}, sourceRef={}",
+                    workspaceId,
+                    command.sourceRef());
+            return requireTransactionResult(
+                    transactionOperations.execute(status -> createChatSendContext(workspaceId, command)));
+        }
     }
 
     private ChatSendContext createChatSendContext(Long workspaceId, ChatSendCommand command) {
