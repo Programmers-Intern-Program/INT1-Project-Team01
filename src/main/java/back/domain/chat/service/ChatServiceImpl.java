@@ -55,7 +55,6 @@ public class ChatServiceImpl implements ChatService {
     private static final int SOURCE_ID_MAX_LENGTH = 255;
     private static final int OPEN_CLAW_SESSION_KEY_MAX_LENGTH = 220;
     private static final int SLACK_SESSION_HASH_LENGTH = 16;
-    private static final int LOG_MESSAGE_PREVIEW_LENGTH = 80;
 
     private final TransactionOperations transactionOperations;
     private final TaskService taskService;
@@ -618,18 +617,17 @@ public class ChatServiceImpl implements ChatService {
                 sourceRefHash(session.getSourceRef()),
                 session.getOpenClawSessionKey().length());
         session.replaceOpenClawSessionKey(expectedSessionKey);
-        return chatSessionRepository.save(session);
+        return session;
     }
 
     private void logSlackChatPrepared(ChatSendContext context) {
         ChatSession session = context.session();
-        if (session.getSource() != ChatSessionSource.SLACK) {
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isInfoEnabled()) {
             return;
         }
         log.info(
                 "Slack Agent chat prepared. workspaceId={}, chatSessionId={}, sourceRefHash={}, "
-                        + "agentId={}, openClawAgentId={}, openClawSessionKey={}, userMessageId={}, "
-                        + "messageLength={}, messagePreview={}",
+                        + "agentId={}, openClawAgentId={}, openClawSessionKey={}, userMessageId={}, messageLength={}",
                 session.getWorkspaceId(),
                 session.getId(),
                 sourceRefHash(session.getSourceRef()),
@@ -637,13 +635,12 @@ public class ChatServiceImpl implements ChatService {
                 context.agent().getOpenClawAgentId(),
                 session.getOpenClawSessionKey(),
                 context.userMessage().getId(),
-                context.normalizedMessage().length(),
-                messagePreview(context.normalizedMessage()));
+                context.normalizedMessage().length());
     }
 
     private void logSlackChatSucceeded(ChatSendContext context, OpenClawChatResult chatResult) {
         ChatSession session = context.session();
-        if (session.getSource() != ChatSessionSource.SLACK) {
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isInfoEnabled()) {
             return;
         }
         log.info(
@@ -659,7 +656,7 @@ public class ChatServiceImpl implements ChatService {
 
     private void logSlackChatFailed(ChatSendContext context, RuntimeException exception) {
         ChatSession session = context.session();
-        if (session.getSource() != ChatSessionSource.SLACK) {
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isWarnEnabled()) {
             return;
         }
         log.warn(
@@ -686,14 +683,6 @@ public class ChatServiceImpl implements ChatService {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 algorithm is unavailable.", exception);
         }
-    }
-
-    private String messagePreview(String message) {
-        String normalized = message.replaceAll("\\s+", " ").trim();
-        if (normalized.length() <= LOG_MESSAGE_PREVIEW_LENGTH) {
-            return normalized;
-        }
-        return normalized.substring(0, LOG_MESSAGE_PREVIEW_LENGTH);
     }
 
     private String createIdempotencyKey(Long chatSessionId, Long userMessageId) {
