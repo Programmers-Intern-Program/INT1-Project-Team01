@@ -2,7 +2,7 @@ package back.domain.slack.event;
 
 import back.domain.slack.entity.SlackEventLog;
 import back.domain.slack.entity.SlackIntegration;
-import back.domain.slack.port.OrchestratorSessionPort;
+import back.domain.slack.port.SlackConversationPort;
 import back.domain.slack.repository.SlackEventLogRepository;
 import back.domain.workspace.entity.Workspace;
 import tools.jackson.databind.json.JsonMapper;
@@ -28,7 +28,7 @@ class SlackEventHandlerTest {
     private SlackEventLogRepository slackEventLogRepository;
 
     @Mock
-    private OrchestratorSessionPort orchestratorSessionPort;
+    private SlackConversationPort slackConversationPort;
 
     private SlackEventLog mockEventLog;
     private final Long eventLogId = 1L;
@@ -37,7 +37,7 @@ class SlackEventHandlerTest {
     void setUp() {
         slackEventHandler = new SlackEventHandler(
                 slackEventLogRepository,
-                orchestratorSessionPort,
+                slackConversationPort,
                 new JsonMapper());
         mockEventLog = mock(SlackEventLog.class);
     }
@@ -53,7 +53,7 @@ class SlackEventHandlerTest {
     }
 
     @Test
-    @DisplayName("멘션 태그가 포함된 메시지가 오면 태그를 제거하고 Port를 호출한 뒤 PROCESSED 처리한다.")
+    @DisplayName("멘션 태그가 포함된 메시지가 오면 태그를 제거하고 채팅 Port를 호출한 뒤 PROCESSED 처리한다.")
     void handleSlackEvent_Success() {
         // given
         givenIntegrationExists();
@@ -68,15 +68,17 @@ class SlackEventHandlerTest {
                   }
                 }
                 """;
-        when(slackEventLogRepository.findById(eventLogId)).thenReturn(Optional.of(mockEventLog));
+        when(slackEventLogRepository.findByIdWithIntegrationAndWorkspace(eventLogId))
+                .thenReturn(Optional.of(mockEventLog));
         when(mockEventLog.getRawPayload()).thenReturn(rawPayload);
 
         // when
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(orchestratorSessionPort).createSession(1L, "T123:C123:999.000", "999.000", "로그인 API 구현해줘");
+        verify(slackConversationPort).sendMessage(1L, "T123:C123:999.000", "로그인 API 구현해줘");
         verify(mockEventLog).markAsProcessed();
+        verify(slackEventLogRepository).save(mockEventLog);
     }
 
     @Test
@@ -94,29 +96,33 @@ class SlackEventHandlerTest {
                   }
                 }
                 """; // 텍스트에 공백과 멘션만 있음
-        when(slackEventLogRepository.findById(eventLogId)).thenReturn(Optional.of(mockEventLog));
+        when(slackEventLogRepository.findByIdWithIntegrationAndWorkspace(eventLogId))
+                .thenReturn(Optional.of(mockEventLog));
         when(mockEventLog.getRawPayload()).thenReturn(rawPayload);
 
         // when
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(orchestratorSessionPort, never()).createSession(anyLong(), anyString(), anyString(), anyString());
+        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString());
         verify(mockEventLog).markAsIgnored(anyString());
+        verify(slackEventLogRepository).save(mockEventLog);
     }
 
     @Test
     @DisplayName("Integration 정보가 없으면 작업을 무시(IGNORED)하고 경고 로그를 남긴다.")
     void handleSlackEvent_IgnoredWhenIntegrationIsNull() {
         // given
-        when(slackEventLogRepository.findById(eventLogId)).thenReturn(Optional.of(mockEventLog));
+        when(slackEventLogRepository.findByIdWithIntegrationAndWorkspace(eventLogId))
+                .thenReturn(Optional.of(mockEventLog));
         when(mockEventLog.getIntegration()).thenReturn(null);
 
         // when
         slackEventHandler.handleSlackEvent(new SlackEventReceivedEvent(eventLogId));
 
         // then
-        verify(orchestratorSessionPort, never()).createSession(anyLong(), anyString(), anyString(), anyString());
+        verify(slackConversationPort, never()).sendMessage(anyLong(), anyString(), anyString());
         verify(mockEventLog).markAsIgnored(anyString());
+        verify(slackEventLogRepository).save(mockEventLog);
     }
 }

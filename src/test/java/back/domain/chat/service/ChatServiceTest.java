@@ -29,11 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
+import back.domain.chat.dto.request.SlackChatMessageSendCommand;
 import back.domain.chat.dto.response.ChatMessageResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
 import back.domain.chat.entity.ChatMessage;
 import back.domain.chat.entity.ChatMessageRole;
 import back.domain.chat.entity.ChatSession;
+import back.domain.chat.entity.ChatSessionSource;
 import back.domain.chat.entity.ChatSessionStatus;
 import back.domain.chat.repository.ChatMessageRepository;
 import back.domain.chat.repository.ChatSessionRepository;
@@ -46,6 +48,7 @@ import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.task.entity.SourceType;
 import back.domain.task.entity.Task;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskStatus;
@@ -280,6 +283,77 @@ class ChatServiceTest {
                         tuple(ChatMessageRole.ASSISTANT, "첫 응답"),
                         tuple(ChatMessageRole.USER, "두 번째 메시지"),
                         tuple(ChatMessageRole.ASSISTANT, "두 번째 응답"));
+    }
+
+    @Test
+    @DisplayName("같은 Slack thread 요청은 같은 ChatSession과 OpenClaw sessionKey를 재사용한다")
+    void sendSlackMessage_sameThreadReusesChatSessionAndOpenClawSessionKey() {
+        // given
+        String sourceRef = "T123:C123:999.000";
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(
+                        new OpenClawChatResult("gateway-session", "첫 Slack 응답"),
+                        new OpenClawChatResult("gateway-session", "두 번째 Slack 응답"));
+
+        // when
+        ChatMessageSendResponse first =
+                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "첫 메시지"));
+        ChatMessageSendResponse second =
+                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "두 번째 메시지"));
+
+        // then
+        assertThat(second.chatSessionId()).isEqualTo(first.chatSessionId());
+        ChatSession session = chatSessionRepository.findByIdAndWorkspaceId(first.chatSessionId(), workspaceId)
+                .orElseThrow();
+        assertThat(session.getSource()).isEqualTo(ChatSessionSource.SLACK);
+        assertThat(session.getSourceRef()).isEqualTo(sourceRef);
+        assertThat(session.getAgentId()).isEqualTo(agentId);
+
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient, times(2)).sendChat(commandCaptor.capture());
+        List<OpenClawChatCommand> commands = commandCaptor.getAllValues();
+        assertThat(commands.get(0).sessionKey()).isEqualTo(commands.get(1).sessionKey());
+        assertThat(second.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "첫 메시지"),
+                        tuple(ChatMessageRole.ASSISTANT, "첫 Slack 응답"),
+                        tuple(ChatMessageRole.USER, "두 번째 메시지"),
+                        tuple(ChatMessageRole.ASSISTANT, "두 번째 Slack 응답"));
+    }
+
+    @Test
+    @DisplayName("Slack TASK intent는 Slack sourceRef를 가진 Task로 저장한다")
+    void sendSlackMessage_taskIntentCreatesSlackTask() {
+        // given
+        String sourceRef = "T123:C123:999.000";
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "TASK",
+                                  "message": "Slack 작업을 시작하겠습니다.",
+                                  "task": {
+                                    "title": "Slack 요청 작업",
+                                    "description": "Slack thread에서 요청한 작업입니다."
+                                  }
+                                }
+                                """));
+
+        // when
+        ChatMessageSendResponse response =
+                chatService.sendSlackMessage(workspaceId, new SlackChatMessageSendCommand(sourceRef, "Slack 작업해줘"));
+
+        // then
+        Task task = taskRepository.findByIdAndWorkspaceId(response.taskId(), workspaceId).orElseThrow();
+        assertThat(task.getSourceType()).isEqualTo(SourceType.SLACK);
+        assertThat(task.getSourceId()).isEqualTo(sourceRef);
+        assertThat(task.getOriginalRequest()).isEqualTo("Slack 작업해줘");
+        ChatSession session = chatSessionRepository.findByIdAndWorkspaceId(response.chatSessionId(), workspaceId)
+                .orElseThrow();
+        verify(chatTaskExecutionDispatcher)
+                .run(workspaceId, response.taskId(), false, session.getOpenClawSessionKey());
     }
 
     @Test
