@@ -368,11 +368,45 @@ class TaskServiceTest {
         assertThat(command.repositoryId()).isEqualTo(3L);
         assertThat(command.prompt()).isEqualTo("이 PR 리뷰해줘");
         assertThat(command.createPr()).isTrue();
+        assertThat(command.openClawSessionKeyOverride()).isNull();
 
         List<TaskMessageResponse> messages = taskService.getTaskMessages(workspaceId, response.taskId());
         assertThat(messages).hasSize(1);
         assertThat(messages.getFirst().role()).isEqualTo(TaskMessageRole.USER);
         assertThat(messages.getFirst().content()).isEqualTo("이 PR 리뷰해줘");
+    }
+
+    @Test
+    @DisplayName("Task 실행 시 OpenClaw sessionKey override를 Runner에 전달한다")
+    void runTaskWithOpenClawSessionKeyOverride() {
+        // given
+        given(taskExecutionRunner.run(any(TaskExecutionRunCommand.class))).willAnswer(invocation -> {
+            TaskExecutionRunCommand command = invocation.getArgument(0);
+            return new TaskExecutionRunResult(
+                    20L,
+                    command.taskId(),
+                    command.workspaceId(),
+                    100L,
+                    TaskExecutionStatus.SUCCEEDED,
+                    "/tmp/aioffice/workspaces/1/executions/20/repo",
+                    command.openClawSessionKeyOverride(),
+                    "작업을 완료했습니다.",
+                    null);
+        });
+        TaskRunResponse accepted = taskRunService.createTaskForRun(workspaceId, createRunRequest());
+
+        // when
+        TaskRunResponse response =
+                taskRunService.runTask(workspaceId, accepted.taskId(), true, "workspace-1-agent-1-chat-fixed");
+
+        // then
+        assertThat(response.taskExecutionId()).isEqualTo(20L);
+
+        ArgumentCaptor<TaskExecutionRunCommand> commandCaptor =
+                ArgumentCaptor.forClass(TaskExecutionRunCommand.class);
+        verify(taskExecutionRunner).run(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().openClawSessionKeyOverride())
+                .isEqualTo("workspace-1-agent-1-chat-fixed");
     }
 
     @Test
