@@ -1,5 +1,9 @@
 package back.domain.chat.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -50,6 +54,7 @@ public class ChatServiceImpl implements ChatService {
     private static final int TASK_DESCRIPTION_MAX_LENGTH = 1000;
     private static final int SOURCE_ID_MAX_LENGTH = 255;
     private static final int OPEN_CLAW_SESSION_KEY_MAX_LENGTH = 220;
+    private static final int SLACK_SESSION_HASH_LENGTH = 16;
 
     private final TransactionOperations transactionOperations;
     private final TaskService taskService;
@@ -137,6 +142,7 @@ public class ChatServiceImpl implements ChatService {
             ChatSendCommand command,
             ChatSendPrefetch prefetch) {
         ChatSendContext context = createChatSendContextInTransaction(workspaceId, command, prefetch);
+        logSlackChatPrepared(context);
 
         OpenClawChatResult chatResult;
         try {
@@ -145,7 +151,9 @@ public class ChatServiceImpl implements ChatService {
                     context.agent(),
                     context.normalizedMessage(),
                     context.userMessage().getId());
+            logSlackChatSucceeded(context, chatResult);
         } catch (RuntimeException exception) {
+            logSlackChatFailed(context, exception);
             recordFailureMessageSafely(context.session(), exception);
             throw exception;
         }
@@ -475,7 +483,7 @@ public class ChatServiceImpl implements ChatService {
         }
         if (existingSourceSession != null) {
             validateReusableSession(existingSourceSession, agent);
-            return existingSourceSession;
+            return ensureSlackOpenClawSessionKey(existingSourceSession, agent);
         }
         if (command.source() == ChatSessionSource.SLACK) {
             return chatSessionRepository.save(ChatSession.start(
@@ -483,7 +491,7 @@ public class ChatServiceImpl implements ChatService {
                     agent.getId(),
                     ChatSessionSource.SLACK,
                     command.sourceRef(),
-                    createSlackOpenClawSessionKey(workspaceId, command.sourceRef())));
+                    createSlackOpenClawSessionKey(workspaceId, agent.getId(), command.sourceRef())));
         }
         return chatSessionRepository.save(ChatSession.start(
                 workspaceId,
@@ -584,9 +592,97 @@ public class ChatServiceImpl implements ChatService {
         return "workspace-" + workspaceId + "-agent-" + agentId + "-chat-" + UUID.randomUUID();
     }
 
-    private String createSlackOpenClawSessionKey(Long workspaceId, String sourceRef) {
-        String normalizedSourceRef = sourceRef.replaceAll("[^A-Za-z0-9._-]", "-");
-        return truncate("workspace-" + workspaceId + "-slack-" + normalizedSourceRef, OPEN_CLAW_SESSION_KEY_MAX_LENGTH);
+    private String createSlackOpenClawSessionKey(Long workspaceId, Long agentId, String sourceRef) {
+        String sourceRefHash = sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
+        return "workspace-" + workspaceId + "-agent-" + agentId + "-slack-" + sourceRefHash;
+    }
+
+    private ChatSession ensureSlackOpenClawSessionKey(ChatSession session, Agent agent) {
+        if (session.getSource() != ChatSessionSource.SLACK) {
+            return session;
+        }
+
+        String expectedSessionKey =
+                createSlackOpenClawSessionKey(session.getWorkspaceId(), agent.getId(), session.getSourceRef());
+        if (expectedSessionKey.equals(session.getOpenClawSessionKey())) {
+            return session;
+        }
+
+        log.info(
+                "Normalize Slack ChatSession OpenClaw session key. "
+                        + "workspaceId={}, chatSessionId={}, agentId={}, sourceRefHash={}, previousKeyLength={}",
+                session.getWorkspaceId(),
+                session.getId(),
+                agent.getId(),
+                sourceRefHash(session.getSourceRef()),
+                session.getOpenClawSessionKey().length());
+        session.replaceOpenClawSessionKey(expectedSessionKey);
+        return session;
+    }
+
+    private void logSlackChatPrepared(ChatSendContext context) {
+        ChatSession session = context.session();
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isInfoEnabled()) {
+            return;
+        }
+        log.info(
+                "Slack Agent chat prepared. workspaceId={}, chatSessionId={}, sourceRefHash={}, "
+                        + "agentId={}, openClawAgentId={}, openClawSessionKey={}, userMessageId={}, messageLength={}",
+                session.getWorkspaceId(),
+                session.getId(),
+                sourceRefHash(session.getSourceRef()),
+                context.agent().getId(),
+                context.agent().getOpenClawAgentId(),
+                session.getOpenClawSessionKey(),
+                context.userMessage().getId(),
+                context.normalizedMessage().length());
+    }
+
+    private void logSlackChatSucceeded(ChatSendContext context, OpenClawChatResult chatResult) {
+        ChatSession session = context.session();
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isInfoEnabled()) {
+            return;
+        }
+        log.info(
+                "Slack Agent chat succeeded. workspaceId={}, chatSessionId={}, sourceRefHash={}, "
+                        + "agentId={}, openClawAgentId={}, finalTextLength={}",
+                session.getWorkspaceId(),
+                session.getId(),
+                sourceRefHash(session.getSourceRef()),
+                context.agent().getId(),
+                context.agent().getOpenClawAgentId(),
+                chatResult.finalText() == null ? 0 : chatResult.finalText().length());
+    }
+
+    private void logSlackChatFailed(ChatSendContext context, RuntimeException exception) {
+        ChatSession session = context.session();
+        if (session.getSource() != ChatSessionSource.SLACK || !log.isWarnEnabled()) {
+            return;
+        }
+        log.warn(
+                "Slack Agent chat failed. workspaceId={}, chatSessionId={}, sourceRefHash={}, "
+                        + "agentId={}, openClawAgentId={}, openClawSessionKey={}, exceptionType={}, message={}",
+                session.getWorkspaceId(),
+                session.getId(),
+                sourceRefHash(session.getSourceRef()),
+                context.agent().getId(),
+                context.agent().getOpenClawAgentId(),
+                session.getOpenClawSessionKey(),
+                exception.getClass().getSimpleName(),
+                exception.getMessage());
+    }
+
+    private String sourceRefHash(String sourceRef) {
+        return sha256Hex(sourceRef).substring(0, SLACK_SESSION_HASH_LENGTH);
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable.", exception);
+        }
     }
 
     private String createIdempotencyKey(Long chatSessionId, Long userMessageId) {

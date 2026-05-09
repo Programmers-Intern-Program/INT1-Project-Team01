@@ -88,6 +88,11 @@ public class ChatSession extends BaseEntity {
         this.status = ChatSessionStatus.ACTIVE;
     }
 
+    public void replaceOpenClawSessionKey(String openClawSessionKey) {
+        this.openClawSessionKey =
+                requireNotBlank(openClawSessionKey, "openClawSessionKey", OPEN_CLAW_SESSION_KEY_MAX_LENGTH);
+    }
+
     private static Long requireId(Long value, String fieldName) {
         if (value == null || value <= 0) {
             throw new IllegalArgumentException(fieldName + " must be positive");
