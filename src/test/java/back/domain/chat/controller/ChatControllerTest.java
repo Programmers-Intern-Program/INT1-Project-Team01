@@ -65,6 +65,7 @@ class ChatControllerTest {
 
     private ObjectMapper objectMapper;
     private MockMvc mockMvc;
+    private OpenClawGatewayClient openClawGatewayClient;
     private Long workspaceId;
     private Long agentId;
 
@@ -83,7 +84,7 @@ class ChatControllerTest {
         workspaceId = workspace.getId();
         agentId = savedAgent.getId();
 
-        OpenClawGatewayClient openClawGatewayClient = mock(OpenClawGatewayClient.class);
+        openClawGatewayClient = mock(OpenClawGatewayClient.class);
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
         given(workspaceGatewayBindingService.getConnectionContext(workspaceId))
                 .willReturn(new OpenClawGatewayConnectionContext("ws://127.0.0.1:18789", "gateway-token"));
@@ -126,6 +127,48 @@ class ChatControllerTest {
     }
 
     @Test
+    @DisplayName("기존 채팅 세션에 메시지를 보내면 신규 메시지만 반환한다")
+    void sendMessage_existingSessionReturnsNewMessagesOnly() throws Exception {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(
+                        new OpenClawChatResult("gateway-session", "첫 응답입니다."),
+                        new OpenClawChatResult("gateway-session", "두 번째 응답입니다."));
+        ChatMessageSendRequest firstRequest =
+                new ChatMessageSendRequest("첫 메시지", agentId, null, null, null, null, false);
+        String firstResponseBody = mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/chat/messages", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(firstRequest)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        Long chatSessionId = objectMapper.readTree(firstResponseBody).get("chatSessionId").asLong();
+        ChatMessageSendRequest secondRequest =
+                new ChatMessageSendRequest(
+                        "두 번째 메시지",
+                        agentId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        chatSessionId);
+
+        // when & then
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/chat/messages", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(secondRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chatSessionId").value(chatSessionId))
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[0].role").value("USER"))
+                .andExpect(jsonPath("$.messages[0].content").value("두 번째 메시지"))
+                .andExpect(jsonPath("$.messages[1].role").value("ASSISTANT"))
+                .andExpect(jsonPath("$.messages[1].content").value("두 번째 응답입니다."));
+    }
+
+    @Test
     @DisplayName("채팅 메시지를 polling 방식으로 조회할 수 있다")
     void getSessionMessages() throws Exception {
         // given
@@ -137,9 +180,64 @@ class ChatControllerTest {
                         workspaceId,
                         chatSessionId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()", greaterThanOrEqualTo(2)))
-                .andExpect(jsonPath("$[0].role").value("USER"))
-                .andExpect(jsonPath("$[1].role").value("ASSISTANT"));
+                .andExpect(jsonPath("$.chatSessionId").value(chatSessionId))
+                .andExpect(jsonPath("$.messages.length()", greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.messages[0].role").value("USER"))
+                .andExpect(jsonPath("$.messages[1].role").value("ASSISTANT"))
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
+    @DisplayName("채팅 메시지 polling은 afterMessageId 이후 신규 메시지만 조회한다")
+    void getSessionMessages_afterMessageIdReturnsNewMessagesOnly() throws Exception {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(
+                        new OpenClawChatResult("gateway-session", "첫 응답입니다."),
+                        new OpenClawChatResult("gateway-session", "두 번째 응답입니다."));
+        ChatMessageSendRequest firstRequest =
+                new ChatMessageSendRequest("첫 메시지", agentId, null, null, null, null, false);
+        String firstResponseBody = mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/chat/messages", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(firstRequest)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode firstResponse = objectMapper.readTree(firstResponseBody);
+        Long chatSessionId = firstResponse.get("chatSessionId").asLong();
+        Long afterMessageId = firstResponse.get("messages").get(1).get("messageId").asLong();
+        ChatMessageSendRequest secondRequest =
+                new ChatMessageSendRequest(
+                        "두 번째 메시지",
+                        agentId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        chatSessionId);
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/chat/messages", workspaceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(secondRequest)))
+                .andExpect(status().isOk());
+
+        // when & then
+        mockMvc.perform(get(
+                        "/api/v1/workspaces/{workspaceId}/chat/sessions/{chatSessionId}/messages",
+                        workspaceId,
+                        chatSessionId)
+                        .queryParam("afterMessageId", String.valueOf(afterMessageId))
+                        .queryParam("limit", "50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chatSessionId").value(chatSessionId))
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[0].role").value("USER"))
+                .andExpect(jsonPath("$.messages[0].content").value("두 번째 메시지"))
+                .andExpect(jsonPath("$.messages[1].role").value("ASSISTANT"))
+                .andExpect(jsonPath("$.messages[1].content").value("두 번째 응답입니다."))
+                .andExpect(jsonPath("$.hasMore").value(false));
     }
 
     private Long sendChatMessageAndGetSessionId() throws Exception {
