@@ -36,8 +36,10 @@ import back.domain.task.service.TaskRunService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
@@ -441,7 +443,15 @@ public class ChatServiceImpl implements ChatService {
             if (dispatch == null) {
                 return;
             }
-            dispatcher.run(dispatch.workspaceId(), dispatch.taskId(), dispatch.createPr());
+            try {
+                dispatcher.run(dispatch.workspaceId(), dispatch.taskId(), dispatch.createPr());
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Failed to dispatch chat task execution. workspaceId={}, taskId={}",
+                        dispatch.workspaceId(),
+                        dispatch.taskId(),
+                        exception);
+            }
         }
     }
 

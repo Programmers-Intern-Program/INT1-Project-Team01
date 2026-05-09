@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -210,6 +211,37 @@ class ChatServiceTest {
         assertThat(task.getPriority()).isEqualTo(TaskPriority.HIGH);
         assertThat(task.getRepositoryId()).isEqualTo(7L);
         verify(chatTaskExecutionDispatcher).run(workspaceId, response.taskId(), true);
+    }
+
+    @Test
+    @DisplayName("Task 디스패치 실패는 채팅 응답 실패로 전파하지 않는다")
+    void sendMessage_taskDispatchFailure_returnsResponse() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "TASK",
+                                  "message": "작업을 시작하겠습니다.",
+                                  "task": {
+                                    "title": "테스트 작성"
+                                  }
+                                }
+                                """));
+        doThrow(new RuntimeException("queue full"))
+                .when(chatTaskExecutionDispatcher)
+                .run(any(), any(), any(Boolean.class));
+        ChatMessageSendRequest request =
+                new ChatMessageSendRequest("테스트 작성해줘", agentId, null, null, null, null, false);
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(workspaceId, request);
+
+        // then
+        assertThat(response.taskId()).isNotNull();
+        assertThat(response.finalText()).isEqualTo("작업을 시작하겠습니다.");
+        assertThat(taskRepository.findByIdAndWorkspaceId(response.taskId(), workspaceId)).isPresent();
     }
 
     @Test
