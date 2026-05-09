@@ -1,7 +1,7 @@
 package back.domain.chat.controller;
 
 import back.domain.chat.dto.request.ChatMessageSendRequest;
-import back.domain.chat.dto.response.ChatMessageResponse;
+import back.domain.chat.dto.response.ChatMessagesResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
 import back.domain.chat.service.ChatService;
 import back.domain.task.dto.response.TaskMessageResponse;
@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -30,9 +31,13 @@ public class ChatController {
     }
 
     @GetMapping("/sessions/{chatSessionId}/messages")
-    public ResponseEntity<List<ChatMessageResponse>> getSessionMessages(
-            @PathVariable Long workspaceId, @PathVariable Long chatSessionId) {
-        return ResponseEntity.ok(chatService.getSessionMessages(workspaceId, chatSessionId));
+    public ResponseEntity<ChatMessagesResponse> getSessionMessages(
+            @PathVariable Long workspaceId,
+            @PathVariable Long chatSessionId,
+            @RequestParam(required = false) Long afterMessageId,
+            @RequestParam(required = false) Integer limit) {
+        return ResponseEntity.ok(chatService.getSessionMessages(
+                workspaceId, chatSessionId, afterMessageId, limit));
     }
 
     @GetMapping("/tasks/{taskId}/messages")

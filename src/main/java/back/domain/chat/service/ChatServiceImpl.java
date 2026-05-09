@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -14,6 +15,7 @@ import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
 import back.domain.chat.dto.request.SlackChatMessageSendCommand;
 import back.domain.chat.dto.response.ChatMessageResponse;
+import back.domain.chat.dto.response.ChatMessagesResponse;
 import back.domain.chat.dto.response.ChatMessageSendResponse;
 import back.domain.chat.entity.ChatMessage;
 import back.domain.chat.entity.ChatSession;
@@ -52,6 +54,8 @@ public class ChatServiceImpl implements ChatService {
     private static final int SOURCE_ID_MAX_LENGTH = 255;
     private static final int OPEN_CLAW_SESSION_KEY_MAX_LENGTH = 220;
     private static final int SLACK_SESSION_HASH_LENGTH = 16;
+    private static final int DEFAULT_POLL_LIMIT = 50;
+    private static final int MAX_POLL_LIMIT = 100;
 
     private final TransactionOperations transactionOperations;
     private final TaskService taskService;
@@ -233,12 +237,11 @@ public class ChatServiceImpl implements ChatService {
 
     private ChatMessageSendResponse recordChatIntentResponse(ChatSendContext context, String assistantMessage) {
         ChatSession session = context.session();
-        chatMessageRepository.save(
+        ChatMessage savedAssistantMessage = chatMessageRepository.save(
                 ChatMessage.assistant(session.getWorkspaceId(), session.getId(), assistantMessage));
         session.recordMessage();
         ChatSession savedSession = chatSessionRepository.save(session);
 
-        List<ChatMessageResponse> messages = getSessionMessages(savedSession.getWorkspaceId(), savedSession.getId());
         return new ChatMessageSendResponse(
                 savedSession.getId(),
                 null,
@@ -250,7 +253,9 @@ public class ChatServiceImpl implements ChatService {
                 assistantMessage,
                 null,
                 savedSession.getCreatedAt(),
-                messages);
+                List.of(
+                        ChatMessageResponse.from(context.userMessage()),
+                        ChatMessageResponse.from(savedAssistantMessage)));
     }
 
     private ChatSendResult recordTaskIntentResponse(
@@ -260,16 +265,15 @@ public class ChatServiceImpl implements ChatService {
         ChatSession session = context.session();
         TaskRunRequest taskRequest = createTaskRunRequest(context, command, agentIntent.task());
         TaskRunResponse taskResponse = taskRunService.createTaskForRun(session.getWorkspaceId(), taskRequest);
-        linkUserMessageToTask(context.userMessage().getId(), taskResponse.taskId());
+        ChatMessage linkedUserMessage = linkUserMessageToTask(context.userMessage().getId(), taskResponse.taskId());
 
         ChatMessage assistantMessage =
                 ChatMessage.assistant(session.getWorkspaceId(), session.getId(), agentIntent.message());
         assistantMessage.linkTask(taskResponse.taskId(), null);
-        chatMessageRepository.save(assistantMessage);
+        ChatMessage savedAssistantMessage = chatMessageRepository.save(assistantMessage);
         session.recordMessage();
         ChatSession savedSession = chatSessionRepository.save(session);
 
-        List<ChatMessageResponse> messages = getSessionMessages(savedSession.getWorkspaceId(), savedSession.getId());
         ChatMessageSendResponse response = new ChatMessageSendResponse(
                 savedSession.getId(),
                 taskResponse.taskId(),
@@ -281,7 +285,9 @@ public class ChatServiceImpl implements ChatService {
                 agentIntent.message(),
                 taskResponse.failureReason(),
                 savedSession.getCreatedAt(),
-                messages);
+                List.of(
+                        ChatMessageResponse.from(linkedUserMessage),
+                        ChatMessageResponse.from(savedAssistantMessage)));
         return ChatSendResult.withDispatch(
                 response,
                 new ChatTaskDispatch(
@@ -291,7 +297,7 @@ public class ChatServiceImpl implements ChatService {
                         savedSession.getOpenClawSessionKey()));
     }
 
-    private void linkUserMessageToTask(Long userMessageId, Long taskId) {
+    private ChatMessage linkUserMessageToTask(Long userMessageId, Long taskId) {
         ChatMessage userMessage = chatMessageRepository.findById(userMessageId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
@@ -299,7 +305,7 @@ public class ChatServiceImpl implements ChatService {
                                 + userMessageId,
                         "채팅 메시지를 찾을 수 없습니다."));
         userMessage.linkTask(taskId, null);
-        chatMessageRepository.save(userMessage);
+        return chatMessageRepository.save(userMessage);
     }
 
     private TaskRunRequest createTaskRunRequest(
@@ -380,18 +386,89 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public List<ChatMessageResponse> getSessionMessages(Long workspaceId, Long chatSessionId) {
+    public ChatMessagesResponse getSessionMessages(
+            Long workspaceId, Long chatSessionId, Long afterMessageId, Integer limit) {
+        Long normalizedAfterMessageId = normalizeAfterMessageId(afterMessageId);
+        int normalizedLimit = normalizePollLimit(limit);
         ChatSession session = chatSessionRepository.findByIdAndWorkspaceId(chatSessionId, workspaceId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[ChatServiceImpl#getSessionMessages] chat session not found. workspaceId="
                                 + workspaceId + ", chatSessionId=" + chatSessionId,
                         "채팅 세션을 찾을 수 없습니다."));
-        return chatMessageRepository
-                .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtAscIdAsc(workspaceId, session.getId())
-                .stream()
+
+        List<ChatMessage> messages = findSessionMessages(
+                workspaceId,
+                session.getId(),
+                normalizedAfterMessageId,
+                normalizedLimit,
+                limit);
+        boolean hasMore = isLimitedPoll(normalizedAfterMessageId, limit) && messages.size() > normalizedLimit;
+        List<ChatMessageResponse> responseMessages = messages.stream()
+                .limit(hasMore ? normalizedLimit : messages.size())
                 .map(ChatMessageResponse::from)
                 .toList();
+        return new ChatMessagesResponse(
+                session.getId(),
+                responseMessages,
+                resolveNextCursor(responseMessages, normalizedAfterMessageId),
+                hasMore);
+    }
+
+    private List<ChatMessage> findSessionMessages(
+            Long workspaceId, Long chatSessionId, Long afterMessageId, int normalizedLimit, Integer rawLimit) {
+        if (!isLimitedPoll(afterMessageId, rawLimit)) {
+            return chatMessageRepository
+                    .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtAscIdAsc(workspaceId, chatSessionId);
+        }
+        Long cursor = afterMessageId;
+        if (cursor == null) {
+            cursor = 0L;
+        }
+        return chatMessageRepository
+                .findByWorkspaceIdAndChatSessionIdAndIdGreaterThanOrderByCreatedAtAscIdAsc(
+                        workspaceId,
+                        chatSessionId,
+                        cursor,
+                        PageRequest.of(0, normalizedLimit + 1));
+    }
+
+    private boolean isLimitedPoll(Long afterMessageId, Integer limit) {
+        return afterMessageId != null || limit != null;
+    }
+
+    private Long normalizeAfterMessageId(Long afterMessageId) {
+        if (afterMessageId == null) {
+            return null;
+        }
+        if (afterMessageId < 0) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST,
+                    "[ChatServiceImpl#normalizeAfterMessageId] afterMessageId is negative: " + afterMessageId,
+                    "afterMessageId는 0 이상이어야 합니다.");
+        }
+        return afterMessageId;
+    }
+
+    private int normalizePollLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_POLL_LIMIT;
+        }
+        if (limit <= 0) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST,
+                    "[ChatServiceImpl#normalizePollLimit] limit is not positive: " + limit,
+                    "limit은 1 이상이어야 합니다.");
+        }
+        return Math.min(limit, MAX_POLL_LIMIT);
+    }
+
+    private Long resolveNextCursor(List<ChatMessageResponse> messages, Long afterMessageId) {
+        return messages.stream()
+                .map(ChatMessageResponse::messageId)
+                .filter(Objects::nonNull)
+                .reduce((previous, current) -> current)
+                .orElse(afterMessageId);
     }
 
     @Override
