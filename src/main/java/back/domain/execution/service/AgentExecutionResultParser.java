@@ -1,5 +1,6 @@
 package back.domain.execution.service;
 
+import back.domain.artifact.dto.ArtifactFileSaveCommand;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskArtifactSaveRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,7 +38,8 @@ public class AgentExecutionResultParser {
         String recommendedAction = firstText(reportNode, "recommendedAction", "recommended_action").orElse(null);
         return new AgentExecutionResult(
                 new AgentReportSaveRequest(status, summary, detail, recommendedAction),
-                parseArtifacts(root, reportNode));
+                parseArtifacts(root, reportNode),
+                parseFiles(root, reportNode));
     }
 
     private AgentExecutionResult fallbackReport(String finalText) {
@@ -47,6 +49,7 @@ public class AgentExecutionResultParser {
                         fallbackSummary(finalText),
                         finalText.isBlank() ? null : finalText,
                         null),
+                List.of(),
                 List.of());
     }
 
@@ -73,6 +76,28 @@ public class AgentExecutionResultParser {
         }
         String url = firstText(artifactNode, "url", "value", "path").orElse(null);
         return Optional.of(new TaskArtifactSaveRequest(artifactType.get(), name.get(), url));
+    }
+
+    private List<ArtifactFileSaveCommand> parseFiles(JsonNode root, JsonNode reportNode) {
+        JsonNode filesNode = root.path("files").isArray() ? root.path("files") : reportNode.path("files");
+        if (!filesNode.isArray()) {
+            return List.of();
+        }
+        List<ArtifactFileSaveCommand> files = new ArrayList<>();
+        filesNode.forEach(fileNode -> parseFile(fileNode).ifPresent(files::add));
+        return files;
+    }
+
+    private Optional<ArtifactFileSaveCommand> parseFile(JsonNode fileNode) {
+        if (!fileNode.isObject()) {
+            return Optional.empty();
+        }
+        Optional<String> path = firstText(fileNode, "path", "relativePath", "filePath", "name");
+        Optional<String> content = nullableText(fileNode, "content", "body", "text");
+        if (path.isEmpty() || content.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ArtifactFileSaveCommand(path.get(), content.get()));
     }
 
     private Optional<JsonNode> parseFirstJson(String finalText) {
@@ -116,6 +141,16 @@ public class AgentExecutionResultParser {
             JsonNode value = node.path(key);
             if (!value.isMissingNode() && !value.isNull() && !value.asText().isBlank()) {
                 return Optional.of(value.asText().trim());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> nullableText(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return Optional.of(value.asText());
             }
         }
         return Optional.empty();
