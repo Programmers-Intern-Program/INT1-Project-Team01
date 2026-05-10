@@ -28,6 +28,7 @@ import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillFile;
 import back.domain.agent.entity.AgentSkillSyncStatus;
 import back.domain.agent.entity.AgentStatus;
@@ -103,10 +104,14 @@ class AgentProvisioningServiceImplTest {
 
     @Test
     @DisplayName("Agent 생성 성공 시 OpenClaw agent를 만들고 Skill file을 동기화한 뒤 READY로 응답한다")
-    void createAgent_success_marksReady() {
+    void createAgent_success_marksReadyWithCategory() {
         // given
         OpenClawAgentCreateReq request = new OpenClawAgentCreateReq(
-                "Backend Agent", null, "tool", List.of(new AgentSkillFileReq("AGENTS.md", "You are a backend agent.")));
+                "Backend Agent",
+                AgentCategory.BACKEND,
+                null,
+                "tool",
+                List.of(new AgentSkillFileReq("AGENTS.md", "You are a backend agent.")));
         givenWorkspaceAdmin();
         given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
@@ -121,6 +126,7 @@ class AgentProvisioningServiceImplTest {
 
         // then
         assertThat(response.status()).isEqualTo(AgentStatus.READY);
+        assertThat(response.category()).isEqualTo(AgentCategory.BACKEND);
         assertThat(response.openClawAgentId()).isEqualTo("openclaw-agent-1");
         assertThat(response.workspacePath()).isEqualTo("~/.openclaw/workspace-1");
         assertThat(response.skillFiles()).hasSize(1);
