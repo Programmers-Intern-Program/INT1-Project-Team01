@@ -115,6 +115,10 @@ public class OrchestrationPlan extends BaseEntity {
         this.status = OrchestrationPlanStatus.FAILED;
     }
 
+    public void markCanceled() {
+        this.status = OrchestrationPlanStatus.CANCELED;
+    }
+
     public List<OrchestrationPlanStep> getSteps() {
         return Collections.unmodifiableList(steps);
     }
