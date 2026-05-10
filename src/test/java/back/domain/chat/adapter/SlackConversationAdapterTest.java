@@ -58,7 +58,7 @@ class SlackConversationAdapterTest {
                         null,
                         null,
                         List.of(new ChatMessageResponse(
-                                20L, 10L, null, null, ChatMessageRole.ASSISTANT, "Agent 응답", null))));
+                                20L, 10L, null, null, null, ChatMessageRole.ASSISTANT, "Agent 응답", null))));
 
         // when
         String finalText = adapter.sendMessage(1L, "T123:C123:999.000", "backend-agent", "로그인 API 구현해줘");
