@@ -31,6 +31,9 @@ import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
+import back.domain.orchestrator.dto.request.OrchestrationPlanCreateCommand;
+import back.domain.orchestrator.entity.OrchestrationPlan;
+import back.domain.orchestrator.service.OrchestrationPlanService;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.response.TaskMessageResponse;
 import back.domain.task.dto.response.TaskRunResponse;
@@ -65,6 +68,7 @@ public class ChatServiceImpl implements ChatService {
     private final TaskRunService taskRunService;
     private final ChatTaskExecutionDispatcher chatTaskExecutionDispatcher;
     private final ChatAgentIntentParser chatAgentIntentParser;
+    private final OrchestrationPlanService orchestrationPlanService;
     private final AgentRepository agentRepository;
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
@@ -164,7 +168,8 @@ public class ChatServiceImpl implements ChatService {
 
         ChatAgentIntent agentIntent = chatAgentIntentParser.parse(chatResult.finalText());
         ChatSendResult sendResult = requireTransactionResult(
-                transactionOperations.execute(status -> recordAgentResponse(context, command, agentIntent)));
+                transactionOperations.execute(
+                        status -> recordAgentResponse(context, command, agentIntent, chatResult.finalText())));
         sendResult.dispatch(chatTaskExecutionDispatcher);
         return sendResult.response();
     }
@@ -231,9 +236,13 @@ public class ChatServiceImpl implements ChatService {
     private ChatSendResult recordAgentResponse(
             ChatSendContext context,
             ChatSendCommand command,
-            ChatAgentIntent agentIntent) {
+            ChatAgentIntent agentIntent,
+            String rawAgentResponse) {
         if (agentIntent.isTask()) {
             return recordTaskIntentResponse(context, command, agentIntent);
+        }
+        if (agentIntent.isOrchestration()) {
+            return recordOrchestrationIntentResponse(context, agentIntent, rawAgentResponse);
         }
         return ChatSendResult.withoutDispatch(recordChatIntentResponse(context, agentIntent.message()));
     }
@@ -298,6 +307,83 @@ public class ChatServiceImpl implements ChatService {
                         taskResponse.taskId(),
                         taskRequest.shouldCreatePr(),
                         savedSession.getOpenClawSessionKey()));
+    }
+
+    private ChatSendResult recordOrchestrationIntentResponse(
+            ChatSendContext context,
+            ChatAgentIntent agentIntent,
+            String rawAgentResponse) {
+        if (context.agent().getCategory() != AgentCategory.ORCHESTRATOR) {
+            return ChatSendResult.withoutDispatch(
+                    recordChatIntentResponse(context, "Orchestrator Agent만 작업 계획을 생성할 수 있습니다."));
+        }
+
+        OrchestrationPlan plan;
+        try {
+            plan = orchestrationPlanService.createPlan(createOrchestrationPlanCreateCommand(
+                    context,
+                    agentIntent.orchestrationPlan(),
+                    rawAgentResponse));
+        } catch (ServiceException exception) {
+            log.warn(
+                    "Invalid Orchestrator plan response. workspaceId={}, chatSessionId={}, agentId={}, reason={}",
+                    context.session().getWorkspaceId(),
+                    context.session().getId(),
+                    context.agent().getId(),
+                    exception.getClientMessage());
+            return ChatSendResult.withoutDispatch(recordChatIntentResponse(context, exception.getClientMessage()));
+        }
+
+        ChatSession session = context.session();
+        ChatMessage savedAssistantMessage = chatMessageRepository.save(
+                ChatMessage.assistant(session.getWorkspaceId(), session.getId(), agentIntent.message()));
+        plan.linkAssistantMessage(savedAssistantMessage.getId());
+        session.recordMessage();
+        ChatSession savedSession = chatSessionRepository.save(session);
+
+        return ChatSendResult.withoutDispatch(new ChatMessageSendResponse(
+                savedSession.getId(),
+                null,
+                savedSession.getWorkspaceId(),
+                context.agent().getId(),
+                null,
+                null,
+                null,
+                agentIntent.message(),
+                null,
+                savedSession.getCreatedAt(),
+                List.of(
+                        ChatMessageResponse.from(context.userMessage()),
+                        ChatMessageResponse.from(savedAssistantMessage))));
+    }
+
+    private OrchestrationPlanCreateCommand createOrchestrationPlanCreateCommand(
+            ChatSendContext context,
+            ChatAgentIntent.OrchestrationPlanSpec planSpec,
+            String rawAgentResponse) {
+        return new OrchestrationPlanCreateCommand(
+                context.session().getWorkspaceId(),
+                context.session().getId(),
+                context.agent().getId(),
+                context.userMessage().getId(),
+                planSpec.title(),
+                rawAgentResponse,
+                planSpec.steps()
+                        .stream()
+                        .map(this::toOrchestrationStepCommand)
+                        .toList());
+    }
+
+    private OrchestrationPlanCreateCommand.StepCommand toOrchestrationStepCommand(
+            ChatAgentIntent.OrchestrationStepSpec stepSpec) {
+        return new OrchestrationPlanCreateCommand.StepCommand(
+                stepSpec.stepKey(),
+                stepSpec.agentId(),
+                stepSpec.agentName(),
+                stepSpec.category(),
+                stepSpec.title(),
+                stepSpec.prompt(),
+                stepSpec.dependsOn());
     }
 
     private ChatMessage linkUserMessageToTask(Long userMessageId, Long taskId) {
@@ -618,7 +704,7 @@ public class ChatServiceImpl implements ChatService {
                 System.lineSeparator(),
                 "You are connected to AI Office chat.",
                 buildOrchestratorContext(workspaceId, agent),
-                "Decide whether the user needs general chat or an executable task.",
+                "Decide whether the user needs general chat, a single executable task, or a multi-agent plan.",
                 "Return only one JSON object.",
                 "CHAT response: {\"intent\":\"CHAT\",\"message\":\"general answer\"}",
                 "TASK response: {\"intent\":\"TASK\",\"message\":\"task accepted\",\"task\":{\"title\":\"task title\","
@@ -627,8 +713,20 @@ public class ChatServiceImpl implements ChatService {
                 "Allowed taskType values: CODE_REVIEW, PR_REVIEW, BUG_FIX, FEATURE_IMPLEMENTATION, REFACTORING,"
                         + " TEST_CREATION, DOCUMENTATION, PR_CREATION, OTHER.",
                 "Allowed priority values: LOW, MEDIUM, HIGH, URGENT.",
+                buildOrchestrationIntentGuide(agent),
                 "User message:",
                 message);
+    }
+
+    private String buildOrchestrationIntentGuide(Agent agent) {
+        if (agent.getCategory() != AgentCategory.ORCHESTRATOR) {
+            return "ORCHESTRATE response is only allowed for ORCHESTRATOR agents.";
+        }
+        return "ORCHESTRATE response for multi-agent plans: "
+                + "{\"intent\":\"ORCHESTRATE\",\"message\":\"plan accepted\","
+                + "\"plan\":{\"title\":\"plan title\",\"steps\":[{\"stepKey\":\"backend-1\","
+                + "\"agentId\":2,\"agentName\":\"backend-agent\",\"category\":\"BACKEND\","
+                + "\"title\":\"step title\",\"prompt\":\"worker instruction\",\"dependsOn\":[]}]}}";
     }
 
     private String buildOrchestratorContext(Long workspaceId, Agent agent) {
