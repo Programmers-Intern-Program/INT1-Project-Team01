@@ -65,7 +65,11 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
         validateDuplicateAgentName(workspaceId, agentName);
 
         Agent agent = agentRepository.save(Agent.create(
-                admin.getWorkspace(), agentName, resolveWorkspacePath(workspaceId, request.workspacePath()), memberId));
+                admin.getWorkspace(),
+                agentName,
+                request.category(),
+                resolveWorkspacePath(workspaceId, request.workspacePath()),
+                memberId));
         List<AgentSkillFile> skillFiles = saveSkillFiles(agent, request.skillFiles());
         return new AgentProvisioningTarget(workspaceId, agent, skillFiles);
     }
