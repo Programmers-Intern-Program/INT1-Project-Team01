@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
@@ -603,17 +604,18 @@ public class ChatServiceImpl implements ChatService {
             return client.sendChat(new OpenClawChatCommand(
                     agent.getOpenClawAgentId(),
                     session.getOpenClawSessionKey(),
-                    buildAgentIntentMessage(message),
+                    buildAgentIntentMessage(session.getWorkspaceId(), agent, message),
                     createIdempotencyKey(session.getId(), userMessageId)));
         } finally {
             client.close();
         }
     }
 
-    private String buildAgentIntentMessage(String message) {
+    private String buildAgentIntentMessage(Long workspaceId, Agent agent, String message) {
         return String.join(
                 System.lineSeparator(),
                 "You are connected to AI Office chat.",
+                buildOrchestratorContext(workspaceId, agent),
                 "Decide whether the user needs general chat or an executable task.",
                 "Return only one JSON object.",
                 "CHAT response: {\"intent\":\"CHAT\",\"message\":\"general answer\"}",
@@ -625,6 +627,35 @@ public class ChatServiceImpl implements ChatService {
                 "Allowed priority values: LOW, MEDIUM, HIGH, URGENT.",
                 "User message:",
                 message);
+    }
+
+    private String buildOrchestratorContext(Long workspaceId, Agent agent) {
+        if (agent.getCategory() != AgentCategory.ORCHESTRATOR) {
+            return "Current Agent category: " + agent.getCategory();
+        }
+        List<Agent> readyAgents = agentRepository
+                .findByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        workspaceId, AgentStatus.READY);
+        return String.join(
+                System.lineSeparator(),
+                "Current Agent category: ORCHESTRATOR",
+                "Available READY agents in this workspace:",
+                formatReadyAgents(readyAgents),
+                "Use only listed agentId values when planning work. Do not invent agents.");
+    }
+
+    private String formatReadyAgents(List<Agent> readyAgents) {
+        if (readyAgents.isEmpty()) {
+            return "- none";
+        }
+        return readyAgents.stream()
+                .map(agent -> "- agentId=" + agent.getId()
+                        + ", name=" + agent.getName()
+                        + ", category=" + agent.getCategory()
+                        + ", status=" + agent.getStatus()
+                        + ", openClawAgentId=" + agent.getOpenClawAgentId())
+                .reduce((previous, current) -> previous + System.lineSeparator() + current)
+                .orElse("- none");
     }
 
     private void recordFailureMessageSafely(ChatSession session, RuntimeException exception) {
