@@ -86,6 +86,44 @@ class OrchestrationPlanServiceImplTest {
                         assertThat(exception.getClientMessage()).contains("순환 참조"));
     }
 
+    @Test
+    @DisplayName("agentName이 저장 길이를 초과하면 계획을 저장하지 않고 예외를 던진다")
+    void createPlan_agentNameTooLong_throwsException() {
+        // given
+        OrchestrationPlanCreateCommand command = command(List.of(new OrchestrationPlanCreateCommand.StepCommand(
+                "backend-1",
+                null,
+                "a".repeat(121),
+                AgentCategory.BACKEND,
+                "백엔드 작업",
+                "백엔드 작업을 진행하세요.",
+                List.of())));
+
+        // when & then
+        assertThatThrownBy(() -> orchestrationPlanService.createPlan(command))
+                .isInstanceOfSatisfying(ServiceException.class, exception ->
+                        assertThat(exception.getClientMessage()).contains("agentName 길이는 120자"));
+    }
+
+    @Test
+    @DisplayName("title이 저장 길이를 초과하면 계획을 저장하지 않고 예외를 던진다")
+    void createPlan_titleTooLong_throwsException() {
+        // given
+        OrchestrationPlanCreateCommand command = command(List.of(new OrchestrationPlanCreateCommand.StepCommand(
+                "backend-1",
+                null,
+                "backend-agent",
+                AgentCategory.BACKEND,
+                "가".repeat(201),
+                "백엔드 작업을 진행하세요.",
+                List.of())));
+
+        // when & then
+        assertThatThrownBy(() -> orchestrationPlanService.createPlan(command))
+                .isInstanceOfSatisfying(ServiceException.class, exception ->
+                        assertThat(exception.getClientMessage()).contains("title 길이는 200자"));
+    }
+
     private OrchestrationPlanCreateCommand command(List<OrchestrationPlanCreateCommand.StepCommand> steps) {
         return new OrchestrationPlanCreateCommand(
                 1L,
