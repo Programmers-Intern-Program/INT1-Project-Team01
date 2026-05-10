@@ -3,6 +3,7 @@ package back.domain.chat.service;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -57,6 +58,7 @@ public class ChatServiceImpl implements ChatService {
     private static final int SLACK_SESSION_HASH_LENGTH = 16;
     private static final int DEFAULT_POLL_LIMIT = 50;
     private static final int MAX_POLL_LIMIT = 100;
+    private static final int ORCHESTRATOR_CONTEXT_AGENT_LIMIT = 20;
 
     private final TransactionOperations transactionOperations;
     private final TaskService taskService;
@@ -639,23 +641,35 @@ public class ChatServiceImpl implements ChatService {
         return String.join(
                 System.lineSeparator(),
                 "Current Agent category: ORCHESTRATOR",
-                "Available READY agents in this workspace:",
-                formatReadyAgents(readyAgents),
+                "Available READY agents in this workspace: "
+                        + readyAgents.size()
+                        + " total, showing "
+                        + Math.min(readyAgents.size(), ORCHESTRATOR_CONTEXT_AGENT_LIMIT)
+                        + ".",
+                formatReadyAgents(readyAgents, ORCHESTRATOR_CONTEXT_AGENT_LIMIT),
                 "Use only listed agentId values when planning work. Do not invent agents.");
     }
 
-    private String formatReadyAgents(List<Agent> readyAgents) {
+    private String formatReadyAgents(List<Agent> readyAgents, int limit) {
         if (readyAgents.isEmpty()) {
             return "- none";
         }
-        return readyAgents.stream()
+        String formattedAgents = readyAgents.stream()
+                .limit(limit)
                 .map(agent -> "- agentId=" + agent.getId()
                         + ", name=" + agent.getName()
                         + ", category=" + agent.getCategory()
                         + ", status=" + agent.getStatus()
                         + ", openClawAgentId=" + agent.getOpenClawAgentId())
-                .reduce((previous, current) -> previous + System.lineSeparator() + current)
-                .orElse("- none");
+                .collect(Collectors.joining(System.lineSeparator()));
+        if (readyAgents.size() <= limit) {
+            return formattedAgents;
+        }
+        return formattedAgents
+                + System.lineSeparator()
+                + "- ... "
+                + (readyAgents.size() - limit)
+                + " more READY agents omitted.";
     }
 
     private void recordFailureMessageSafely(ChatSession session, RuntimeException exception) {
