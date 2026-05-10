@@ -45,9 +45,6 @@ public class ChatAgentIntentParser {
                     resolveMessage(rootNode, "작업 계획을 수립했습니다."),
                     parseOrchestrationPlanSpec(rootNode.path("plan")));
         }
-        if (!"CHAT".equalsIgnoreCase(intent)) {
-            return ChatAgentIntent.chat(resolveMessage(rootNode, fallbackMessage));
-        }
         return ChatAgentIntent.chat(resolveMessage(rootNode, fallbackMessage));
     }
 
