@@ -51,6 +51,11 @@ import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.orchestrator.entity.OrchestrationPlan;
+import back.domain.orchestrator.entity.OrchestrationPlanStatus;
+import back.domain.orchestrator.entity.OrchestrationPlanStep;
+import back.domain.orchestrator.repository.OrchestrationPlanRepository;
+import back.domain.orchestrator.repository.OrchestrationPlanStepRepository;
 import back.domain.task.entity.SourceType;
 import back.domain.task.entity.Task;
 import back.domain.task.entity.TaskPriority;
@@ -86,6 +91,12 @@ class ChatServiceTest {
 
     @Autowired
     private TaskRepository taskRepository;
+
+    @Autowired
+    private OrchestrationPlanRepository orchestrationPlanRepository;
+
+    @Autowired
+    private OrchestrationPlanStepRepository orchestrationPlanStepRepository;
 
     @MockitoBean
     private WorkspaceGatewayBindingService workspaceGatewayBindingService;
@@ -390,6 +401,178 @@ class ChatServiceTest {
                 .contains("Current Agent category: CUSTOM")
                 .doesNotContain("Available READY agents in this workspace:")
                 .doesNotContain("backend-agent");
+    }
+
+    @Test
+    @DisplayName("일반 Agent가 ORCHESTRATE intent를 반환하면 계획을 저장하지 않고 안내 응답을 저장한다")
+    void sendMessage_nonOrchestratorAgentCannotStoreOrchestrationPlan() {
+        // given
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "ORCHESTRATE",
+                                  "message": "작업 계획을 저장했습니다.",
+                                  "plan": {
+                                    "steps": [
+                                      {
+                                        "stepKey": "backend-1",
+                                        "agentName": "backend-agent",
+                                        "category": "BACKEND",
+                                        "title": "백엔드 작업",
+                                        "prompt": "백엔드 작업을 진행하세요.",
+                                        "dependsOn": []
+                                      }
+                                    ]
+                                  }
+                                }
+                                """));
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("작업 계획 세워줘", agentId, null, null, null, null, false));
+
+        // then
+        assertThat(response.taskId()).isNull();
+        assertThat(response.finalText()).isEqualTo("Orchestrator Agent만 작업 계획을 생성할 수 있습니다.");
+        assertThat(orchestrationPlanRepository
+                .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtDescIdDesc(workspaceId, response.chatSessionId()))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("ORCHESTRATE intent 응답은 OrchestrationPlan과 Step으로 저장한다")
+    void sendMessage_orchestrateIntentStoresPlanAndSteps() {
+        // given
+        Long orchestratorAgentId = createReadyAgent(
+                "main-orchestrator", "openclaw-orchestrator", AgentCategory.ORCHESTRATOR);
+        Long backendAgentId = createReadyAgent("backend-agent", "openclaw-backend", AgentCategory.BACKEND);
+        Long frontendAgentId = createReadyAgent("frontend-agent", "openclaw-frontend", AgentCategory.FRONTEND);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "ORCHESTRATE",
+                                  "message": "작업 계획을 저장했습니다.",
+                                  "plan": {
+                                    "title": "회원가입 기능 구현 계획",
+                                    "steps": [
+                                      {
+                                        "stepKey": "backend-1",
+                                        "agentId": %d,
+                                        "agentName": "backend-agent",
+                                        "category": "BACKEND",
+                                        "title": "회원가입 API 구현",
+                                        "prompt": "회원가입 API와 테스트를 구현하세요.",
+                                        "dependsOn": []
+                                      },
+                                      {
+                                        "stepKey": "frontend-1",
+                                        "agentId": %d,
+                                        "agentName": "frontend-agent",
+                                        "category": "FRONTEND",
+                                        "title": "회원가입 화면 연동",
+                                        "prompt": "회원가입 API와 화면을 연동하세요.",
+                                        "dependsOn": ["backend-1"]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(backendAgentId, frontendAgentId)));
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest(
+                        "회원가입 기능을 백엔드와 프론트로 나눠서 진행해줘",
+                        orchestratorAgentId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false));
+
+        // then
+        assertThat(response.taskId()).isNull();
+        assertThat(response.finalText()).isEqualTo("작업 계획을 저장했습니다.");
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "회원가입 기능을 백엔드와 프론트로 나눠서 진행해줘"),
+                        tuple(ChatMessageRole.ASSISTANT, "작업 계획을 저장했습니다."));
+
+        List<OrchestrationPlan> plans = orchestrationPlanRepository
+                .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtDescIdDesc(workspaceId, response.chatSessionId());
+        assertThat(plans).hasSize(1);
+        OrchestrationPlan plan = plans.getFirst();
+        assertThat(plan.getStatus()).isEqualTo(OrchestrationPlanStatus.PLANNED);
+        assertThat(plan.getTitle()).isEqualTo("회원가입 기능 구현 계획");
+        assertThat(plan.getOrchestratorAgentId()).isEqualTo(orchestratorAgentId);
+        assertThat(plan.getAssistantMessageId()).isEqualTo(response.messages().getLast().messageId());
+
+        List<OrchestrationPlanStep> steps =
+                orchestrationPlanStepRepository.findByPlanIdOrderBySequenceNoAscIdAsc(plan.getId());
+        assertThat(steps)
+                .extracting(
+                        OrchestrationPlanStep::getStepKey,
+                        OrchestrationPlanStep::getAgentId,
+                        OrchestrationPlanStep::getCategory,
+                        OrchestrationPlanStep::getTitle)
+                .containsExactly(
+                        tuple("backend-1", backendAgentId, AgentCategory.BACKEND, "회원가입 API 구현"),
+                        tuple("frontend-1", frontendAgentId, AgentCategory.FRONTEND, "회원가입 화면 연동"));
+        assertThat(steps.getLast().getDependsOnStepKeys()).containsExactly("backend-1");
+        verify(chatTaskExecutionDispatcher, never()).run(anyLong(), anyLong(), anyBoolean(), anyString());
+    }
+
+    @Test
+    @DisplayName("잘못된 ORCHESTRATE intent 응답은 사용자 친화 실패 메시지로 저장한다")
+    void sendMessage_invalidOrchestrateIntentStoresFailureMessage() {
+        // given
+        Long orchestratorAgentId = createReadyAgent(
+                "main-orchestrator", "openclaw-orchestrator", AgentCategory.ORCHESTRATOR);
+        Long backendAgentId = createReadyAgent("backend-agent", "openclaw-backend", AgentCategory.BACKEND);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult(
+                        "gateway-session",
+                        """
+                                {
+                                  "intent": "ORCHESTRATE",
+                                  "message": "작업 계획을 저장했습니다.",
+                                  "plan": {
+                                    "title": "잘못된 계획",
+                                    "steps": [
+                                      {
+                                        "stepKey": "backend-1",
+                                        "agentId": %d,
+                                        "title": "첫 번째 작업",
+                                        "prompt": "첫 번째 작업을 진행하세요.",
+                                        "dependsOn": ["missing-step"]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(backendAgentId)));
+
+        // when
+        ChatMessageSendResponse response = chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("작업 계획 세워줘", orchestratorAgentId, null, null, null, null, false));
+
+        // then
+        assertThat(response.taskId()).isNull();
+        assertThat(response.finalText()).contains("Orchestrator 계획 응답 형식이 올바르지 않습니다");
+        assertThat(orchestrationPlanRepository
+                .findByWorkspaceIdAndChatSessionIdOrderByCreatedAtDescIdDesc(workspaceId, response.chatSessionId()))
+                .isEmpty();
+        assertThat(response.messages())
+                .extracting(ChatMessageResponse::role, ChatMessageResponse::content)
+                .containsExactly(
+                        tuple(ChatMessageRole.USER, "작업 계획 세워줘"),
+                        tuple(ChatMessageRole.ASSISTANT, response.finalText()));
     }
 
     @Test
