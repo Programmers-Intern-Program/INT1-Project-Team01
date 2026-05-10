@@ -6,6 +6,11 @@ import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
+import back.domain.chat.entity.ChatMessage;
+import back.domain.chat.entity.ChatSession;
+import back.domain.chat.entity.ChatSessionSource;
+import back.domain.chat.repository.ChatMessageRepository;
+import back.domain.chat.repository.ChatSessionRepository;
 import back.domain.execution.service.AgentExecutionResult;
 import back.domain.execution.service.AgentExecutionResultParser;
 import back.domain.execution.service.AgentExecutionStatus;
@@ -20,6 +25,7 @@ import back.domain.orchestrator.entity.OrchestrationPlan;
 import back.domain.orchestrator.entity.OrchestrationPlanStep;
 import back.domain.orchestrator.repository.OrchestrationPlanRepository;
 import back.domain.orchestrator.repository.OrchestrationPlanStepRepository;
+import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -35,6 +41,7 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -56,35 +63,46 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
     private final AgentExecutionResultParser agentExecutionResultParser;
     private final WorkspaceArtifactStorage workspaceArtifactStorage;
+    private final ChatSessionRepository chatSessionRepository;
+    private final ChatMessageRepository chatMessageRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public void run(Long workspaceId, Long planId) {
         Objects.requireNonNull(workspaceId);
         Objects.requireNonNull(planId);
         PlanExecutionContext planContext = preparePlan(workspaceId, planId);
-        OpenClawGatewayConnectionContext gatewayContext = getGatewayContext(workspaceId, planId);
-        OpenClawGatewayClient client = openClawGatewayClientFactory.create();
         Map<String, StepExecutionSummary> completedSteps = new LinkedHashMap<>();
+        OpenClawGatewayClient client = null;
         try {
+            client = openClawGatewayClientFactory.create();
+            OpenClawGatewayConnectionContext gatewayContext =
+                    workspaceGatewayBindingService.getConnectionContext(workspaceId);
             client.connect(gatewayContext);
             for (StepExecutionContext stepContext : resolveExecutionOrder(planContext.steps())) {
                 StepExecutionSummary summary = runStep(client, planContext, stepContext, completedSteps);
                 if (summary.failed()) {
-                    markPlanFailed(workspaceId, planId);
+                    markPlanFailed(planContext, completedSteps, stepContext.stepKey(), summary);
                     return;
                 }
                 if (summary.canceled()) {
-                    markPlanCanceled(workspaceId, planId);
+                    markPlanCanceled(planContext, completedSteps, stepContext.stepKey(), summary);
                     return;
                 }
                 completedSteps.put(stepContext.stepKey(), summary);
             }
-            markPlanCompleted(workspaceId, planId);
+            markPlanCompleted(planContext, completedSteps);
         } catch (RuntimeException exception) {
-            markPlanFailed(workspaceId, planId);
+            markPlanFailed(
+                    planContext,
+                    completedSteps,
+                    null,
+                    StepExecutionSummary.failed(resolveFailureReason(exception), null));
             throw exception;
         } finally {
-            client.close();
+            if (client != null) {
+                client.close();
+            }
         }
     }
 
@@ -107,19 +125,11 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             return new PlanExecutionContext(
                     plan.getId(),
                     plan.getWorkspaceId(),
+                    plan.getChatSessionId(),
                     plan.getTitle(),
                     plan.getOrchestratorAgentId(),
                     steps);
         }));
-    }
-
-    private OpenClawGatewayConnectionContext getGatewayContext(Long workspaceId, Long planId) {
-        try {
-            return workspaceGatewayBindingService.getConnectionContext(workspaceId);
-        } catch (RuntimeException exception) {
-            markPlanFailed(workspaceId, planId);
-            throw exception;
-        }
     }
 
     private StepExecutionSummary runStep(
@@ -258,28 +268,154 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         }));
     }
 
-    private void markPlanCompleted(Long workspaceId, Long planId) {
+    private void markPlanCompleted(
+            PlanExecutionContext planContext, Map<String, StepExecutionSummary> completedSteps) {
         requireTransactionResult(transactionOperations.execute(status -> {
-            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
+            OrchestrationPlan plan = getPlanOrThrow(planContext.workspaceId(), planContext.planId());
             plan.markCompleted();
-            return orchestrationPlanRepository.save(plan);
+            OrchestrationPlan savedPlan = orchestrationPlanRepository.save(plan);
+            appendOrchestrationResultMessage(savedPlan, buildCompletedChatMessage(planContext, completedSteps));
+            return savedPlan;
         }));
     }
 
-    private void markPlanFailed(Long workspaceId, Long planId) {
+    private void markPlanFailed(
+            PlanExecutionContext planContext,
+            Map<String, StepExecutionSummary> completedSteps,
+            String failedStepKey,
+            StepExecutionSummary failureSummary) {
         requireTransactionResult(transactionOperations.execute(status -> {
-            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
+            OrchestrationPlan plan = getPlanOrThrow(planContext.workspaceId(), planContext.planId());
             plan.markFailed();
-            return orchestrationPlanRepository.save(plan);
+            OrchestrationPlan savedPlan = orchestrationPlanRepository.save(plan);
+            appendOrchestrationResultMessage(
+                    savedPlan,
+                    buildStoppedChatMessage(
+                            "Orchestration 실행이 실패했습니다.",
+                            "FAILED",
+                            "실패 step",
+                            planContext,
+                            completedSteps,
+                            failedStepKey,
+                            failureSummary));
+            return savedPlan;
         }));
     }
 
-    private void markPlanCanceled(Long workspaceId, Long planId) {
+    private void markPlanCanceled(
+            PlanExecutionContext planContext,
+            Map<String, StepExecutionSummary> completedSteps,
+            String canceledStepKey,
+            StepExecutionSummary cancelSummary) {
         requireTransactionResult(transactionOperations.execute(status -> {
-            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
+            OrchestrationPlan plan = getPlanOrThrow(planContext.workspaceId(), planContext.planId());
             plan.markCanceled();
-            return orchestrationPlanRepository.save(plan);
+            OrchestrationPlan savedPlan = orchestrationPlanRepository.save(plan);
+            appendOrchestrationResultMessage(
+                    savedPlan,
+                    buildStoppedChatMessage(
+                            "Orchestration 실행이 취소되었습니다.",
+                            "CANCELED",
+                            "취소 step",
+                            planContext,
+                            completedSteps,
+                            canceledStepKey,
+                            cancelSummary));
+            return savedPlan;
         }));
+    }
+
+    private void appendOrchestrationResultMessage(OrchestrationPlan plan, String content) {
+        ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.assistantForOrchestration(
+                plan.getWorkspaceId(), plan.getChatSessionId(), plan.getId(), content));
+        chatSessionRepository
+                .findByIdAndWorkspaceId(plan.getChatSessionId(), plan.getWorkspaceId())
+                .ifPresent(session -> recordSessionMessage(session, plan, savedMessage));
+    }
+
+    private void recordSessionMessage(ChatSession session, OrchestrationPlan plan, ChatMessage message) {
+        session.recordMessage();
+        chatSessionRepository.save(session);
+        publishSlackResultIfNeeded(session, plan, message.getContent());
+    }
+
+    private void publishSlackResultIfNeeded(ChatSession session, OrchestrationPlan plan, String content) {
+        if (session.getSource() != ChatSessionSource.SLACK
+                || session.getSourceRef() == null
+                || session.getSourceRef().isBlank()) {
+            return;
+        }
+        eventPublisher.publishEvent(new SlackReplyRequestedEvent(
+                session.getSourceRef(),
+                content,
+                "slack-orchestration-plan-" + plan.getId() + "-" + plan.getStatus()));
+    }
+
+    private String buildCompletedChatMessage(
+            PlanExecutionContext planContext, Map<String, StepExecutionSummary> completedSteps) {
+        List<String> lines = new ArrayList<>();
+        lines.add("Orchestration 실행이 완료되었습니다.");
+        lines.add("- 계획: " + planContext.title());
+        lines.add("- 상태: COMPLETED");
+        lines.add("- 완료 step: " + completedSteps.size() + "/" + planContext.steps().size());
+        appendCompletedStepLines(lines, completedSteps);
+        appendNextActionLines(lines, completedSteps);
+        return String.join(System.lineSeparator(), lines);
+    }
+
+    private String buildStoppedChatMessage(
+            String headline,
+            String status,
+            String terminalStepLabel,
+            PlanExecutionContext planContext,
+            Map<String, StepExecutionSummary> completedSteps,
+            String terminalStepKey,
+            StepExecutionSummary terminalSummary) {
+        List<String> lines = new ArrayList<>();
+        lines.add(headline);
+        lines.add("- 계획: " + planContext.title());
+        lines.add("- 상태: " + status);
+        lines.add("- 완료 step: " + completedSteps.size() + "/" + planContext.steps().size());
+        if (terminalStepKey != null && !terminalStepKey.isBlank()) {
+            lines.add("- " + terminalStepLabel + ": " + terminalStepKey);
+        }
+        lines.add("- 사유: " + fallbackText(terminalSummary.failureReason(), "알 수 없음"));
+        appendCompletedStepLines(lines, completedSteps);
+        return String.join(System.lineSeparator(), lines);
+    }
+
+    private void appendCompletedStepLines(List<String> lines, Map<String, StepExecutionSummary> completedSteps) {
+        if (completedSteps.isEmpty()) {
+            return;
+        }
+        lines.add("");
+        lines.add("완료된 step");
+        completedSteps.forEach((stepKey, summary) -> lines.add("- "
+                + stepKey
+                + ": "
+                + fallbackText(summary.summary(), "요약 없음")
+                + formatFilePaths(summary.filePaths())));
+    }
+
+    private void appendNextActionLines(List<String> lines, Map<String, StepExecutionSummary> completedSteps) {
+        List<String> nextActions = completedSteps.values().stream()
+                .flatMap(summary -> summary.nextActions().stream())
+                .filter(action -> action != null && !action.isBlank())
+                .distinct()
+                .toList();
+        if (nextActions.isEmpty()) {
+            return;
+        }
+        lines.add("");
+        lines.add("다음 작업");
+        nextActions.forEach(action -> lines.add("- " + action));
+    }
+
+    private String fallbackText(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value;
     }
 
     private OrchestrationPlan getPlanOrThrow(Long workspaceId, Long planId) {
@@ -439,6 +575,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private record PlanExecutionContext(
             Long planId,
             Long workspaceId,
+            Long chatSessionId,
             String title,
             Long orchestratorAgentId,
             List<StepExecutionContext> steps) {}
