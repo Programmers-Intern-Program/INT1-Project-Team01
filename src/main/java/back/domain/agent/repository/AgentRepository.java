@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 
 public interface AgentRepository extends JpaRepository<Agent, Long> {
@@ -17,4 +18,7 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
 
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
             Long workspaceId, AgentStatus status);
+
+    Optional<Agent> findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+            Long workspaceId, AgentCategory category, AgentStatus status);
 }
