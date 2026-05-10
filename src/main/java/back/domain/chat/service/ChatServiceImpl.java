@@ -33,6 +33,7 @@ import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.orchestrator.dto.request.OrchestrationPlanCreateCommand;
 import back.domain.orchestrator.entity.OrchestrationPlan;
+import back.domain.orchestrator.service.OrchestrationPlanDispatcher;
 import back.domain.orchestrator.service.OrchestrationPlanService;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.response.TaskMessageResponse;
@@ -67,6 +68,7 @@ public class ChatServiceImpl implements ChatService {
     private final TaskService taskService;
     private final TaskRunService taskRunService;
     private final ChatTaskExecutionDispatcher chatTaskExecutionDispatcher;
+    private final OrchestrationPlanDispatcher orchestrationPlanDispatcher;
     private final ChatAgentIntentParser chatAgentIntentParser;
     private final OrchestrationPlanService orchestrationPlanService;
     private final AgentRepository agentRepository;
@@ -170,7 +172,7 @@ public class ChatServiceImpl implements ChatService {
         ChatSendResult sendResult = requireTransactionResult(
                 transactionOperations.execute(
                         status -> recordAgentResponse(context, command, agentIntent, chatResult.finalText())));
-        sendResult.dispatch(chatTaskExecutionDispatcher);
+        sendResult.dispatch(chatTaskExecutionDispatcher, orchestrationPlanDispatcher);
         return sendResult.response();
     }
 
@@ -341,7 +343,7 @@ public class ChatServiceImpl implements ChatService {
         session.recordMessage();
         ChatSession savedSession = chatSessionRepository.save(session);
 
-        return ChatSendResult.withoutDispatch(new ChatMessageSendResponse(
+        ChatMessageSendResponse response = new ChatMessageSendResponse(
                 savedSession.getId(),
                 null,
                 savedSession.getWorkspaceId(),
@@ -354,7 +356,10 @@ public class ChatServiceImpl implements ChatService {
                 savedSession.getCreatedAt(),
                 List.of(
                         ChatMessageResponse.from(context.userMessage()),
-                        ChatMessageResponse.from(savedAssistantMessage))));
+                        ChatMessageResponse.from(savedAssistantMessage)));
+        return ChatSendResult.withOrchestrationDispatch(
+                response,
+                new ChatOrchestrationDispatch(savedSession.getWorkspaceId(), plan.getId()));
     }
 
     private OrchestrationPlanCreateCommand createOrchestrationPlanCreateCommand(
@@ -1022,31 +1027,62 @@ public class ChatServiceImpl implements ChatService {
             ChatMessage userMessage,
             String normalizedMessage) {}
 
-    private record ChatSendResult(ChatMessageSendResponse response, ChatTaskDispatch dispatch) {
+    private record ChatSendResult(
+            ChatMessageSendResponse response,
+            ChatTaskDispatch taskDispatch,
+            ChatOrchestrationDispatch orchestrationDispatch) {
 
         private static ChatSendResult withoutDispatch(ChatMessageSendResponse response) {
-            return new ChatSendResult(response, null);
+            return new ChatSendResult(response, null, null);
         }
 
         private static ChatSendResult withDispatch(ChatMessageSendResponse response, ChatTaskDispatch dispatch) {
-            return new ChatSendResult(response, dispatch);
+            return new ChatSendResult(response, dispatch, null);
         }
 
-        private void dispatch(ChatTaskExecutionDispatcher dispatcher) {
-            if (dispatch == null) {
+        private static ChatSendResult withOrchestrationDispatch(
+                ChatMessageSendResponse response,
+                ChatOrchestrationDispatch dispatch) {
+            return new ChatSendResult(response, null, dispatch);
+        }
+
+        private void dispatch(
+                ChatTaskExecutionDispatcher taskDispatcher,
+                OrchestrationPlanDispatcher planDispatcher) {
+            dispatchTask(taskDispatcher);
+            dispatchOrchestration(planDispatcher);
+        }
+
+        private void dispatchTask(ChatTaskExecutionDispatcher dispatcher) {
+            if (taskDispatch == null) {
                 return;
             }
             try {
                 dispatcher.run(
-                        dispatch.workspaceId(),
-                        dispatch.taskId(),
-                        dispatch.createPr(),
-                        dispatch.openClawSessionKeyOverride());
+                        taskDispatch.workspaceId(),
+                        taskDispatch.taskId(),
+                        taskDispatch.createPr(),
+                        taskDispatch.openClawSessionKeyOverride());
             } catch (RuntimeException exception) {
                 log.warn(
                         "Failed to dispatch chat task execution. workspaceId={}, taskId={}",
-                        dispatch.workspaceId(),
-                        dispatch.taskId(),
+                        taskDispatch.workspaceId(),
+                        taskDispatch.taskId(),
+                        exception);
+            }
+        }
+
+        private void dispatchOrchestration(OrchestrationPlanDispatcher dispatcher) {
+            if (orchestrationDispatch == null) {
+                return;
+            }
+            try {
+                dispatcher.run(orchestrationDispatch.workspaceId(), orchestrationDispatch.planId());
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Failed to dispatch orchestration plan. workspaceId={}, planId={}",
+                        orchestrationDispatch.workspaceId(),
+                        orchestrationDispatch.planId(),
                         exception);
             }
         }
@@ -1057,4 +1093,6 @@ public class ChatServiceImpl implements ChatService {
             Long taskId,
             boolean createPr,
             String openClawSessionKeyOverride) {}
+
+    private record ChatOrchestrationDispatch(Long workspaceId, Long planId) {}
 }

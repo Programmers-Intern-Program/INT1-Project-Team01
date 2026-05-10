@@ -56,6 +56,7 @@ import back.domain.orchestrator.entity.OrchestrationPlanStatus;
 import back.domain.orchestrator.entity.OrchestrationPlanStep;
 import back.domain.orchestrator.repository.OrchestrationPlanRepository;
 import back.domain.orchestrator.repository.OrchestrationPlanStepRepository;
+import back.domain.orchestrator.service.OrchestrationPlanDispatcher;
 import back.domain.task.entity.SourceType;
 import back.domain.task.entity.Task;
 import back.domain.task.entity.TaskPriority;
@@ -106,6 +107,9 @@ class ChatServiceTest {
 
     @MockitoBean
     private ChatTaskExecutionDispatcher chatTaskExecutionDispatcher;
+
+    @MockitoBean
+    private OrchestrationPlanDispatcher orchestrationPlanDispatcher;
 
     private OpenClawGatewayClient openClawGatewayClient;
     private Long workspaceId;
@@ -462,7 +466,7 @@ class ChatServiceTest {
                                     "steps": [
                                       {
                                         "stepKey": "backend-1",
-                                        "agentId": %d,
+                                        "agentId": BACKEND_AGENT_ID,
                                         "agentName": "backend-agent",
                                         "category": "BACKEND",
                                         "title": "회원가입 API 구현",
@@ -471,7 +475,7 @@ class ChatServiceTest {
                                       },
                                       {
                                         "stepKey": "frontend-1",
-                                        "agentId": %d,
+                                        "agentId": FRONTEND_AGENT_ID,
                                         "agentName": "frontend-agent",
                                         "category": "FRONTEND",
                                         "title": "회원가입 화면 연동",
@@ -481,7 +485,9 @@ class ChatServiceTest {
                                     ]
                                   }
                                 }
-                                """.formatted(backendAgentId, frontendAgentId)));
+                                """
+                                .replace("BACKEND_AGENT_ID", backendAgentId.toString())
+                                .replace("FRONTEND_AGENT_ID", frontendAgentId.toString())));
 
         // when
         ChatMessageSendResponse response = chatService.sendMessage(
@@ -526,6 +532,7 @@ class ChatServiceTest {
                         tuple("frontend-1", frontendAgentId, AgentCategory.FRONTEND, "회원가입 화면 연동"));
         assertThat(steps.getLast().getDependsOnStepKeys()).containsExactly("backend-1");
         verify(chatTaskExecutionDispatcher, never()).run(anyLong(), anyLong(), anyBoolean(), anyString());
+        verify(orchestrationPlanDispatcher).run(workspaceId, plan.getId());
     }
 
     @Test
@@ -547,7 +554,7 @@ class ChatServiceTest {
                                     "steps": [
                                       {
                                         "stepKey": "backend-1",
-                                        "agentId": %d,
+                                        "agentId": BACKEND_AGENT_ID,
                                         "title": "첫 번째 작업",
                                         "prompt": "첫 번째 작업을 진행하세요.",
                                         "dependsOn": ["missing-step"]
@@ -555,7 +562,8 @@ class ChatServiceTest {
                                     ]
                                   }
                                 }
-                                """.formatted(backendAgentId)));
+                                """
+                                .replace("BACKEND_AGENT_ID", backendAgentId.toString())));
 
         // when
         ChatMessageSendResponse response = chatService.sendMessage(
