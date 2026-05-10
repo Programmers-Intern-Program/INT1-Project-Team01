@@ -36,6 +36,19 @@ class ChatMessageTest {
     }
 
     @Test
+    @DisplayName("Assistant 메시지는 Orchestration 계획과 연결할 수 있다")
+    void assistantForOrchestration_storesOrchestrationReference() {
+        // when
+        ChatMessage message = ChatMessage.assistantForOrchestration(1L, 2L, 5L, "계획 완료");
+
+        // then
+        assertThat(message.getRole()).isEqualTo(ChatMessageRole.ASSISTANT);
+        assertThat(message.getOrchestrationPlanId()).isEqualTo(5L);
+        assertThat(message.getTaskId()).isNull();
+        assertThat(message.getTaskExecutionId()).isNull();
+    }
+
+    @Test
     @DisplayName("저장된 메시지는 이후 Task와 연결할 수 있다")
     void linkTask_storesTaskReferences() {
         // given
@@ -91,6 +104,18 @@ class ChatMessageTest {
         assertThatThrownBy(() -> message.linkTask(4L, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already linked");
+    }
+
+    @Test
+    @DisplayName("이미 다른 Orchestration 계획과 연결된 메시지는 다른 계획으로 바꿀 수 없다")
+    void linkOrchestrationPlan_alreadyLinkedToAnotherPlan_throwsException() {
+        // given
+        ChatMessage message = ChatMessage.assistantForOrchestration(1L, 2L, 5L, "계획 완료");
+
+        // when & then
+        assertThatThrownBy(() -> message.linkOrchestrationPlan(6L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("orchestration plan");
     }
 
     @Test
