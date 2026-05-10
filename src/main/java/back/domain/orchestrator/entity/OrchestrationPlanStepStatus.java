@@ -4,5 +4,6 @@ public enum OrchestrationPlanStepStatus {
     PENDING,
     RUNNING,
     COMPLETED,
-    FAILED
+    FAILED,
+    CANCELED
 }

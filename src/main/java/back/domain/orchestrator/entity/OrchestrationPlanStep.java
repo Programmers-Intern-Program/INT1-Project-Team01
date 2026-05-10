@@ -71,7 +71,7 @@ public class OrchestrationPlanStep extends BaseEntity {
     private String dependsOnStepKeys;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
+    @Column(length = 30)
     private OrchestrationPlanStepStatus status;
 
     @Column(name = "resolved_agent_id")
@@ -160,6 +160,13 @@ public class OrchestrationPlanStep extends BaseEntity {
                 .toList();
     }
 
+    public OrchestrationPlanStepStatus getStatus() {
+        if (status == null) {
+            return OrchestrationPlanStepStatus.PENDING;
+        }
+        return status;
+    }
+
     public void markRunning(Long resolvedAgentId) {
         this.status = OrchestrationPlanStepStatus.RUNNING;
         this.resolvedAgentId = requireOptionalPositive(resolvedAgentId, "resolvedAgentId");
@@ -190,6 +197,13 @@ public class OrchestrationPlanStep extends BaseEntity {
     public void markFailed(String failureReason, String finalText) {
         this.status = OrchestrationPlanStepStatus.FAILED;
         this.failureReason = limitLength(normalizeOptional(failureReason), 1000);
+        this.finalText = normalizeOptional(finalText);
+        this.finishedAt = LocalDateTime.now();
+    }
+
+    public void markCanceled(String cancelReason, String finalText) {
+        this.status = OrchestrationPlanStepStatus.CANCELED;
+        this.failureReason = limitLength(normalizeOptional(cancelReason), 1000);
         this.finalText = normalizeOptional(finalText);
         this.finishedAt = LocalDateTime.now();
     }
