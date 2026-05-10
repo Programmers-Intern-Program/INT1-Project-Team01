@@ -7,7 +7,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+
 import java.time.LocalDateTime;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -76,6 +78,25 @@ public class TaskExecution extends BaseEntity {
         return new TaskExecution(workspaceId, taskId, agentId, openClawAgentId, repositoryId, branchName);
     }
 
+    public static TaskExecution create(
+            Long workspaceId,
+            Long taskId,
+            Long agentId,
+            String openClawAgentId,
+            Long repositoryId,
+            String branchName
+    ) {
+        return queued(
+                workspaceId,
+                taskId,
+                agentId,
+                openClawAgentId,
+                repositoryId,
+                branchName
+        );
+    }
+
+
     public void assignRuntimeContext(String workdirPath, String openClawSessionKey) {
         this.workdirPath = requireNotBlank(workdirPath, "workdirPath");
         this.openClawSessionKey = requireNotBlank(openClawSessionKey, "openClawSessionKey");
@@ -99,48 +120,62 @@ public class TaskExecution extends BaseEntity {
         this.finishedAt = LocalDateTime.now();
     }
 
+    public void start() {
+        markRunning();
+    }
+
+    public void success() {
+        markSucceeded();
+    }
+
+    public void fail(String failureReason) {
+        markFailed(failureReason);
+    }
+
     public void markCanceled(String failureReason) {
         this.status = TaskExecutionStatus.CANCELED;
         this.failureReason = normalizeError(failureReason);
         this.finishedAt = LocalDateTime.now();
     }
 
-    private static Long requireId(Long value, String fieldName) {
-        if (value == null || value <= 0) {
-            throw new IllegalArgumentException(fieldName + " must be positive");
+        private static Long requireId (Long value, String fieldName){
+            if (value == null || value <= 0) {
+                throw new IllegalArgumentException(fieldName + " must be positive");
+            }
+            return value;
         }
-        return value;
-    }
 
-    private static Long requireOptionalId(Long value, String fieldName) {
-        if (value == null) {
-            return null;
+        private static Long requireOptionalId (Long value, String fieldName){
+            if (value == null) {
+                return null;
+            }
+            return requireId(value, fieldName);
         }
-        return requireId(value, fieldName);
-    }
 
-    private static String requireNotBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
+        private static String requireNotBlank (String value, String fieldName){
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException(fieldName + " must not be blank");
+            }
+            return value.trim();
         }
-        return value.trim();
-    }
 
-    private static String normalizeOptional(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
+        private static String normalizeOptional (String value){
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return value.trim();
         }
-        return value.trim();
-    }
 
-    private static String normalizeError(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
+        private static String normalizeError (String value){
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            String trimmed = value.trim();
+            if (trimmed.length() <= 1000) {
+                return trimmed;
+            }
+            return trimmed.substring(0, 1000);
         }
-        String trimmed = value.trim();
-        if (trimmed.length() <= 1000) {
-            return trimmed;
-        }
-        return trimmed.substring(0, 1000);
+
+
     }
-}
