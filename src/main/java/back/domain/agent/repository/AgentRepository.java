@@ -3,6 +3,8 @@ package back.domain.agent.repository;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
@@ -19,6 +21,20 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
             Long workspaceId, AgentStatus status);
 
+    @Query("""
+            SELECT a
+            FROM Agent a
+            WHERE a.workspace.id = :workspaceId
+              AND a.status = :status
+              AND a.openClawAgentId IS NOT NULL
+              AND (
+                  a.category = :category
+                  OR (:category = back.domain.agent.entity.AgentCategory.CUSTOM AND a.category IS NULL)
+              )
+            ORDER BY a.id ASC
+            """)
     Optional<Agent> findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
-            Long workspaceId, AgentCategory category, AgentStatus status);
+            @Param("workspaceId") Long workspaceId,
+            @Param("category") AgentCategory category,
+            @Param("status") AgentStatus status);
 }
