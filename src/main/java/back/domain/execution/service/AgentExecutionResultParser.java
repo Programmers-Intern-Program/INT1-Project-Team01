@@ -39,7 +39,9 @@ public class AgentExecutionResultParser {
         return new AgentExecutionResult(
                 new AgentReportSaveRequest(status, summary, detail, recommendedAction),
                 parseArtifacts(root, reportNode),
-                parseFiles(root, reportNode));
+                parseFiles(root, reportNode),
+                parseStringArray(root, reportNode, "risks"),
+                parseStringArray(root, reportNode, "nextActions", "next_actions"));
     }
 
     private AgentExecutionResult fallbackReport(String finalText) {
@@ -49,6 +51,8 @@ public class AgentExecutionResultParser {
                         fallbackSummary(finalText),
                         finalText.isBlank() ? null : finalText,
                         null),
+                List.of(),
+                List.of(),
                 List.of(),
                 List.of());
     }
@@ -98,6 +102,30 @@ public class AgentExecutionResultParser {
             return Optional.empty();
         }
         return Optional.of(new ArtifactFileSaveCommand(path.get(), content.get()));
+    }
+
+    private List<String> parseStringArray(JsonNode root, JsonNode reportNode, String... keys) {
+        JsonNode arrayNode = firstArray(root, keys).orElseGet(() -> firstArray(reportNode, keys).orElse(null));
+        if (arrayNode == null || !arrayNode.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        arrayNode.forEach(node -> {
+            if (!node.isNull() && !node.asText().isBlank()) {
+                values.add(node.asText().trim());
+            }
+        });
+        return values;
+    }
+
+    private Optional<JsonNode> firstArray(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (value.isArray()) {
+                return Optional.of(value);
+            }
+        }
+        return Optional.empty();
     }
 
     private Optional<JsonNode> parseFirstJson(String finalText) {

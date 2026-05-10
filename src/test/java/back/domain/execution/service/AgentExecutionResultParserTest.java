@@ -72,6 +72,30 @@ class AgentExecutionResultParserTest {
     }
 
     @Test
+    @DisplayName("Agent final report JSON의 risks와 nextActions 배열을 파싱한다")
+    void parse_jsonReportRiskAndNextActions_success() {
+        // given
+        String finalText = """
+                {
+                  "report": {
+                    "status": "COMPLETED",
+                    "summary": "작업 완료",
+                    "detail": "파일을 생성했습니다.",
+                    "risks": ["API 응답 스펙 확인 필요"],
+                    "next_actions": ["프론트 연동 확인"]
+                  }
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.risks()).containsExactly("API 응답 스펙 확인 필요");
+        assertThat(result.nextActions()).containsExactly("프론트 연동 확인");
+    }
+
+    @Test
     @DisplayName("Markdown json fence 안의 nested report도 파싱한다")
     void parse_fencedNestedReport_success() {
         // given

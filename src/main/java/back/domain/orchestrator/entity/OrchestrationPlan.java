@@ -103,6 +103,22 @@ public class OrchestrationPlan extends BaseEntity {
         this.assistantMessageId = requirePositive(assistantMessageId, "assistantMessageId");
     }
 
+    public void markRunning() {
+        this.status = OrchestrationPlanStatus.RUNNING;
+    }
+
+    public void markCompleted() {
+        this.status = OrchestrationPlanStatus.COMPLETED;
+    }
+
+    public void markFailed() {
+        this.status = OrchestrationPlanStatus.FAILED;
+    }
+
+    public void markCanceled() {
+        this.status = OrchestrationPlanStatus.CANCELED;
+    }
+
     public List<OrchestrationPlanStep> getSteps() {
         return Collections.unmodifiableList(steps);
     }
