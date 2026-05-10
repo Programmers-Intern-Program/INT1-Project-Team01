@@ -2,6 +2,7 @@ package back.domain.agent.service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -12,6 +13,8 @@ import org.springframework.util.StreamUtils;
 
 import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.entity.AgentCategory;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 
 @Component
 public class AgentSkillTemplateResolver {
@@ -29,25 +32,48 @@ public class AgentSkillTemplateResolver {
             AgentCategory.QA,
             List.of(new TemplateResource("QA.md", "agent-templates/qa/QA.md")));
 
+    private final Map<AgentCategory, List<AgentSkillFileReq>> templatesByCategory;
+
+    public AgentSkillTemplateResolver() {
+        this.templatesByCategory = loadTemplatesByCategory();
+    }
+
     public List<AgentSkillFileReq> resolve(AgentCategory category) {
         AgentCategory resolvedCategory = category == null ? AgentCategory.CUSTOM : category;
-        List<TemplateResource> categoryTemplates = CATEGORY_TEMPLATES.getOrDefault(resolvedCategory, List.of());
+        return templatesByCategory.getOrDefault(resolvedCategory, templatesByCategory.get(AgentCategory.CUSTOM));
+    }
 
-        return Stream.concat(COMMON_TEMPLATES.stream(), categoryTemplates.stream())
-                .map(this::readTemplate)
-                .toList();
+    private Map<AgentCategory, List<AgentSkillFileReq>> loadTemplatesByCategory() {
+        Map<AgentCategory, List<AgentSkillFileReq>> templates = new EnumMap<>(AgentCategory.class);
+        for (AgentCategory category : AgentCategory.values()) {
+            List<TemplateResource> categoryTemplates = CATEGORY_TEMPLATES.getOrDefault(category, List.of());
+            List<AgentSkillFileReq> skillFiles = Stream.concat(COMMON_TEMPLATES.stream(), categoryTemplates.stream())
+                    .map(this::readTemplate)
+                    .toList();
+            templates.put(category, skillFiles);
+        }
+        return Map.copyOf(templates);
     }
 
     private AgentSkillFileReq readTemplate(TemplateResource template) {
         ClassPathResource resource = new ClassPathResource(template.path());
         if (!resource.exists()) {
-            throw new IllegalStateException("Agent skill template not found: " + template.path());
+            throw new ServiceException(
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "[AgentSkillTemplateResolver#readTemplate] template not found: " + template.path(),
+                    "Agent Skill 템플릿을 찾지 못했습니다.");
         }
         try {
             String content = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
             return new AgentSkillFileReq(template.fileName(), content);
         } catch (IOException exception) {
-            throw new IllegalStateException("Failed to read agent skill template: " + template.path(), exception);
+            throw new ServiceException(
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "[AgentSkillTemplateResolver#readTemplate] failed to read template: "
+                            + template.path()
+                            + " cause="
+                            + exception.getMessage(),
+                    "Agent Skill 템플릿을 읽지 못했습니다.");
         }
     }
 
