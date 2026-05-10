@@ -22,6 +22,7 @@ public record SlackEventReq(
             String channel,
             String user,
             String text,
-            String ts
+            String ts,
+            @JsonProperty("thread_ts") String threadTs
     ) {}
 }

@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
 import back.domain.agent.dto.response.AgentSkillFileSyncRes;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillSyncStatus;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.service.AgentProvisioningService;
@@ -47,6 +48,7 @@ class AgentControllerTest extends WebMvcTestSupport {
                 100L,
                 workspaceId,
                 "Backend Agent",
+                AgentCategory.BACKEND,
                 "openclaw-agent-1",
                 "~/.openclaw/workspace-1",
                 AgentStatus.READY,
@@ -63,12 +65,14 @@ class AgentControllerTest extends WebMvcTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(new OpenClawAgentCreateReq(
                                 "Backend Agent",
+                                AgentCategory.BACKEND,
                                 null,
                                 "tool",
                                 List.of()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.message").value("Agent 생성 요청이 처리되었습니다."))
                 .andExpect(jsonPath("$.data.agentId").value(100L))
+                .andExpect(jsonPath("$.data.category").value("BACKEND"))
                 .andExpect(jsonPath("$.data.status").value("READY"))
                 .andExpect(jsonPath("$.data.skillFiles[0].syncStatus").value("SYNCED"));
     }

@@ -4,8 +4,9 @@ import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
-import back.domain.workspace.entity.Workspace;
-import back.domain.workspace.repository.WorkspaceRepository;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.service.WorkspaceAccessValidator;
+import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,8 +16,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,18 +30,16 @@ class SlackIntegrationServiceImplTest {
     private SlackIntegrationRepository slackIntegrationRepository;
 
     @Mock
-    private WorkspaceRepository workspaceRepository;
+    private WorkspaceAccessValidator workspaceAccessValidator; // workspaceRepository mock 삭제됨
 
     @InjectMocks
     private SlackIntegrationServiceImpl slackIntegrationService;
 
-    // TODO: Workspace 검증 로직 호출 (ADMIN인지 확인) [IT-9]
-
-    private Workspace workspace;
+    private WorkspaceMember workspaceMember;
 
     @BeforeEach
     void setUp() {
-        workspace = Mockito.mock(Workspace.class);
+        workspaceMember = Mockito.mock(WorkspaceMember.class);
     }
 
     @Test
@@ -56,7 +53,7 @@ class SlackIntegrationServiceImplTest {
         );
 
         SlackIntegration mockEntity = SlackIntegration.builder()
-                .workspace(workspace)
+                .workspaceId(workspaceId)
                 .slackTeamId(req.slackTeamId())
                 .slackChannelId(req.slackChannelId())
                 .botToken(req.botToken())
@@ -64,7 +61,7 @@ class SlackIntegrationServiceImplTest {
                 .createdByMemberId(memberId)
                 .build();
 
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId()))
                 .willReturn(false);
         given(slackIntegrationRepository.save(any(SlackIntegration.class)))
@@ -77,7 +74,27 @@ class SlackIntegrationServiceImplTest {
         assertThat(res).isNotNull();
         assertThat(res.slackTeamId()).isEqualTo("T12345");
         assertThat(res.maskedBotToken()).isEqualTo("xoxb-****test");
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
         verify(slackIntegrationRepository).save(any(SlackIntegration.class));
+    }
+
+    @Test
+    @DisplayName("관리자 권한이 없는 사용자가 요청 시 ServiceException(FORBIDDEN)이 발생한다.")
+    void createSlackIntegration_notAdmin_throwsException() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
+                "T12345", "C12345", "xoxb-token", "secret"
+        );
+
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN, "not admin", "워크스페이스 관리자 권한이 필요합니다."));
+
+        // when & then
+        assertThatThrownBy(() -> slackIntegrationService.createSlackIntegration(workspaceId, memberId, req))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("not admin");
     }
 
     @Test
@@ -90,11 +107,13 @@ class SlackIntegrationServiceImplTest {
                 "T12345", "C12345", "xoxb-token", "secret"
         );
 
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.empty());
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.NOT_FOUND, "workspace not found", "워크스페이스가 존재하지 않습니다."));
 
         // when & then
         assertThatThrownBy(() -> slackIntegrationService.createSlackIntegration(workspaceId, memberId, req))
-                .isInstanceOf(ServiceException.class);
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("workspace not found");
     }
 
     @Test
@@ -107,7 +126,7 @@ class SlackIntegrationServiceImplTest {
                 "T12345", "C12345", "botToken", "secret"
         );
 
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId()))
                 .willReturn(true);
 

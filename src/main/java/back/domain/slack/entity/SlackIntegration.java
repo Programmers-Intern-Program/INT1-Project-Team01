@@ -1,6 +1,5 @@
 package back.domain.slack.entity;
 
-import back.domain.workspace.entity.Workspace;
 import back.global.jpa.entity.BaseEntity;
 import back.global.security.crypto.TinkCryptoConverter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -32,9 +31,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SlackIntegration extends BaseEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "workspace_id", nullable = false)
-    private Workspace workspace;
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
 
     @Column(nullable = false, length = 100)
     private String slackTeamId;
@@ -54,9 +52,9 @@ public class SlackIntegration extends BaseEntity {
     private Long createdByMemberId;
 
     @Builder
-    public SlackIntegration(Workspace workspace, String slackTeamId, String slackChannelId,
+    public SlackIntegration(Long workspaceId, String slackTeamId, String slackChannelId,
                             String botToken, String signingSecret, Long createdByMemberId) {
-        this.workspace = workspace;
+        this.workspaceId = workspaceId;
         this.slackTeamId = slackTeamId;
         this.slackChannelId = slackChannelId;
         this.botToken = botToken;

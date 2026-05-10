@@ -11,6 +11,14 @@ import org.springframework.web.bind.annotation.*;
 import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
+import back.domain.task.dto.response.AgentReportResponse;
+import back.domain.task.dto.response.TaskCreateResponse;
+import back.domain.task.dto.response.TaskDetailResponse;
+import back.domain.task.dto.response.TaskListResponse;
+import back.domain.task.dto.response.TaskLogResponse;
+import back.domain.task.dto.response.TaskMessageResponse;
+import back.domain.task.dto.response.TaskRunResponse;
+import back.domain.task.dto.response.TaskStatusUpdateResponse;
 import back.domain.task.service.TaskRunService;
 import back.domain.task.service.TaskService;
 import jakarta.validation.Valid;
@@ -118,5 +126,11 @@ public class TaskController {
         }
 
         return authenticatedMember.memberId();
+    }
+
+    @GetMapping("/{taskId}/messages")
+    public ResponseEntity<List<TaskMessageResponse>> getTaskMessages(
+            @PathVariable Long workspaceId, @PathVariable Long taskId) {
+        return ResponseEntity.ok(taskService.getTaskMessages(workspaceId, taskId));
     }
 }

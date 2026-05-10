@@ -36,6 +36,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.0")
+	implementation("org.apache.httpcomponents.client5:httpclient5")
 
 	// --- JWT ---
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -110,6 +111,7 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 			element = "CLASS"
 			excludes = listOf(
 				"**.dto.**",               // dto 패키지 안에 있는 모든 클래스 제외
+				"**.enum.**",              // enum 패키지 안에 있는 모든 클래스 제외
 				"**.config.**",            // config 패키지 안에 있는 모든 클래스 제외
 				"**.*Application*",        // 메인 실행 클래스 제외
 				"**.global.exception.*",   // CommonErrorCode, ServiceException, ErrorCode
@@ -117,6 +119,8 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 				"**.global.response.*",    // RsData
 				"**.entity.*",             // Member 등 엔티티
 				"**.util.*",               // Ut.Json 등 유틸
+				"**.event.*Event",         // Event 객체 제외 (이벤트 관련 DTO)
+				"**.controller.TestTriggerController*" // TODO: [IT-9] 테스트 임시. 삭제 필요
 			)
 			limit {
 				counter = "LINE"

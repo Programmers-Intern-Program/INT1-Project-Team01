@@ -35,9 +35,14 @@ import org.springframework.web.context.WebApplicationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import back.domain.execution.dto.request.TaskArtifactSaveRequest;
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
+import back.domain.execution.entity.ExecutionTaskArtifact;
+import back.domain.execution.entity.TaskExecution;
 import back.domain.execution.entity.TaskExecutionStatus;
+import back.domain.execution.repository.ExecutionTaskArtifactRepository;
+import back.domain.execution.repository.TaskExecutionRepository;
 import back.domain.execution.service.TaskExecutionRunner;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
@@ -45,9 +50,11 @@ import back.domain.task.dto.request.TaskCreateRequest;
 import back.domain.task.dto.request.TaskRunRequest;
 import back.domain.task.dto.request.TaskStatusUpdateRequest;
 import back.domain.task.entity.SourceType;
+import back.domain.task.entity.TaskMessage;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.entity.TaskType;
+import back.domain.task.repository.TaskMessageRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.enums.WorkspaceMemberRole;
@@ -71,6 +78,13 @@ class TaskControllerTest {
 
     @Autowired
     private WorkspaceMemberRepository workspaceMemberRepository;
+    private TaskExecutionRepository taskExecutionRepository;
+
+    @Autowired
+    private ExecutionTaskArtifactRepository executionTaskArtifactRepository;
+
+    @Autowired
+    private TaskMessageRepository taskMessageRepository;
 
     @MockitoBean
     private TaskExecutionRunner taskExecutionRunner;
@@ -232,6 +246,44 @@ class TaskControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Task 실행 응답 메시지를 조회할 수 있다")
+    void getTaskMessages() throws Exception {
+        Long taskId = createTaskAndGetId();
+        TaskExecution execution = taskExecutionRepository.save(TaskExecution.queued(
+                workspaceId,
+                taskId,
+                1L,
+                "openclaw-agent-1",
+                3L,
+                "feature/pr-review"));
+        executionTaskArtifactRepository.save(ExecutionTaskArtifact.create(
+                execution.getId(),
+                new TaskArtifactSaveRequest(
+                        "PR_URL",
+                        "생성된 PR",
+                        "https://github.com/example/repo/pull/1")));
+        taskMessageRepository.save(TaskMessage.assistantResponse(
+                workspaceId,
+                taskId,
+                execution.getId(),
+                "COMPLETED",
+                "PR 리뷰가 완료되었습니다.\n\n산출물\n- [PR_URL] 생성된 PR",
+                "PR 리뷰가 완료되었습니다.",
+                "입력값 검증 개선 포인트를 확인했습니다.",
+                "DTO validation 추가를 권장합니다."));
+
+        mockMvc.perform(get("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/messages", workspaceId, taskId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].taskId").value(taskId))
+                .andExpect(jsonPath("$[0].taskExecutionId").value(execution.getId()))
+                .andExpect(jsonPath("$[0].role").value("ASSISTANT"))
+                .andExpect(jsonPath("$[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$[0].summary").value("PR 리뷰가 완료되었습니다."))
+                .andExpect(jsonPath("$[0].artifacts[0].artifactType").value("PR_URL"))
+                .andExpect(jsonPath("$[0].artifacts[0].name").value("생성된 PR"));
     }
 
     private Long createTaskAndGetId() throws Exception {

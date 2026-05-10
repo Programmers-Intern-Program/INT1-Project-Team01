@@ -2,6 +2,7 @@ package back.domain.execution.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import back.domain.artifact.dto.ArtifactFileSaveCommand;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +41,34 @@ class AgentExecutionResultParserTest {
         assertThat(result.artifacts()).hasSize(1);
         assertThat(result.artifacts().getFirst().artifactType()).isEqualTo("PR_URL");
         assertThat(result.artifacts().getFirst().name()).isEqualTo("생성된 PR");
+    }
+
+    @Test
+    @DisplayName("Agent final report JSON의 files 배열을 파일 저장 명령으로 파싱한다")
+    void parse_jsonReportFiles_success() {
+        // given
+        String finalText = """
+                {
+                  "status": "COMPLETED",
+                  "summary": "파일 생성 완료",
+                  "detail": "작업 파일을 생성했습니다.",
+                  "files": [
+                    {
+                      "path": "src/main/java/App.java",
+                      "content": "class App {}"
+                    }
+                  ]
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.files())
+                .extracting(ArtifactFileSaveCommand::path)
+                .containsExactly("src/main/java/App.java");
+        assertThat(result.files().getFirst().content()).isEqualTo("class App {}");
     }
 
     @Test

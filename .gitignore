@@ -39,9 +39,7 @@ out/
 ### Custom ###
 test.mv.db
 test.trace.db
+runtime-workspaces/
 
 ### env ###
 .env
-
-### Local docs ###
-docs/

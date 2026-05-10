@@ -31,6 +31,10 @@ public class Agent extends BaseEntity {
     @Column(nullable = false, length = 120)
     private String name;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private AgentCategory category;
+
     @Column(length = 160)
     private String openClawAgentId;
 
@@ -47,16 +51,35 @@ public class Agent extends BaseEntity {
     @Column(nullable = false)
     private Long createdByMemberId;
 
-    private Agent(Workspace workspace, String name, String workspacePath, Long createdByMemberId) {
+    private Agent(
+            Workspace workspace,
+            String name,
+            AgentCategory category,
+            String workspacePath,
+            Long createdByMemberId) {
         this.workspace = requireWorkspace(workspace);
         this.name = requireNotBlank(name, "name");
+        this.category = requireCategory(category);
         this.workspacePath = requireNotBlank(workspacePath, "workspacePath");
         this.createdByMemberId = requireMemberId(createdByMemberId);
         this.status = AgentStatus.CREATING;
     }
 
     public static Agent create(Workspace workspace, String name, String workspacePath, Long createdByMemberId) {
-        return new Agent(workspace, name, workspacePath, createdByMemberId);
+        return create(workspace, name, AgentCategory.CUSTOM, workspacePath, createdByMemberId);
+    }
+
+    public static Agent create(
+            Workspace workspace,
+            String name,
+            AgentCategory category,
+            String workspacePath,
+            Long createdByMemberId) {
+        return new Agent(workspace, name, category, workspacePath, createdByMemberId);
+    }
+
+    public AgentCategory getCategory() {
+        return requireCategory(category);
     }
 
     public void markOpenClawCreated(String openClawAgentId) {
@@ -91,6 +114,13 @@ public class Agent extends BaseEntity {
             throw new IllegalArgumentException("memberId must not be null");
         }
         return memberId;
+    }
+
+    private static AgentCategory requireCategory(AgentCategory category) {
+        if (category == null) {
+            return AgentCategory.CUSTOM;
+        }
+        return category;
     }
 
     private static String requireNotBlank(String value, String fieldName) {

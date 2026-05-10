@@ -111,15 +111,14 @@ class TaskExecutionRunnerImplTest {
     void run_readyAgent_success() {
         // given
         TaskExecutionRunCommand command =
-                new TaskExecutionRunCommand(1L, 50L, 9L, "회원가입 API를 리뷰해줘", true);
+                new TaskExecutionRunCommand(1L, 50L, 100L, 9L, "회원가입 API를 리뷰해줘", true);
         OpenClawChatResult chatResult =
                 new OpenClawChatResult("agent:openclaw-agent-1:workspace-1-execution-200", "작업을 완료했습니다.");
         AgentExecutionResult agentResult = new AgentExecutionResult(
                 new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
                 null);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
-                        1L, AgentStatus.READY))
+        given(agentRepository.findByIdAndWorkspaceId(100L, 1L))
                 .willReturn(Optional.of(readyAgent));
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
@@ -140,6 +139,8 @@ class TaskExecutionRunnerImplTest {
         ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
         verify(openClawGatewayClient).connect(gatewayContext);
         verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        verify(agentRepository, never())
+                .findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(1L, AgentStatus.READY);
         assertThat(commandCaptor.getValue().openClawAgentId()).isEqualTo("openclaw-agent-1");
         assertThat(commandCaptor.getValue().fullSessionKey())
                 .isEqualTo("agent:openclaw-agent-1:workspace-1-execution-200");
@@ -156,10 +157,50 @@ class TaskExecutionRunnerImplTest {
     }
 
     @Test
+    @DisplayName("sessionKey override가 있으면 TaskExecution에서 해당 OpenClaw sessionKey를 사용한다")
+    void run_withSessionKeyOverride_usesOverrideSessionKey() {
+        // given
+        TaskExecutionRunCommand command =
+                new TaskExecutionRunCommand(
+                        1L,
+                        50L,
+                        100L,
+                        null,
+                        "채팅에서 시작한 작업 실행",
+                        false,
+                        "workspace-1-agent-100-chat-fixed");
+        OpenClawChatResult chatResult = new OpenClawChatResult(
+                "agent:openclaw-agent-1:workspace-1-agent-100-chat-fixed",
+                "작업을 완료했습니다.");
+        AgentExecutionResult agentResult = new AgentExecutionResult(
+                new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
+                null);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findByIdAndWorkspaceId(100L, 1L))
+                .willReturn(Optional.of(readyAgent));
+        given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class))).willReturn(chatResult);
+        given(taskExecutionResultRecorder.parse(chatResult)).willReturn(agentResult);
+
+        // when
+        TaskExecutionRunResult result = taskExecutionRunner.run(command);
+
+        // then
+        assertThat(result.openClawSessionKey()).isEqualTo("workspace-1-agent-100-chat-fixed");
+
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().sessionKey()).isEqualTo("workspace-1-agent-100-chat-fixed");
+        assertThat(commandCaptor.getValue().fullSessionKey())
+                .isEqualTo("agent:openclaw-agent-1:workspace-1-agent-100-chat-fixed");
+    }
+
+    @Test
     @DisplayName("Agent final report가 FAILED이면 chat.send 성공 후에도 TaskExecution을 FAILED로 저장한다")
     void run_agentReportFailed_marksFailed() {
         // given
-        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, "작업 실행", false);
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, null, "작업 실행", false);
         OpenClawChatResult chatResult = new OpenClawChatResult("session-1", "final report");
         AgentExecutionResult agentResult = new AgentExecutionResult(
                 new AgentReportSaveRequest("FAILED", "작업 실패", "테스트 실패", "테스트 로그를 확인하세요."),
@@ -187,7 +228,7 @@ class TaskExecutionRunnerImplTest {
     @DisplayName("READY Agent가 없으면 실행을 생성하지 않고 예외를 던진다")
     void run_noReadyAgent_throwsException() {
         // given
-        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, "작업 실행", false);
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentStatus.READY))
@@ -202,10 +243,64 @@ class TaskExecutionRunnerImplTest {
     }
 
     @Test
+    @DisplayName("선택한 Agent가 Workspace에 없으면 실행하지 않고 예외를 던진다")
+    void run_assignedAgentNotFound_throwsException() {
+        // given
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 999L, null, "작업 실행", false);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findByIdAndWorkspaceId(999L, 1L)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> taskExecutionRunner.run(command))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.NOT_FOUND);
+        verify(openClawGatewayClientFactory, never()).create();
+    }
+
+    @Test
+    @DisplayName("선택한 Agent가 READY 상태가 아니면 실행하지 않고 예외를 던진다")
+    void run_assignedAgentNotReady_throwsException() {
+        // given
+        Agent errorAgent = Agent.create(workspace, "Error Agent", "~/.openclaw/workspace-1", 10L);
+        ReflectionTestUtils.setField(errorAgent, "id", 101L);
+        errorAgent.markError("sync failed");
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 101L, null, "작업 실행", false);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findByIdAndWorkspaceId(101L, 1L)).willReturn(Optional.of(errorAgent));
+
+        // when & then
+        assertThatThrownBy(() -> taskExecutionRunner.run(command))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BAD_REQUEST_STATE);
+        verify(openClawGatewayClientFactory, never()).create();
+    }
+
+    @Test
+    @DisplayName("선택한 READY Agent에 OpenClaw Agent ID가 없으면 실행하지 않고 예외를 던진다")
+    void run_assignedAgentWithoutOpenClawId_throwsException() {
+        // given
+        Agent unsyncedAgent = Agent.create(workspace, "Unsynced Agent", "~/.openclaw/workspace-1", 10L);
+        ReflectionTestUtils.setField(unsyncedAgent, "id", 102L);
+        unsyncedAgent.markReady();
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 102L, null, "작업 실행", false);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(agentRepository.findByIdAndWorkspaceId(102L, 1L)).willReturn(Optional.of(unsyncedAgent));
+
+        // when & then
+        assertThatThrownBy(() -> taskExecutionRunner.run(command))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BAD_REQUEST_STATE);
+        verify(openClawGatewayClientFactory, never()).create();
+    }
+
+    @Test
     @DisplayName("Gateway binding이 없으면 TaskExecution을 FAILED로 저장하고 Gateway client를 만들지 않는다")
     void run_missingGatewayBinding_marksFailed() {
         // given
-        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, "작업 실행", false);
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentStatus.READY))
@@ -228,7 +323,7 @@ class TaskExecutionRunnerImplTest {
     @DisplayName("chat.send가 실패하면 TaskExecution을 FAILED로 저장한다")
     void run_sendChatFailed_marksFailed() {
         // given
-        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, "작업 실행", false);
+        TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, null, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(agentRepository.findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentStatus.READY))

@@ -1,4 +1,3 @@
-// 경로: src/main/java/back/domain/slack/service/SlackEventService.java
 package back.domain.slack.service;
 
 import back.domain.slack.dto.request.SlackEventReq;

@@ -5,7 +5,10 @@ import back.domain.github.dto.response.GithubCredentialInfoRes;
 import back.domain.github.entity.GithubCredential;
 import back.domain.github.repository.GithubCredentialRepository;
 import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.repository.WorkspaceRepository;
+import back.domain.workspace.service.WorkspaceAccessValidator;
+import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,16 +36,19 @@ class GithubCredentialServiceImplTest {
     @Mock
     private WorkspaceRepository workspaceRepository;
 
+    @Mock
+    private WorkspaceAccessValidator workspaceAccessValidator;
+
     @InjectMocks
     private GithubCredentialServiceImpl githubCredentialService;
 
-    // TODO: Workspace 검증 로직 호출 (ADMIN인지 확인) [IT-9]
-
     private Workspace workspace;
+    private WorkspaceMember workspaceMember;
 
     @BeforeEach
     void setUp() {
         workspace = Mockito.mock(Workspace.class);
+        workspaceMember = Mockito.mock(WorkspaceMember.class);
     }
 
     @Test
@@ -62,6 +68,7 @@ class GithubCredentialServiceImplTest {
                 .createdByMemberId(memberId)
                 .build();
 
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
         given(githubCredentialRepository.existsByWorkspaceIdAndDisplayName(workspaceId, req.displayName()))
                 .willReturn(false);
@@ -75,7 +82,27 @@ class GithubCredentialServiceImplTest {
         assertThat(res).isNotNull();
         assertThat(res.displayName()).isEqualTo("Main-Repo-Access");
         assertThat(res.maskedToken()).isEqualTo("ghp_****7890");
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
         verify(githubCredentialRepository).save(any(GithubCredential.class));
+    }
+
+    @Test
+    @DisplayName("관리자 권한이 없는 사용자가 요청 시 ServiceException(FORBIDDEN)이 발생한다.")
+    void createGithubCredential_notAdmin_throwsException() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        GithubCredentialCreateReq req = new GithubCredentialCreateReq(
+                "Main-Repo-Access", "ghp_token123"
+        );
+
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN, "not admin", "워크스페이스 관리자 권한이 필요합니다."));
+
+        // when & then
+        assertThatThrownBy(() -> githubCredentialService.createGithubCredential(workspaceId, memberId, req))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("not admin");
     }
 
     @Test
@@ -88,11 +115,13 @@ class GithubCredentialServiceImplTest {
                 "Main-Repo-Access", "ghp_token123"
         );
 
-        given(workspaceRepository.findById(workspaceId)).willReturn(Optional.empty());
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.NOT_FOUND, "workspace not found", "워크스페이스가 존재하지 않습니다."));
 
         // when & then
         assertThatThrownBy(() -> githubCredentialService.createGithubCredential(workspaceId, memberId, req))
-                .isInstanceOf(ServiceException.class);
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("workspace not found");
     }
 
     @Test
@@ -105,6 +134,7 @@ class GithubCredentialServiceImplTest {
                 "Main-Repo-Access", "ghp_token123"
         );
 
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(workspaceRepository.findById(workspaceId)).willReturn(Optional.of(workspace));
         given(githubCredentialRepository.existsByWorkspaceIdAndDisplayName(workspaceId, req.displayName()))
                 .willReturn(true);

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.util.List;
@@ -26,8 +27,10 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
+import back.domain.agent.dto.response.AgentSkillFileSyncRes;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillFile;
 import back.domain.agent.entity.AgentSkillSyncStatus;
 import back.domain.agent.entity.AgentStatus;
@@ -64,6 +67,9 @@ class AgentProvisioningServiceImplTest {
 
     @Mock
     private AgentSkillFileRepository agentSkillFileRepository;
+
+    @Mock
+    private AgentSkillTemplateResolver agentSkillTemplateResolver;
 
     @Mock
     private WorkspaceGatewayBindingService workspaceGatewayBindingService;
@@ -103,10 +109,17 @@ class AgentProvisioningServiceImplTest {
 
     @Test
     @DisplayName("Agent 생성 성공 시 OpenClaw agent를 만들고 Skill file을 동기화한 뒤 READY로 응답한다")
-    void createAgent_success_marksReady() {
+    void createAgent_success_marksReadyWithCategory() {
         // given
         OpenClawAgentCreateReq request = new OpenClawAgentCreateReq(
-                "Backend Agent", null, "tool", List.of(new AgentSkillFileReq("AGENTS.md", "You are a backend agent.")));
+                "Backend Agent",
+                AgentCategory.BACKEND,
+                null,
+                "tool",
+                List.of(new AgentSkillFileReq("AGENTS.md", "You are a backend agent.")));
+        given(agentSkillTemplateResolver.resolve(AgentCategory.BACKEND)).willReturn(List.of(
+                new AgentSkillFileReq("COMMON.md", "common instruction"),
+                new AgentSkillFileReq("BACKEND.md", "backend instruction")));
         givenWorkspaceAdmin();
         given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
@@ -121,10 +134,16 @@ class AgentProvisioningServiceImplTest {
 
         // then
         assertThat(response.status()).isEqualTo(AgentStatus.READY);
+        assertThat(response.category()).isEqualTo(AgentCategory.BACKEND);
         assertThat(response.openClawAgentId()).isEqualTo("openclaw-agent-1");
         assertThat(response.workspacePath()).isEqualTo("~/.openclaw/workspace-1");
-        assertThat(response.skillFiles()).hasSize(1);
-        assertThat(response.skillFiles().getFirst().syncStatus()).isEqualTo(AgentSkillSyncStatus.SYNCED);
+        assertThat(response.skillFiles()).hasSize(3);
+        assertThat(response.skillFiles())
+                .extracting(AgentSkillFileSyncRes::fileName)
+                .containsExactly("COMMON.md", "BACKEND.md", "AGENTS.md");
+        assertThat(response.skillFiles())
+                .extracting(AgentSkillFileSyncRes::syncStatus)
+                .containsOnly(AgentSkillSyncStatus.SYNCED);
 
         ArgumentCaptor<OpenClawAgentCreateCommand> createCommandCaptor =
                 ArgumentCaptor.forClass(OpenClawAgentCreateCommand.class);
@@ -136,10 +155,53 @@ class AgentProvisioningServiceImplTest {
 
         ArgumentCaptor<OpenClawAgentFileCommand> fileCommandCaptor =
                 ArgumentCaptor.forClass(OpenClawAgentFileCommand.class);
-        verify(openClawGatewayClient).setAgentFile(fileCommandCaptor.capture());
-        assertThat(fileCommandCaptor.getValue().agentId()).isEqualTo("openclaw-agent-1");
-        assertThat(fileCommandCaptor.getValue().name()).isEqualTo("AGENTS.md");
+        verify(openClawGatewayClient, times(3)).setAgentFile(fileCommandCaptor.capture());
+        assertThat(fileCommandCaptor.getAllValues())
+                .extracting(OpenClawAgentFileCommand::agentId)
+                .containsOnly("openclaw-agent-1");
+        assertThat(fileCommandCaptor.getAllValues())
+                .extracting(OpenClawAgentFileCommand::name)
+                .containsExactly("COMMON.md", "BACKEND.md", "AGENTS.md");
         verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("사용자 Skill file이 템플릿과 파일명이 같으면 사용자 파일로 덮어쓴다")
+    void createAgent_customSkillFileOverridesTemplate() {
+        // given
+        OpenClawAgentCreateReq request = new OpenClawAgentCreateReq(
+                "Backend Agent",
+                AgentCategory.BACKEND,
+                null,
+                "tool",
+                List.of(new AgentSkillFileReq("BACKEND.md", "custom backend instruction")));
+        given(agentSkillTemplateResolver.resolve(AgentCategory.BACKEND)).willReturn(List.of(
+                new AgentSkillFileReq("COMMON.md", "common instruction"),
+                new AgentSkillFileReq("BACKEND.md", "template backend instruction")));
+        givenWorkspaceAdmin();
+        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
+        given(agentSkillFileRepository.save(any(AgentSkillFile.class))).willAnswer(skillFileSaveAnswer());
+        given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.createAgent(any(OpenClawAgentCreateCommand.class)))
+                .willReturn(new OpenClawAgentSummary("openclaw-agent-1", "workspace-1-agent-100"));
+
+        // when
+        OpenClawAgentCreateRes response = agentProvisioningService.createAgent(1L, 10L, request);
+
+        // then
+        assertThat(response.skillFiles())
+                .extracting(AgentSkillFileSyncRes::fileName)
+                .containsExactly("COMMON.md", "BACKEND.md");
+
+        ArgumentCaptor<OpenClawAgentFileCommand> fileCommandCaptor =
+                ArgumentCaptor.forClass(OpenClawAgentFileCommand.class);
+        verify(openClawGatewayClient, times(2)).setAgentFile(fileCommandCaptor.capture());
+        assertThat(fileCommandCaptor.getAllValues())
+                .extracting(OpenClawAgentFileCommand::name)
+                .containsExactly("COMMON.md", "BACKEND.md");
+        assertThat(fileCommandCaptor.getAllValues().get(1).content()).isEqualTo("custom backend instruction");
     }
 
     @Test

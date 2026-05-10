@@ -40,4 +40,21 @@ public record TaskRunResponse(
                 executionResult.finalText(),
                 executionResult.failureReason());
     }
+
+    public static TaskRunResponse accepted(Task task) {
+        return new TaskRunResponse(
+                task.getId(),
+                task.getWorkspaceId(),
+                task.getTitle(),
+                task.getTaskType(),
+                task.getStatus(),
+                task.getPriority(),
+                task.getAssignedAgentId(),
+                task.getRepositoryId(),
+                task.getCreatedAt(),
+                null,
+                null,
+                null,
+                null);
+    }
 }
