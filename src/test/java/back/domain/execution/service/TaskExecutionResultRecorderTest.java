@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.StoredArtifactFile;
+import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskArtifactSaveRequest;
 import back.domain.execution.entity.ExecutionAgentReport;
@@ -41,6 +44,9 @@ class TaskExecutionResultRecorderTest {
     @Mock
     private TaskMessageRepository taskMessageRepository;
 
+    @Mock
+    private WorkspaceArtifactStorage workspaceArtifactStorage;
+
     @InjectMocks
     private TaskExecutionResultRecorder recorder;
 
@@ -50,6 +56,33 @@ class TaskExecutionResultRecorderTest {
     void setUp() {
         execution = TaskExecution.queued(1L, 2L, 3L, "openclaw-agent-1", null, "ai/task-2");
         ReflectionTestUtils.setField(execution, "id", 10L);
+    }
+
+    @Test
+    @DisplayName("Agent 파일 산출물을 project root에 저장하고 FILE_PATH 산출물로 기록한다")
+    void recordResult_savesFilesAsArtifacts() {
+        // given
+        AgentReportSaveRequest report =
+                new AgentReportSaveRequest("COMPLETED", "파일 생성 완료", "상세 내용", null);
+        ArtifactFileSaveCommand file =
+                new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}");
+        AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
+        given(workspaceArtifactStorage.storeFiles(1L, List.of(file)))
+                .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
+
+        // when
+        recorder.recordResult(execution, result);
+
+        // then
+        ArgumentCaptor<ExecutionTaskArtifact> artifactCaptor = ArgumentCaptor.forClass(ExecutionTaskArtifact.class);
+        ArgumentCaptor<TaskMessage> messageCaptor = ArgumentCaptor.forClass(TaskMessage.class);
+        verify(taskArtifactRepository).save(artifactCaptor.capture());
+        verify(taskMessageRepository).save(messageCaptor.capture());
+        assertThat(artifactCaptor.getValue().getArtifactType()).isEqualTo("FILE_PATH");
+        assertThat(artifactCaptor.getValue().getName()).isEqualTo("src/main/java/App.java");
+        assertThat(artifactCaptor.getValue().getUrl()).isEqualTo("src/main/java/App.java");
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("[FILE_PATH] src/main/java/App.java");
     }
 
     @Test
