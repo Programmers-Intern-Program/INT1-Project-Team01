@@ -337,8 +337,8 @@ public class ChatServiceImpl implements ChatService {
         }
 
         ChatSession session = context.session();
-        ChatMessage savedAssistantMessage = chatMessageRepository.save(
-                ChatMessage.assistant(session.getWorkspaceId(), session.getId(), agentIntent.message()));
+        ChatMessage savedAssistantMessage = chatMessageRepository.save(ChatMessage.assistantForOrchestration(
+                session.getWorkspaceId(), session.getId(), plan.getId(), agentIntent.message()));
         plan.linkAssistantMessage(savedAssistantMessage.getId());
         session.recordMessage();
         ChatSession savedSession = chatSessionRepository.save(session);
