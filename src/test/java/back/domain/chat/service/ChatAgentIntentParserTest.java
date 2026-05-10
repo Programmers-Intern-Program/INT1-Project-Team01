@@ -2,6 +2,7 @@ package back.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import back.domain.agent.entity.AgentCategory;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskType;
 import org.junit.jupiter.api.DisplayName;
@@ -110,5 +111,49 @@ class ChatAgentIntentParserTest {
         assertThat(intent.type()).isEqualTo(ChatAgentIntentType.TASK);
         assertThat(intent.message()).isEqualTo("테스트를 작성하겠습니다.");
         assertThat(intent.task().title()).isEqualTo("테스트 작성");
+    }
+
+    @Test
+    @DisplayName("ORCHESTRATE intent JSON은 Orchestrator 계획 명세를 추출한다")
+    void parse_orchestrateJson_returnsOrchestrationIntent() {
+        // when
+        ChatAgentIntent intent = parser.parse("""
+                {
+                  "intent": "ORCHESTRATE",
+                  "message": "작업 계획을 저장했습니다.",
+                  "plan": {
+                    "title": "회원가입 기능 구현 계획",
+                    "steps": [
+                      {
+                        "stepKey": "backend-1",
+                        "agentId": 2,
+                        "agentName": "backend-agent",
+                        "category": "BACKEND",
+                        "title": "회원가입 API 구현",
+                        "prompt": "회원가입 API와 테스트를 구현하세요.",
+                        "dependsOn": []
+                      },
+                      {
+                        "stepKey": "frontend-1",
+                        "agentName": "frontend-agent",
+                        "category": "FRONTEND",
+                        "title": "회원가입 화면 연동",
+                        "prompt": "회원가입 API와 화면을 연동하세요.",
+                        "dependsOn": ["backend-1"]
+                      }
+                    ]
+                  }
+                }
+                """);
+
+        // then
+        assertThat(intent.type()).isEqualTo(ChatAgentIntentType.ORCHESTRATE);
+        assertThat(intent.message()).isEqualTo("작업 계획을 저장했습니다.");
+        assertThat(intent.orchestrationPlan().title()).isEqualTo("회원가입 기능 구현 계획");
+        assertThat(intent.orchestrationPlan().steps()).hasSize(2);
+        assertThat(intent.orchestrationPlan().steps().get(0).stepKey()).isEqualTo("backend-1");
+        assertThat(intent.orchestrationPlan().steps().get(0).agentId()).isEqualTo(2L);
+        assertThat(intent.orchestrationPlan().steps().get(0).category()).isEqualTo(AgentCategory.BACKEND);
+        assertThat(intent.orchestrationPlan().steps().get(1).dependsOn()).containsExactly("backend-1");
     }
 }
