@@ -1,5 +1,6 @@
 package back.domain.orchestrator.entity;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -69,6 +70,43 @@ public class OrchestrationPlanStep extends BaseEntity {
     @Column(name = "depends_on_step_keys", columnDefinition = "TEXT")
     private String dependsOnStepKeys;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private OrchestrationPlanStepStatus status;
+
+    @Column(name = "resolved_agent_id")
+    private Long resolvedAgentId;
+
+    @Column(name = "result_status", length = 30)
+    private String resultStatus;
+
+    @Column(name = "result_summary", length = 500)
+    private String resultSummary;
+
+    @Column(name = "result_detail", columnDefinition = "TEXT")
+    private String resultDetail;
+
+    @Column(name = "result_file_paths", columnDefinition = "TEXT")
+    private String resultFilePaths;
+
+    @Column(name = "result_risks", columnDefinition = "TEXT")
+    private String resultRisks;
+
+    @Column(name = "result_next_actions", columnDefinition = "TEXT")
+    private String resultNextActions;
+
+    @Column(name = "final_text", columnDefinition = "TEXT")
+    private String finalText;
+
+    @Column(name = "failure_reason", length = 1000)
+    private String failureReason;
+
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    @Column(name = "finished_at")
+    private LocalDateTime finishedAt;
+
     private OrchestrationPlanStep(
             OrchestrationPlan plan,
             int sequenceNo,
@@ -88,6 +126,7 @@ public class OrchestrationPlanStep extends BaseEntity {
         this.title = requireNotBlank(title, "title");
         this.prompt = requireNotBlank(prompt, "prompt");
         this.dependsOnStepKeys = serializeDependsOn(dependsOn);
+        this.status = OrchestrationPlanStepStatus.PENDING;
     }
 
     public static OrchestrationPlanStep create(
@@ -119,6 +158,40 @@ public class OrchestrationPlanStep extends BaseEntity {
         return Arrays.stream(dependsOnStepKeys.split(DEPENDS_ON_DELIMITER))
                 .filter(value -> value != null && !value.isBlank())
                 .toList();
+    }
+
+    public void markRunning(Long resolvedAgentId) {
+        this.status = OrchestrationPlanStepStatus.RUNNING;
+        this.resolvedAgentId = requireOptionalPositive(resolvedAgentId, "resolvedAgentId");
+        this.failureReason = null;
+        this.startedAt = LocalDateTime.now();
+    }
+
+    public void markCompleted(
+            String resultStatus,
+            String resultSummary,
+            String resultDetail,
+            List<String> filePaths,
+            List<String> risks,
+            List<String> nextActions,
+            String finalText) {
+        this.status = OrchestrationPlanStepStatus.COMPLETED;
+        this.resultStatus = normalizeOptional(resultStatus);
+        this.resultSummary = limitLength(normalizeOptional(resultSummary), 500);
+        this.resultDetail = normalizeOptional(resultDetail);
+        this.resultFilePaths = serializeLines(filePaths);
+        this.resultRisks = serializeLines(risks);
+        this.resultNextActions = serializeLines(nextActions);
+        this.finalText = normalizeOptional(finalText);
+        this.failureReason = null;
+        this.finishedAt = LocalDateTime.now();
+    }
+
+    public void markFailed(String failureReason, String finalText) {
+        this.status = OrchestrationPlanStepStatus.FAILED;
+        this.failureReason = limitLength(normalizeOptional(failureReason), 1000);
+        this.finalText = normalizeOptional(finalText);
+        this.finishedAt = LocalDateTime.now();
     }
 
     private static OrchestrationPlan requirePlan(OrchestrationPlan plan) {
@@ -167,5 +240,23 @@ public class OrchestrationPlanStep extends BaseEntity {
                 .filter(value -> value != null && !value.isBlank())
                 .map(String::trim)
                 .collect(Collectors.joining(DEPENDS_ON_DELIMITER));
+    }
+
+    private static String serializeLines(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        String joined = values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .collect(Collectors.joining("\n"));
+        return joined.isBlank() ? null : joined;
+    }
+
+    private static String limitLength(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 }
