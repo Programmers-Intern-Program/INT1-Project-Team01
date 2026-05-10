@@ -1,5 +1,7 @@
 package back.domain.execution.service;
 
+import back.domain.artifact.dto.StoredArtifactFile;
+import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskArtifactSaveRequest;
 import back.domain.execution.entity.ExecutionAgentReport;
@@ -10,6 +12,8 @@ import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.task.entity.TaskMessage;
 import back.domain.task.repository.TaskMessageRepository;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +21,9 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
+@SuppressFBWarnings(
+        value = "EI_EXPOSE_REP2",
+        justification = "Spring injects service collaborators managed by the application context.")
 public class TaskExecutionResultRecorder {
 
     private static final String FAILED_STATUS = "FAILED";
@@ -26,6 +33,7 @@ public class TaskExecutionResultRecorder {
     private final ExecutionAgentReportRepository agentReportRepository;
     private final ExecutionTaskArtifactRepository taskArtifactRepository;
     private final TaskMessageRepository taskMessageRepository;
+    private final WorkspaceArtifactStorage workspaceArtifactStorage;
 
     public AgentExecutionResult parse(OpenClawChatResult chatResult) {
         Objects.requireNonNull(chatResult);
@@ -35,11 +43,12 @@ public class TaskExecutionResultRecorder {
     public void recordResult(TaskExecution execution, AgentExecutionResult result) {
         Objects.requireNonNull(execution);
         Objects.requireNonNull(result);
+        List<TaskArtifactSaveRequest> artifacts = mergeStoredFileArtifacts(execution, result);
         agentReportRepository.save(ExecutionAgentReport.create(execution.getId(), result.report()));
-        result.artifacts().stream()
+        artifacts.stream()
                 .map(artifact -> ExecutionTaskArtifact.create(execution.getId(), artifact))
                 .forEach(taskArtifactRepository::save);
-        saveUserResponseMessage(execution, result.report(), result.artifacts());
+        saveUserResponseMessage(execution, result.report(), artifacts);
     }
 
     public void recordFailure(TaskExecution execution) {
@@ -104,5 +113,21 @@ public class TaskExecutionResultRecorder {
             builder.append(": ").append(artifact.url());
         }
         return builder.toString();
+    }
+
+    private List<TaskArtifactSaveRequest> mergeStoredFileArtifacts(
+            TaskExecution execution, AgentExecutionResult result) {
+        List<TaskArtifactSaveRequest> artifacts = new ArrayList<>(result.artifacts());
+        if (result.files().isEmpty()) {
+            return artifacts;
+        }
+        workspaceArtifactStorage.storeFiles(execution.getWorkspaceId(), result.files()).stream()
+                .map(this::toFileArtifact)
+                .forEach(artifacts::add);
+        return artifacts;
+    }
+
+    private TaskArtifactSaveRequest toFileArtifact(StoredArtifactFile file) {
+        return new TaskArtifactSaveRequest("FILE_PATH", file.relativePath(), file.relativePath());
     }
 }
