@@ -3,17 +3,24 @@ package back.domain.artifact.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import back.domain.artifact.dto.ArtifactFileSaveCommand;
-import back.domain.artifact.dto.StoredArtifactFile;
-import back.global.exception.CommonErrorCode;
-import back.global.exception.ServiceException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import back.domain.artifact.dto.ArtifactFileContent;
+import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactTree;
+import back.domain.artifact.dto.ArtifactTreeNode;
+import back.domain.artifact.dto.ArtifactTreeNodeType;
+import back.domain.artifact.dto.StoredArtifactFile;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 
 class WorkspaceArtifactStorageTest {
 
@@ -27,8 +34,7 @@ class WorkspaceArtifactStorageTest {
     void storeFiles_success() throws Exception {
         // given
         ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
-        ArtifactFileSaveCommand file =
-                new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}\n");
+        ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}\n");
 
         // when
         List<StoredArtifactFile> stored = storage.storeFiles(1L, List.of(file));
@@ -36,9 +42,63 @@ class WorkspaceArtifactStorageTest {
         // then
         Path savedPath = tempDir.resolve("workspaces/1/project/src/main/java/App.java");
         assertThat(Files.readString(savedPath)).isEqualTo("class App {}\n");
-        assertThat(stored)
-                .extracting(StoredArtifactFile::relativePath)
-                .containsExactly("src/main/java/App.java");
+        assertThat(stored).extracting(StoredArtifactFile::relativePath).containsExactly("src/main/java/App.java");
+    }
+
+    @Test
+    @DisplayName("workspace project root 파일 트리를 디렉터리 우선으로 조회한다")
+    void listProjectTree_success() {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        storage.storeFiles(
+                1L,
+                List.of(
+                        new ArtifactFileSaveCommand("README.md", "# Result\n"),
+                        new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}\n")));
+
+        // when
+        ArtifactTree tree = storage.listProjectTree(1L);
+
+        // then
+        assertThat(tree.children()).extracting(ArtifactTreeNode::name).containsExactly("src", "README.md");
+        ArtifactTreeNode src = tree.children().getFirst();
+        assertThat(src.type()).isEqualTo(ArtifactTreeNodeType.DIRECTORY);
+        assertThat(src.children().getFirst().path()).isEqualTo("src/main");
+        ArtifactTreeNode readme = tree.children().get(1);
+        assertThat(readme.type()).isEqualTo(ArtifactTreeNodeType.FILE);
+        assertThat(readme.contentType()).isEqualTo("text/markdown");
+        assertThat(readme.sizeBytes()).isPositive();
+    }
+
+    @Test
+    @DisplayName("산출물 파일 내용을 UTF-8 텍스트와 contentType으로 조회한다")
+    void readFile_success() {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        storage.storeFiles(1L, List.of(new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}\n")));
+
+        // when
+        ArtifactFileContent content = storage.readFile(1L, "src/main/java/App.java");
+
+        // then
+        assertThat(content.path()).isEqualTo("src/main/java/App.java");
+        assertThat(content.name()).isEqualTo("App.java");
+        assertThat(content.contentType()).isEqualTo("text/x-java-source");
+        assertThat(content.content()).isEqualTo("class App {}\n");
+        assertThat(content.sizeBytes()).isEqualTo("class App {}\n".getBytes(StandardCharsets.UTF_8).length);
+    }
+
+    @Test
+    @DisplayName("파일 조회에서도 project root 밖으로 나가는 경로는 차단한다")
+    void readFile_pathTraversal_throwsException() {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+
+        // when & then
+        assertThatThrownBy(() -> storage.readFile(1L, "../secret.txt"))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BAD_REQUEST);
     }
 
     @Test
@@ -69,7 +129,8 @@ class WorkspaceArtifactStorageTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(CommonErrorCode.BAD_REQUEST);
-        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/result.txt"))).isFalse();
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/result.txt")))
+                .isFalse();
     }
 
     @Test
@@ -85,7 +146,8 @@ class WorkspaceArtifactStorageTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(CommonErrorCode.BAD_REQUEST);
-        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/first.txt"))).isFalse();
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/first.txt")))
+                .isFalse();
     }
 
     @Test
