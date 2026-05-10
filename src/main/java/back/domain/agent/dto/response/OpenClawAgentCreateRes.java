@@ -3,6 +3,7 @@ package back.domain.agent.dto.response;
 import java.util.List;
 
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillFile;
 import back.domain.agent.entity.AgentStatus;
 
@@ -10,6 +11,7 @@ public record OpenClawAgentCreateRes(
         Long agentId,
         Long workspaceId,
         String name,
+        AgentCategory category,
         String openClawAgentId,
         String workspacePath,
         AgentStatus status,
@@ -20,11 +22,33 @@ public record OpenClawAgentCreateRes(
         skillFiles = skillFiles == null ? List.of() : List.copyOf(skillFiles);
     }
 
+    public OpenClawAgentCreateRes(
+            Long agentId,
+            Long workspaceId,
+            String name,
+            String openClawAgentId,
+            String workspacePath,
+            AgentStatus status,
+            String syncError,
+            List<AgentSkillFileSyncRes> skillFiles) {
+        this(
+                agentId,
+                workspaceId,
+                name,
+                AgentCategory.CUSTOM,
+                openClawAgentId,
+                workspacePath,
+                status,
+                syncError,
+                skillFiles);
+    }
+
     public static OpenClawAgentCreateRes from(Agent agent, List<AgentSkillFile> skillFiles) {
         return new OpenClawAgentCreateRes(
                 agent.getId(),
                 agent.getWorkspace().getId(),
                 agent.getName(),
+                agent.getCategory(),
                 agent.getOpenClawAgentId(),
                 agent.getWorkspacePath(),
                 agent.getStatus(),
