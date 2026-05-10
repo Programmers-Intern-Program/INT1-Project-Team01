@@ -12,12 +12,8 @@ public interface SlackEventLogRepository extends JpaRepository<SlackEventLog, Lo
 
     boolean existsBySlackEventId(String slackEventId);
 
-    @Query("""
-            select eventLog
-            from SlackEventLog eventLog
-            left join fetch eventLog.integration integration
-            left join fetch integration.workspace
-            where eventLog.id = :id
-            """)
+    @Query("select eventLog from SlackEventLog eventLog " +
+            "left join fetch eventLog.integration integration " +
+            "where eventLog.id = :id")
     Optional<SlackEventLog> findByIdWithIntegrationAndWorkspace(@Param("id") Long id);
 }

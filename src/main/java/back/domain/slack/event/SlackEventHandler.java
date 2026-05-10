@@ -57,7 +57,7 @@ public class SlackEventHandler {
                 return;
             }
 
-            Long workspaceId = integration.getWorkspace().getId();
+            Long workspaceId = integration.getWorkspaceId();
 
             JsonNode rootNode = jsonMapper.readTree(eventLog.getRawPayload());
             JsonNode eventNode = rootNode.path("event");

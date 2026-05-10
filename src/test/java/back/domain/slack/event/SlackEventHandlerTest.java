@@ -4,7 +4,6 @@ import back.domain.slack.entity.SlackEventLog;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.port.SlackConversationPort;
 import back.domain.slack.repository.SlackEventLogRepository;
-import back.domain.workspace.entity.Workspace;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -43,11 +42,8 @@ class SlackEventHandlerTest {
     }
 
     private void givenIntegrationExists() {
-        Workspace mockWorkspace = mock(Workspace.class);
-        when(mockWorkspace.getId()).thenReturn(1L);
-
         SlackIntegration mockIntegration = mock(SlackIntegration.class);
-        when(mockIntegration.getWorkspace()).thenReturn(mockWorkspace);
+        when(mockIntegration.getWorkspaceId()).thenReturn(1L);
 
         when(mockEventLog.getIntegration()).thenReturn(mockIntegration);
     }

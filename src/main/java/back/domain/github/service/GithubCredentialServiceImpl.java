@@ -6,6 +6,7 @@ import back.domain.github.entity.GithubCredential;
 import back.domain.github.repository.GithubCredentialRepository;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.repository.WorkspaceRepository;
+import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -18,13 +19,13 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
 
     private final GithubCredentialRepository githubCredentialRepository;
     private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceAccessValidator workspaceAccessValidator;
 
     @Override
     @Transactional
     public GithubCredentialInfoRes createGithubCredential(Long workspaceId, Long memberId, GithubCredentialCreateReq req) {
 
-        // TODO: Workspace 검증 로직 호출 (ADMIN인지 확인) [IT-9]
-        // 예: workspaceValidator.checkWorkspaceAdminPermission(workspaceId, memberId);
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         Workspace workspace = workspaceRepository.findById(workspaceId)
                 .orElseThrow(() -> new ServiceException(
