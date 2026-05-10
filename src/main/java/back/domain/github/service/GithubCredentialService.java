@@ -1,7 +1,10 @@
 package back.domain.github.service;
 
 import back.domain.github.dto.request.GithubCredentialCreateReq;
+import back.domain.github.dto.request.GithubCredentialUpdateReq;
 import back.domain.github.dto.response.GithubCredentialInfoRes;
+
+import java.util.List;
 
 /**
  * GitHub Personal Access Token(PAT) 등 자격 증명 관리를 담당하는 서비스 인터페이스입니다.
@@ -26,4 +29,36 @@ public interface GithubCredentialService {
      * @return 등록 완료된 자격 증명 정보 (민감한 토큰 원문은 마스킹 처리됨)
      */
     GithubCredentialInfoRes createGithubCredential(Long workspaceId, Long memberId, GithubCredentialCreateReq req);
+
+    /**
+     * Workspace에 등록된 모든 GitHub 자격 증명 정보를 조회합니다.
+     *
+     * @param workspaceId 조회할 Workspace 식별자
+     * @param memberId    요청하는 사용자(ADMIN) 식별자
+     * @return 자격 증명 정보 목록 (토큰 마스킹 처리됨)
+     */
+    List<GithubCredentialInfoRes> getGithubCredentials(Long workspaceId, Long memberId);
+
+    /**
+     * 등록된 GitHub 자격 증명 정보를 부분 수정(PATCH)합니다.
+     * <p>
+     * 전달된 DTO의 필드 중 null이거나 공백이 아닌 값만 기존 엔티티에 덮어씁니다.
+     * 새로운 PAT가 전달되면 안전하게 암호화하여 덮어씁니다.
+     *
+     * @param workspaceId  Workspace 식별자
+     * @param credentialId 수정할 자격 증명 식별자
+     * @param memberId     요청하는 사용자(ADMIN) 식별자
+     * @param req          수정할 필드를 담은 DTO
+     * @return 수정된 자격 증명 정보
+     */
+    GithubCredentialInfoRes updateGithubCredential(Long workspaceId, Long credentialId, Long memberId, GithubCredentialUpdateReq req);
+
+    /**
+     * GitHub 자격 증명 정보를 삭제(Soft Delete)합니다.
+     *
+     * @param workspaceId  Workspace 식별자
+     * @param credentialId 삭제할 자격 증명 식별자
+     * @param memberId     요청하는 사용자(ADMIN) 식별자
+     */
+    void deleteGithubCredential(Long workspaceId, Long credentialId, Long memberId);
 }
