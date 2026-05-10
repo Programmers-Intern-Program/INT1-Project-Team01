@@ -1,6 +1,8 @@
 package back.domain.agent.service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.stereotype.Service;
@@ -10,6 +12,7 @@ import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillFile;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.repository.AgentSkillFileRepository;
@@ -38,6 +41,7 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final AgentRepository agentRepository;
     private final AgentSkillFileRepository agentSkillFileRepository;
+    private final AgentSkillTemplateResolver agentSkillTemplateResolver;
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
 
@@ -70,7 +74,8 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
                 request.category(),
                 resolveWorkspacePath(workspaceId, request.workspacePath()),
                 memberId));
-        List<AgentSkillFile> skillFiles = saveSkillFiles(agent, request.skillFiles());
+        List<AgentSkillFileReq> mergedSkillFiles = mergeSkillFiles(request.category(), request.skillFiles());
+        List<AgentSkillFile> skillFiles = saveSkillFiles(agent, mergedSkillFiles);
         return new AgentProvisioningTarget(workspaceId, agent, skillFiles);
     }
 
@@ -127,6 +132,23 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
                 .map(request -> agentSkillFileRepository.save(
                         AgentSkillFile.create(agent, request.fileName(), request.content())))
                 .toList();
+    }
+
+    private List<AgentSkillFileReq> mergeSkillFiles(AgentCategory category, List<AgentSkillFileReq> customRequests) {
+        Map<String, AgentSkillFileReq> merged = new LinkedHashMap<>();
+        putSkillFiles(merged, agentSkillTemplateResolver.resolve(category));
+        putSkillFiles(merged, customRequests);
+        return List.copyOf(merged.values());
+    }
+
+    private void putSkillFiles(Map<String, AgentSkillFileReq> merged, List<AgentSkillFileReq> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        for (AgentSkillFileReq request : requests) {
+            String fileName = requireNotBlank(request.fileName(), "fileName");
+            merged.put(fileName, new AgentSkillFileReq(fileName, request.content()));
+        }
     }
 
     private WorkspaceMember requireAdmin(Long workspaceId, Long memberId) {
