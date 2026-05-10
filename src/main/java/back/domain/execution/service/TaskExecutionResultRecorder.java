@@ -12,13 +12,16 @@ import back.domain.execution.repository.ExecutionTaskArtifactRepository;
 import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.task.entity.TaskMessage;
 import back.domain.task.repository.TaskMessageRepository;
+import back.global.exception.ServiceException;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 @SuppressFBWarnings(
@@ -43,12 +46,16 @@ public class TaskExecutionResultRecorder {
     public void recordResult(TaskExecution execution, AgentExecutionResult result) {
         Objects.requireNonNull(execution);
         Objects.requireNonNull(result);
-        List<TaskArtifactSaveRequest> artifacts = mergeStoredFileArtifacts(execution, result);
+        ArtifactMergeResult artifactMergeResult = mergeStoredFileArtifacts(execution, result);
         agentReportRepository.save(ExecutionAgentReport.create(execution.getId(), result.report()));
-        artifacts.stream()
+        artifactMergeResult.artifacts().stream()
                 .map(artifact -> ExecutionTaskArtifact.create(execution.getId(), artifact))
                 .forEach(taskArtifactRepository::save);
-        saveUserResponseMessage(execution, result.report(), artifacts);
+        saveUserResponseMessage(
+                execution,
+                result.report(),
+                artifactMergeResult.artifacts(),
+                artifactMergeResult.warningMessage());
     }
 
     public void recordFailure(TaskExecution execution) {
@@ -59,26 +66,33 @@ public class TaskExecutionResultRecorder {
                 execution.getFailureReason(),
                 "Gateway 설정과 OpenClaw Agent 실행 상태를 확인하세요.");
         agentReportRepository.save(ExecutionAgentReport.create(execution.getId(), report));
-        saveUserResponseMessage(execution, report, List.of());
+        saveUserResponseMessage(execution, report, List.of(), null);
     }
 
     private void saveUserResponseMessage(
-            TaskExecution execution, AgentReportSaveRequest report, List<TaskArtifactSaveRequest> artifacts) {
+            TaskExecution execution,
+            AgentReportSaveRequest report,
+            List<TaskArtifactSaveRequest> artifacts,
+            String warningMessage) {
         taskMessageRepository.save(TaskMessage.assistantResponse(
                 execution.getWorkspaceId(),
                 execution.getTaskId(),
                 execution.getId(),
                 report.status(),
-                buildUserResponseContent(report, artifacts),
+                buildUserResponseContent(report, artifacts, warningMessage),
                 report.summary(),
                 report.detail(),
                 report.recommendedAction()));
     }
 
-    private String buildUserResponseContent(AgentReportSaveRequest report, List<TaskArtifactSaveRequest> artifacts) {
+    private String buildUserResponseContent(
+            AgentReportSaveRequest report,
+            List<TaskArtifactSaveRequest> artifacts,
+            String warningMessage) {
         StringBuilder builder = new StringBuilder(report.summary());
         appendSection(builder, report.detail());
         appendPrefixedSection(builder, "권장 조치", report.recommendedAction());
+        appendPrefixedSection(builder, "산출물 저장 경고", warningMessage);
         appendArtifacts(builder, artifacts);
         return builder.toString();
     }
@@ -115,19 +129,42 @@ public class TaskExecutionResultRecorder {
         return builder.toString();
     }
 
-    private List<TaskArtifactSaveRequest> mergeStoredFileArtifacts(
+    private ArtifactMergeResult mergeStoredFileArtifacts(
             TaskExecution execution, AgentExecutionResult result) {
         List<TaskArtifactSaveRequest> artifacts = new ArrayList<>(result.artifacts());
         if (result.files().isEmpty()) {
-            return artifacts;
+            return new ArtifactMergeResult(artifacts, null);
         }
-        workspaceArtifactStorage.storeFiles(execution.getWorkspaceId(), result.files()).stream()
-                .map(this::toFileArtifact)
-                .forEach(artifacts::add);
-        return artifacts;
+        try {
+            workspaceArtifactStorage.storeFiles(execution.getWorkspaceId(), result.files()).stream()
+                    .map(this::toFileArtifact)
+                    .forEach(artifacts::add);
+            return new ArtifactMergeResult(artifacts, null);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "Agent file artifact storage failed. taskExecutionId={}, workspaceId={}",
+                    execution.getId(),
+                    execution.getWorkspaceId(),
+                    exception);
+            return new ArtifactMergeResult(artifacts, resolveStorageWarningMessage(exception));
+        }
     }
 
     private TaskArtifactSaveRequest toFileArtifact(StoredArtifactFile file) {
         return new TaskArtifactSaveRequest("FILE_PATH", file.relativePath(), file.relativePath());
+    }
+
+    private String resolveStorageWarningMessage(RuntimeException exception) {
+        if (exception instanceof ServiceException serviceException) {
+            return serviceException.getClientMessage();
+        }
+        return "파일 산출물 저장 중 오류가 발생했습니다.";
+    }
+
+    private record ArtifactMergeResult(List<TaskArtifactSaveRequest> artifacts, String warningMessage) {
+
+        private ArtifactMergeResult {
+            artifacts = artifacts == null ? List.of() : List.copyOf(artifacts);
+        }
     }
 }
