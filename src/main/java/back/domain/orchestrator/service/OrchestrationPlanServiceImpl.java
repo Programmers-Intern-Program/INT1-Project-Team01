@@ -27,6 +27,9 @@ public class OrchestrationPlanServiceImpl implements OrchestrationPlanService {
 
     private static final Pattern STEP_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._-]{1,80}");
     private static final String DEFAULT_PLAN_TITLE = "Orchestrator 작업 계획";
+    private static final int PLAN_TITLE_MAX_LENGTH = 200;
+    private static final int STEP_AGENT_NAME_MAX_LENGTH = 120;
+    private static final int STEP_TITLE_MAX_LENGTH = 200;
 
     private final OrchestrationPlanRepository orchestrationPlanRepository;
     private final AgentRepository agentRepository;
@@ -98,9 +101,11 @@ public class OrchestrationPlanServiceImpl implements OrchestrationPlanService {
         if (step.agentId() == null && isBlank(step.agentName()) && step.category() == null) {
             throw invalidPlan("각 단계에는 agentId, agentName, category 중 하나 이상이 필요합니다.");
         }
+        validateMaxLength(step.agentName(), STEP_AGENT_NAME_MAX_LENGTH, "agentName", step.stepKey());
         if (isBlank(step.title())) {
             throw invalidPlan("각 단계에는 title이 필요합니다. stepKey=" + step.stepKey());
         }
+        validateMaxLength(step.title(), STEP_TITLE_MAX_LENGTH, "title", step.stepKey());
         if (isBlank(step.prompt())) {
             throw invalidPlan("각 단계에는 prompt가 필요합니다. stepKey=" + step.stepKey());
         }
@@ -175,10 +180,10 @@ public class OrchestrationPlanServiceImpl implements OrchestrationPlanService {
             return DEFAULT_PLAN_TITLE;
         }
         String title = command.title().trim();
-        if (title.length() <= 200) {
+        if (title.length() <= PLAN_TITLE_MAX_LENGTH) {
             return title;
         }
-        return title.substring(0, 200);
+        return title.substring(0, PLAN_TITLE_MAX_LENGTH);
     }
 
     private Long requirePositive(Long value, String fieldName) {
@@ -190,6 +195,15 @@ public class OrchestrationPlanServiceImpl implements OrchestrationPlanService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private void validateMaxLength(String value, int maxLength, String fieldName, String stepKey) {
+        if (value == null) {
+            return;
+        }
+        if (value.trim().length() > maxLength) {
+            throw invalidPlan(fieldName + " 길이는 " + maxLength + "자 이하여야 합니다. stepKey=" + stepKey);
+        }
     }
 
     private ServiceException invalidPlan(String detail) {
