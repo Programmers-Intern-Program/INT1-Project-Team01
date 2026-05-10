@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -41,10 +42,11 @@ public class WorkspaceArtifactStorage {
         requireWorkspaceId(workspaceId);
         validateFileCount(files);
         Path projectRoot = resolveProjectRoot(workspaceId);
-        createDirectories(projectRoot);
-        return files.stream()
-                .map(file -> storeFile(projectRoot, file))
+        List<FileWritePlan> plans = files.stream()
+                .map(file -> toFileWritePlan(projectRoot, file))
                 .toList();
+        createDirectories(projectRoot);
+        return writeFiles(plans);
     }
 
     public Path resolveProjectRoot(Long workspaceId) {
@@ -56,18 +58,34 @@ public class WorkspaceArtifactStorage {
                 .normalize();
     }
 
-    private StoredArtifactFile storeFile(Path projectRoot, ArtifactFileSaveCommand file) {
+    private FileWritePlan toFileWritePlan(Path projectRoot, ArtifactFileSaveCommand file) {
         Path relativePath = normalizeRelativePath(file.path());
         validateExtension(relativePath);
-        byte[] content = file.content().getBytes(StandardCharsets.UTF_8);
-        validateFileSize(relativePath, content.length);
+        int sizeBytes = file.content().getBytes(StandardCharsets.UTF_8).length;
+        validateFileSize(relativePath, sizeBytes);
         Path target = projectRoot.resolve(relativePath).normalize();
         if (!target.startsWith(projectRoot)) {
             throw invalidPath(file.path());
         }
-        createDirectories(Objects.requireNonNull(target.getParent(), "target parent must not be null"));
-        writeFile(target, content);
-        return new StoredArtifactFile(toPortablePath(relativePath), content.length);
+        return new FileWritePlan(relativePath, target, file.content(), sizeBytes);
+    }
+
+    private List<StoredArtifactFile> writeFiles(List<FileWritePlan> plans) {
+        List<WriteSnapshot> snapshots = new ArrayList<>();
+        try {
+            for (FileWritePlan plan : plans) {
+                createDirectories(Objects.requireNonNull(plan.target().getParent(), "target parent must not be null"));
+                WriteSnapshot snapshot = createSnapshot(plan.target());
+                snapshots.add(snapshot);
+                writeFile(plan.target(), plan.content());
+            }
+            return plans.stream()
+                    .map(plan -> new StoredArtifactFile(toPortablePath(plan.relativePath()), plan.sizeBytes()))
+                    .toList();
+        } catch (RuntimeException exception) {
+            restoreSnapshots(snapshots);
+            throw exception;
+        }
     }
 
     private Path normalizeRelativePath(String value) {
@@ -154,11 +172,50 @@ public class WorkspaceArtifactStorage {
         }
     }
 
-    private void writeFile(Path target, byte[] content) {
+    private WriteSnapshot createSnapshot(Path target) {
         try {
-            Files.write(
+            if (Files.exists(target)) {
+                return new WriteSnapshot(target, true, Files.readString(target, StandardCharsets.UTF_8));
+            }
+            return new WriteSnapshot(target, false, "");
+        } catch (IOException exception) {
+            throw new ServiceException(
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "[WorkspaceArtifactStorage#createSnapshot] failed. path=" + target,
+                    "기존 산출물 파일 상태를 확인하지 못했습니다.");
+        }
+    }
+
+    private void restoreSnapshots(List<WriteSnapshot> snapshots) {
+        for (int index = snapshots.size() - 1; index >= 0; index--) {
+            restoreSnapshot(snapshots.get(index));
+        }
+    }
+
+    private void restoreSnapshot(WriteSnapshot snapshot) {
+        try {
+            if (snapshot.existed()) {
+                Files.writeString(
+                        snapshot.target(),
+                        snapshot.content(),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE);
+                return;
+            }
+            Files.deleteIfExists(snapshot.target());
+        } catch (IOException ignored) {
+            // Result recording must continue with the original storage failure.
+        }
+    }
+
+    private void writeFile(Path target, String content) {
+        try {
+            Files.writeString(
                     target,
                     content,
+                    StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING,
                     StandardOpenOption.WRITE);
@@ -186,4 +243,8 @@ public class WorkspaceArtifactStorage {
     private String toPortablePath(Path path) {
         return path.toString().replace('\\', '/');
     }
+
+    private record FileWritePlan(Path relativePath, Path target, String content, long sizeBytes) {}
+
+    private record WriteSnapshot(Path target, boolean existed, String content) {}
 }
