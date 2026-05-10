@@ -122,7 +122,7 @@ class SlackIntegrationServiceImplTest {
                 .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
                 .botToken("xoxb-token12345").signingSecret("sec").createdByMemberId(memberId).build();
 
-        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+        given(workspaceAccessValidator.requireMember(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.findAllByWorkspaceId(workspaceId)).willReturn(List.of(integration));
 
         List<SlackIntegrationInfoRes> res = slackIntegrationService.getSlackIntegrations(workspaceId, memberId);

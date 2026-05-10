@@ -102,7 +102,7 @@ class GithubCredentialServiceImplTest {
         GithubCredential credential = GithubCredential.builder()
                 .workspace(workspace).displayName("Repo1").token("ghp_token123").createdByMemberId(memberId).build();
 
-        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+        given(workspaceAccessValidator.requireMember(workspaceId, memberId)).willReturn(workspaceMember);
         given(githubCredentialRepository.findAllByWorkspaceId(workspaceId)).willReturn(List.of(credential));
 
         List<GithubCredentialInfoRes> res = githubCredentialService.getGithubCredentials(workspaceId, memberId);

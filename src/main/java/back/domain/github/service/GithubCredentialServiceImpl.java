@@ -60,7 +60,7 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
     @Override
     @Transactional(readOnly = true)
     public List<GithubCredentialInfoRes> getGithubCredentials(Long workspaceId, Long memberId) {
-        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+        workspaceAccessValidator.requireMember(workspaceId, memberId);
 
         return githubCredentialRepository.findAllByWorkspaceId(workspaceId).stream()
                 .map(GithubCredentialInfoRes::from)
@@ -79,7 +79,6 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
             throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 자격 증명이 아닙니다.");
         }
 
-        // 부분 업데이트 수행
         credential.update(req.displayName(), req.token());
 
         return GithubCredentialInfoRes.from(credential);

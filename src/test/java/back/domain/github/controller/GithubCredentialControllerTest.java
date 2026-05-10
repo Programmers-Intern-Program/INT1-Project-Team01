@@ -118,7 +118,7 @@ class GithubCredentialControllerTest extends WebMvcTestSupport {
 
         // when & then
         mockMvc.perform(get("/api/v1/workspaces/{workspaceId}/github/credentials", workspaceId)
-                        .with(authentication(createTestAuthentication(memberId, "ADMIN"))))
+                        .with(authentication(createTestAuthentication(memberId, "MEMBER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(10L))
                 .andExpect(jsonPath("$.data[0].displayName").value("Main-Repo-Access"));

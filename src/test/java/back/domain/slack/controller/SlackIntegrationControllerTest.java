@@ -118,7 +118,7 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
 
         // when & then
         mockMvc.perform(get("/api/v1/workspaces/{workspaceId}/slack/integrations", workspaceId)
-                        .with(authentication(createTestAuthentication(memberId, "ADMIN"))))
+                        .with(authentication(createTestAuthentication(memberId, "MEMBER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(10L))
                 .andExpect(jsonPath("$.data[0].slackTeamId").value("T12345"));

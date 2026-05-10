@@ -53,7 +53,7 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Override
     @Transactional(readOnly = true)
     public List<SlackIntegrationInfoRes> getSlackIntegrations(Long workspaceId, Long memberId) {
-        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+        workspaceAccessValidator.requireMember(workspaceId, memberId);
 
         return slackIntegrationRepository.findAllByWorkspaceId(workspaceId).stream()
                 .map(SlackIntegrationInfoRes::from)

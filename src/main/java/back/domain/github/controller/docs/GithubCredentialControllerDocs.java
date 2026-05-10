@@ -108,6 +108,12 @@ public interface GithubCredentialControllerDocs {
                                             }
                                             """)))
     })
+    @ApiResponse(
+            responseCode = "403",
+            description = "접근 권한 없음 (워크스페이스 멤버 아님)",
+            content = @Content(
+                    mediaType = "application/json",
+                    examples = @ExampleObject(value = "{\"data\":null,\"message\":\"워크스페이스 접근 권한이 없습니다.\"}")))
     ResponseEntity<RsData<List<GithubCredentialInfoRes>>> getGithubCredentials(
             @Parameter(description = "대상 워크스페이스 ID") @PathVariable Long workspaceId,
             @Parameter(hidden = true) AuthenticatedMember authenticatedMember);

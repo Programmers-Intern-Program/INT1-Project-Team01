@@ -34,7 +34,7 @@ public interface GithubCredentialService {
      * Workspace에 등록된 모든 GitHub 자격 증명 정보를 조회합니다.
      *
      * @param workspaceId 조회할 Workspace 식별자
-     * @param memberId    요청하는 사용자(ADMIN) 식별자
+     * @param memberId    요청하는 사용자(MEMBER) 식별자
      * @return 자격 증명 정보 목록 (토큰 마스킹 처리됨)
      */
     List<GithubCredentialInfoRes> getGithubCredentials(Long workspaceId, Long memberId);

@@ -25,7 +25,7 @@ public interface SlackIntegrationService {
      * Workspace에 등록된 모든 Slack 연동 정보를 조회합니다.
      *
      * @param workspaceId 조회할 Workspace 식별자
-     * @param memberId    요청하는 사용자(ADMIN) 식별자
+     * @param memberId    요청하는 사용자(MEMBER) 식별자
      * @return 연동 정보 목록 (토큰 마스킹 처리됨)
      */
     List<SlackIntegrationInfoRes> getSlackIntegrations(Long workspaceId, Long memberId);
