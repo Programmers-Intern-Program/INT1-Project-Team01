@@ -330,7 +330,7 @@ public class ChatServiceImpl implements ChatService {
                     context.session().getWorkspaceId(),
                     context.session().getId(),
                     context.agent().getId(),
-                    exception.getClientMessage());
+                    exception.getLogMessage());
             return ChatSendResult.withoutDispatch(recordChatIntentResponse(context, exception.getClientMessage()));
         }
 
