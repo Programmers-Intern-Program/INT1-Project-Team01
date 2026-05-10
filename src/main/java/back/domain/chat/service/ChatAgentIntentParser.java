@@ -1,6 +1,8 @@
 package back.domain.chat.service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -9,6 +11,7 @@ import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
+import back.domain.agent.entity.AgentCategory;
 import back.domain.task.entity.TaskPriority;
 import back.domain.task.entity.TaskType;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -32,12 +35,20 @@ public class ChatAgentIntentParser {
 
     private ChatAgentIntent parseJsonIntent(JsonNode rootNode, String fallbackMessage) {
         String intent = optionalText(rootNode, "intent");
-        if (!"TASK".equalsIgnoreCase(intent)) {
+        if ("TASK".equalsIgnoreCase(intent)) {
+            return ChatAgentIntent.task(
+                    resolveMessage(rootNode, DEFAULT_TASK_MESSAGE),
+                    parseTaskSpec(rootNode.path("task")));
+        }
+        if ("ORCHESTRATE".equalsIgnoreCase(intent)) {
+            return ChatAgentIntent.orchestrate(
+                    resolveMessage(rootNode, "작업 계획을 수립했습니다."),
+                    parseOrchestrationPlanSpec(rootNode.path("plan")));
+        }
+        if (!"CHAT".equalsIgnoreCase(intent)) {
             return ChatAgentIntent.chat(resolveMessage(rootNode, fallbackMessage));
         }
-        return ChatAgentIntent.task(
-                resolveMessage(rootNode, DEFAULT_TASK_MESSAGE),
-                parseTaskSpec(rootNode.path("task")));
+        return ChatAgentIntent.chat(resolveMessage(rootNode, fallbackMessage));
     }
 
     private ChatAgentIntent.TaskSpec parseTaskSpec(JsonNode taskNode) {
@@ -48,6 +59,30 @@ public class ChatAgentIntentParser {
                 optionalEnum(taskNode, "priority", TaskPriority.class),
                 optionalPositiveLong(taskNode, "repositoryId"),
                 optionalBoolean(taskNode, "createPr").orElse(null));
+    }
+
+    private ChatAgentIntent.OrchestrationPlanSpec parseOrchestrationPlanSpec(JsonNode planNode) {
+        return new ChatAgentIntent.OrchestrationPlanSpec(
+                optionalText(planNode, "title"),
+                parseStepSpecs(planNode.path("steps")));
+    }
+
+    private List<ChatAgentIntent.OrchestrationStepSpec> parseStepSpecs(JsonNode stepsNode) {
+        if (!stepsNode.isArray()) {
+            return List.of();
+        }
+        List<ChatAgentIntent.OrchestrationStepSpec> steps = new ArrayList<>();
+        for (JsonNode stepNode : stepsNode) {
+            steps.add(new ChatAgentIntent.OrchestrationStepSpec(
+                    optionalText(stepNode, "stepKey"),
+                    optionalPositiveLong(stepNode, "agentId"),
+                    optionalText(stepNode, "agentName"),
+                    optionalEnum(stepNode, "category", AgentCategory.class),
+                    optionalText(stepNode, "title"),
+                    optionalText(stepNode, "prompt"),
+                    optionalTextList(stepNode.path("dependsOn"))));
+        }
+        return steps;
     }
 
     private String resolveMessage(JsonNode rootNode, String fallbackMessage) {
@@ -174,5 +209,22 @@ public class ChatAgentIntentParser {
             }
         }
         return Optional.empty();
+    }
+
+    private List<String> optionalTextList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode valueNode : node) {
+            if (valueNode == null || valueNode.isNull()) {
+                continue;
+            }
+            String value = valueNode.asText();
+            if (value != null && !value.isBlank()) {
+                values.add(value.trim());
+            }
+        }
+        return values;
     }
 }
