@@ -3,6 +3,7 @@ package back.domain.chat.service;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
@@ -56,6 +58,7 @@ public class ChatServiceImpl implements ChatService {
     private static final int SLACK_SESSION_HASH_LENGTH = 16;
     private static final int DEFAULT_POLL_LIMIT = 50;
     private static final int MAX_POLL_LIMIT = 100;
+    private static final int ORCHESTRATOR_CONTEXT_AGENT_LIMIT = 20;
 
     private final TransactionOperations transactionOperations;
     private final TaskService taskService;
@@ -603,17 +606,18 @@ public class ChatServiceImpl implements ChatService {
             return client.sendChat(new OpenClawChatCommand(
                     agent.getOpenClawAgentId(),
                     session.getOpenClawSessionKey(),
-                    buildAgentIntentMessage(message),
+                    buildAgentIntentMessage(session.getWorkspaceId(), agent, message),
                     createIdempotencyKey(session.getId(), userMessageId)));
         } finally {
             client.close();
         }
     }
 
-    private String buildAgentIntentMessage(String message) {
+    private String buildAgentIntentMessage(Long workspaceId, Agent agent, String message) {
         return String.join(
                 System.lineSeparator(),
                 "You are connected to AI Office chat.",
+                buildOrchestratorContext(workspaceId, agent),
                 "Decide whether the user needs general chat or an executable task.",
                 "Return only one JSON object.",
                 "CHAT response: {\"intent\":\"CHAT\",\"message\":\"general answer\"}",
@@ -625,6 +629,47 @@ public class ChatServiceImpl implements ChatService {
                 "Allowed priority values: LOW, MEDIUM, HIGH, URGENT.",
                 "User message:",
                 message);
+    }
+
+    private String buildOrchestratorContext(Long workspaceId, Agent agent) {
+        if (agent.getCategory() != AgentCategory.ORCHESTRATOR) {
+            return "Current Agent category: " + agent.getCategory();
+        }
+        List<Agent> readyAgents = agentRepository
+                .findByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        workspaceId, AgentStatus.READY);
+        return String.join(
+                System.lineSeparator(),
+                "Current Agent category: ORCHESTRATOR",
+                "Available READY agents in this workspace: "
+                        + readyAgents.size()
+                        + " total, showing "
+                        + Math.min(readyAgents.size(), ORCHESTRATOR_CONTEXT_AGENT_LIMIT)
+                        + ".",
+                formatReadyAgents(readyAgents, ORCHESTRATOR_CONTEXT_AGENT_LIMIT),
+                "Use only listed agentId values when planning work. Do not invent agents.");
+    }
+
+    private String formatReadyAgents(List<Agent> readyAgents, int limit) {
+        if (readyAgents.isEmpty()) {
+            return "- none";
+        }
+        String formattedAgents = readyAgents.stream()
+                .limit(limit)
+                .map(agent -> "- agentId=" + agent.getId()
+                        + ", name=" + agent.getName()
+                        + ", category=" + agent.getCategory()
+                        + ", status=" + agent.getStatus()
+                        + ", openClawAgentId=" + agent.getOpenClawAgentId())
+                .collect(Collectors.joining(System.lineSeparator()));
+        if (readyAgents.size() <= limit) {
+            return formattedAgents;
+        }
+        return formattedAgents
+                + System.lineSeparator()
+                + "- ... "
+                + (readyAgents.size() - limit)
+                + " more READY agents omitted.";
     }
 
     private void recordFailureMessageSafely(ChatSession session, RuntimeException exception) {

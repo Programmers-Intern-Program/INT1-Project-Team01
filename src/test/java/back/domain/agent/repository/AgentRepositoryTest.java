@@ -1,6 +1,7 @@
 package back.domain.agent.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -69,5 +70,60 @@ class AgentRepositoryTest {
         // then
         assertThat(found.getId()).isEqualTo(saved.getId());
         assertThat(found.getCategory()).isEqualTo(AgentCategory.CUSTOM);
+    }
+
+    @Test
+    @DisplayName("Workspace의 READY Agent 목록은 OpenClaw Agent id가 있는 Agent만 id 오름차순으로 조회한다")
+    void findByWorkspaceIdAndStatus_readyAgentsWithOpenClawIdOnly() {
+        // given
+        Agent orchestrator = Agent.create(
+                workspace,
+                "Main Orchestrator",
+                AgentCategory.ORCHESTRATOR,
+                "~/.openclaw/workspace-1",
+                1L);
+        orchestrator.markOpenClawCreated("openclaw-orchestrator");
+        orchestrator.markReady();
+        agentRepository.save(orchestrator);
+
+        Agent backend = Agent.create(
+                workspace,
+                "Backend Agent",
+                AgentCategory.BACKEND,
+                "~/.openclaw/workspace-1",
+                1L);
+        backend.markOpenClawCreated("openclaw-backend");
+        backend.markReady();
+        agentRepository.save(backend);
+
+        Agent creating = Agent.create(
+                workspace,
+                "Creating Agent",
+                AgentCategory.QA,
+                "~/.openclaw/workspace-1",
+                1L);
+        agentRepository.save(creating);
+
+        Agent unsynced = Agent.create(
+                workspace,
+                "Unsynced Agent",
+                AgentCategory.FRONTEND,
+                "~/.openclaw/workspace-1",
+                1L);
+        unsynced.markReady();
+        agentRepository.save(unsynced);
+
+        // when
+        var readyAgents = agentRepository
+                .findByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        workspace.getId(), AgentStatus.READY);
+
+        // then
+        assertThat(readyAgents)
+                .extracting(Agent::getName, Agent::getCategory, Agent::getOpenClawAgentId)
+                .containsExactly(
+                        tuple(
+                                "Main Orchestrator", AgentCategory.ORCHESTRATOR, "openclaw-orchestrator"),
+                        tuple("Backend Agent", AgentCategory.BACKEND, "openclaw-backend"));
     }
 }

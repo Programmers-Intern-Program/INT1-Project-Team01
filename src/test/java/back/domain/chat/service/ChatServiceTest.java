@@ -28,6 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import back.domain.agent.entity.Agent;
+import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.chat.dto.request.ChatMessageSendRequest;
 import back.domain.chat.dto.request.SlackChatMessageSendCommand;
@@ -301,6 +302,94 @@ class ChatServiceTest {
                         tuple(ChatMessageRole.ASSISTANT, "첫 응답"),
                         tuple(ChatMessageRole.USER, "두 번째 메시지"),
                         tuple(ChatMessageRole.ASSISTANT, "두 번째 응답"));
+    }
+
+    @Test
+    @DisplayName("Orchestrator Agent 채팅은 READY Agent 목록을 prompt context로 주입한다")
+    void sendMessage_orchestratorAgentInjectsReadyAgentContext() {
+        // given
+        Long orchestratorAgentId = createReadyAgent(
+                "main-orchestrator", "openclaw-orchestrator", AgentCategory.ORCHESTRATOR);
+        Long backendAgentId = createReadyAgent("backend-agent", "openclaw-backend", AgentCategory.BACKEND);
+        createCreatingAgent("creating-agent");
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("gateway-session", "orchestrator 응답"));
+
+        // when
+        chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("작업 계획 세워줘", orchestratorAgentId, null, null, null, null, false));
+
+        // then
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        String prompt = commandCaptor.getValue().message();
+        assertThat(prompt)
+                .contains("Current Agent category: ORCHESTRATOR")
+                .contains("Available READY agents in this workspace: 3 total, showing 3.")
+                .contains("agentId=" + agentId)
+                .contains("name=테스트 Agent")
+                .contains("category=CUSTOM")
+                .contains("agentId=" + orchestratorAgentId)
+                .contains("name=main-orchestrator")
+                .contains("category=ORCHESTRATOR")
+                .contains("openClawAgentId=openclaw-orchestrator")
+                .contains("agentId=" + backendAgentId)
+                .contains("name=backend-agent")
+                .contains("category=BACKEND")
+                .contains("openClawAgentId=openclaw-backend")
+                .doesNotContain("creating-agent");
+    }
+
+    @Test
+    @DisplayName("Orchestrator Agent context는 READY Agent 목록을 최대 개수로 제한한다")
+    void sendMessage_orchestratorAgentContextLimitsReadyAgentList() {
+        // given
+        Long orchestratorAgentId = createReadyAgent(
+                "main-orchestrator", "openclaw-orchestrator", AgentCategory.ORCHESTRATOR);
+        for (int index = 1; index <= 20; index++) {
+            createReadyAgent("worker-" + index, "openclaw-worker-" + index, AgentCategory.BACKEND);
+        }
+        Long omittedAgentId = createReadyAgent("worker-21", "openclaw-worker-21", AgentCategory.BACKEND);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("gateway-session", "orchestrator 응답"));
+
+        // when
+        chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("작업 계획 세워줘", orchestratorAgentId, null, null, null, null, false));
+
+        // then
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().message())
+                .contains("Available READY agents in this workspace: 23 total, showing 20.")
+                .contains("name=worker-18")
+                .contains("- ... 3 more READY agents omitted.")
+                .doesNotContain("agentId=" + omittedAgentId)
+                .doesNotContain("name=worker-21");
+    }
+
+    @Test
+    @DisplayName("일반 Agent 채팅은 READY Agent 목록을 prompt context로 주입하지 않는다")
+    void sendMessage_nonOrchestratorAgentDoesNotInjectReadyAgentContext() {
+        // given
+        createReadyAgent("backend-agent", "openclaw-backend", AgentCategory.BACKEND);
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("gateway-session", "일반 응답"));
+
+        // when
+        chatService.sendMessage(
+                workspaceId,
+                new ChatMessageSendRequest("일반 대화", agentId, null, null, null, null, false));
+
+        // then
+        ArgumentCaptor<OpenClawChatCommand> commandCaptor = ArgumentCaptor.forClass(OpenClawChatCommand.class);
+        verify(openClawGatewayClient).sendChat(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().message())
+                .contains("Current Agent category: CUSTOM")
+                .doesNotContain("Available READY agents in this workspace:")
+                .doesNotContain("backend-agent");
     }
 
     @Test
@@ -649,8 +738,12 @@ class ChatServiceTest {
     }
 
     private Long createReadyAgent(String name, String openClawAgentId) {
+        return createReadyAgent(name, openClawAgentId, AgentCategory.CUSTOM);
+    }
+
+    private Long createReadyAgent(String name, String openClawAgentId, AgentCategory category) {
         Workspace workspace = workspaceRepository.findById(workspaceId).orElseThrow();
-        Agent agent = Agent.create(workspace, name, "~/.openclaw/workspace-1", memberId);
+        Agent agent = Agent.create(workspace, name, category, "~/.openclaw/workspace-1", memberId);
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
         return agentRepository.save(agent).getId();

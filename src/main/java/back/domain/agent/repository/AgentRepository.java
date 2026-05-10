@@ -1,5 +1,6 @@
 package back.domain.agent.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,9 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
     Optional<Agent> findByIdAndWorkspaceId(Long agentId, Long workspaceId);
 
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+            Long workspaceId, AgentStatus status);
+
+    List<Agent> findByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
             Long workspaceId, AgentStatus status);
 
     @Query("""
