@@ -1,7 +1,9 @@
 package back.domain.execution.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
@@ -18,6 +20,8 @@ import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.task.entity.TaskMessage;
 import back.domain.task.entity.TaskMessageRole;
 import back.domain.task.repository.TaskMessageRepository;
+import back.global.exception.CommonErrorCode;
+import back.global.exception.ServiceException;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +87,34 @@ class TaskExecutionResultRecorderTest {
         assertThat(artifactCaptor.getValue().getUrl()).isEqualTo("src/main/java/App.java");
         assertThat(messageCaptor.getValue().getContent())
                 .contains("[FILE_PATH] src/main/java/App.java");
+    }
+
+    @Test
+    @DisplayName("파일 산출물 저장에 실패해도 보고서와 사용자 메시지는 저장한다")
+    void recordResult_fileStorageFailed_savesReportAndWarningMessage() {
+        // given
+        AgentReportSaveRequest report =
+                new AgentReportSaveRequest("COMPLETED", "파일 생성 완료", "상세 내용", null);
+        ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("../secret.txt", "secret");
+        AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
+        given(workspaceArtifactStorage.storeFiles(1L, List.of(file)))
+                .willThrow(new ServiceException(
+                        CommonErrorCode.BAD_REQUEST,
+                        "invalid artifact path",
+                        "산출물 파일 경로가 올바르지 않습니다."));
+
+        // when
+        recorder.recordResult(execution, result);
+
+        // then
+        ArgumentCaptor<ExecutionAgentReport> reportCaptor = ArgumentCaptor.forClass(ExecutionAgentReport.class);
+        ArgumentCaptor<TaskMessage> messageCaptor = ArgumentCaptor.forClass(TaskMessage.class);
+        verify(agentReportRepository).save(reportCaptor.capture());
+        verify(taskArtifactRepository, never()).save(any(ExecutionTaskArtifact.class));
+        verify(taskMessageRepository).save(messageCaptor.capture());
+        assertThat(reportCaptor.getValue().getSummary()).isEqualTo("파일 생성 완료");
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("파일 생성 완료", "산출물 저장 경고: 산출물 파일 경로가 올바르지 않습니다.");
     }
 
     @Test
