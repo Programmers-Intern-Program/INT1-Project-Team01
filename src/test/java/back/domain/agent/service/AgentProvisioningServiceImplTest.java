@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.dto.request.AgentSkillFileReq;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
+import back.domain.agent.dto.response.AgentSkillFileSyncRes;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
@@ -138,10 +139,10 @@ class AgentProvisioningServiceImplTest {
         assertThat(response.workspacePath()).isEqualTo("~/.openclaw/workspace-1");
         assertThat(response.skillFiles()).hasSize(3);
         assertThat(response.skillFiles())
-                .extracting("fileName")
+                .extracting(AgentSkillFileSyncRes::fileName)
                 .containsExactly("COMMON.md", "BACKEND.md", "AGENTS.md");
         assertThat(response.skillFiles())
-                .extracting("syncStatus")
+                .extracting(AgentSkillFileSyncRes::syncStatus)
                 .containsOnly(AgentSkillSyncStatus.SYNCED);
 
         ArgumentCaptor<OpenClawAgentCreateCommand> createCommandCaptor =
@@ -191,7 +192,7 @@ class AgentProvisioningServiceImplTest {
 
         // then
         assertThat(response.skillFiles())
-                .extracting("fileName")
+                .extracting(AgentSkillFileSyncRes::fileName)
                 .containsExactly("COMMON.md", "BACKEND.md");
 
         ArgumentCaptor<OpenClawAgentFileCommand> fileCommandCaptor =

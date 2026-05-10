@@ -38,4 +38,15 @@ class AgentSkillTemplateResolverTest {
                 .extracting(AgentSkillFileReq::fileName)
                 .containsExactly("COMMON.md");
     }
+
+    @Test
+    @DisplayName("같은 category 템플릿은 캐시된 결과를 반환한다")
+    void resolve_sameCategory_returnsCachedTemplates() {
+        // when
+        var first = agentSkillTemplateResolver.resolve(AgentCategory.BACKEND);
+        var second = agentSkillTemplateResolver.resolve(AgentCategory.BACKEND);
+
+        // then
+        assertThat(second).isSameAs(first);
+    }
 }
