@@ -2,17 +2,18 @@ package back.testUtil;
 
 import back.domain.slack.filter.SlackSignatureVerificationFilter;
 import back.domain.slack.repository.SlackIntegrationRepository;
-import back.global.security.BearerTokenResolver;
-import back.global.security.JwtTokenProvider;
-import back.global.security.RestAccessDeniedHandler;
-import back.global.security.RestAuthenticationEntryPoint;
+import back.global.security.*;
 import back.global.security.crypto.TinkCryptoUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
+
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -69,5 +70,14 @@ public abstract class WebMvcTestSupport {
             );
             return null;
         }).when(slackSignatureVerificationFilter).doFilter(any(), any(), any());
+    }
+
+    /**
+     * Controller 테스트 시 SecurityContext에 주입할 Mock 인증 객체를 생성합니다.
+     */
+    protected UsernamePasswordAuthenticationToken createTestAuthentication(Long memberId, String role) {
+        AuthenticatedMember authenticatedMember = new AuthenticatedMember(memberId, role);
+        return new UsernamePasswordAuthenticationToken(
+                authenticatedMember, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
     }
 }
