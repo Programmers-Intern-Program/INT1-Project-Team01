@@ -71,4 +71,38 @@ class WorkspaceArtifactStorageTest {
                 .isEqualTo(CommonErrorCode.BAD_REQUEST);
         assertThat(Files.exists(tempDir.resolve("workspaces/1/project/result.txt"))).isFalse();
     }
+
+    @Test
+    @DisplayName("모든 파일을 먼저 검증하므로 뒤 파일이 잘못되어도 앞 파일을 쓰지 않는다")
+    void storeFiles_invalidLaterFile_doesNotWriteEarlierFile() {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        ArtifactFileSaveCommand validFile = new ArtifactFileSaveCommand("first.txt", "first");
+        ArtifactFileSaveCommand invalidFile = new ArtifactFileSaveCommand("../secret.txt", "secret");
+
+        // when & then
+        assertThatThrownBy(() -> storage.storeFiles(1L, List.of(validFile, invalidFile)))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BAD_REQUEST);
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/first.txt"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("저장 중 실패하면 이미 저장한 파일을 정리한다")
+    void storeFiles_writeFailure_cleansUpWrittenFiles() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path projectRoot = tempDir.resolve("workspaces/1/project");
+        Files.createDirectories(projectRoot.resolve("second.txt"));
+        ArtifactFileSaveCommand firstFile = new ArtifactFileSaveCommand("first.txt", "first");
+        ArtifactFileSaveCommand secondFile = new ArtifactFileSaveCommand("second.txt", "second");
+
+        // when & then
+        assertThatThrownBy(() -> storage.storeFiles(1L, List.of(firstFile, secondFile)))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.INTERNAL_SERVER_ERROR);
+        assertThat(Files.exists(projectRoot.resolve("first.txt"))).isFalse();
+    }
 }
