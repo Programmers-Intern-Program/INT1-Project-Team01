@@ -27,6 +27,7 @@ public class SlackIntegrationController implements SlackIntegrationControllerDoc
 
     private final SlackIntegrationService slackIntegrationService;
 
+    @Override
     @PostMapping
     public ResponseEntity<RsData<SlackIntegrationInfoRes>> createSlackIntegration(
             @PathVariable Long workspaceId,
