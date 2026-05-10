@@ -70,14 +70,18 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             for (StepExecutionContext stepContext : resolveExecutionOrder(planContext.steps())) {
                 StepExecutionSummary summary = runStep(client, planContext, stepContext, completedSteps);
                 if (summary.failed()) {
-                    markPlanFailed(planId);
+                    markPlanFailed(workspaceId, planId);
+                    return;
+                }
+                if (summary.canceled()) {
+                    markPlanCanceled(workspaceId, planId);
                     return;
                 }
                 completedSteps.put(stepContext.stepKey(), summary);
             }
-            markPlanCompleted(planId);
+            markPlanCompleted(workspaceId, planId);
         } catch (RuntimeException exception) {
-            markPlanFailed(planId);
+            markPlanFailed(workspaceId, planId);
             throw exception;
         } finally {
             client.close();
@@ -113,7 +117,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         try {
             return workspaceGatewayBindingService.getConnectionContext(workspaceId);
         } catch (RuntimeException exception) {
-            markPlanFailed(planId);
+            markPlanFailed(workspaceId, planId);
             throw exception;
         }
     }
@@ -156,10 +160,12 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             validateExecutableAgent(agent);
             return agent;
         }
-        return agentRepository
+        Agent agent = agentRepository
                 .findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         workspaceId, stepContext.category(), AgentStatus.READY)
                 .orElseThrow(() -> executionError("실행 가능한 Worker Agent가 없습니다."));
+        validateExecutableAgent(agent);
+        return agent;
     }
 
     private void validateExecutableAgent(Agent agent) {
@@ -185,6 +191,9 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                     result.risks(),
                     result.nextActions(),
                     finalText);
+        }
+        if (result.status() == AgentExecutionStatus.CANCELED) {
+            return StepExecutionSummary.canceled(resolveFailureReason(result), finalText);
         }
         return StepExecutionSummary.failed(resolveFailureReason(result), finalText);
     }
@@ -217,7 +226,6 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             String finalText) {
         StepExecutionSummary summary = StepExecutionSummary.failed(failureReason, finalText);
         saveStepResult(stepContext.id(), summary);
-        markPlanFailed(stepContext.planId());
         return summary;
     }
 
@@ -234,6 +242,8 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             OrchestrationPlanStep step = getStepOrThrow(stepId);
             if (summary.failed()) {
                 step.markFailed(summary.failureReason(), summary.finalText());
+            } else if (summary.canceled()) {
+                step.markCanceled(summary.failureReason(), summary.finalText());
             } else {
                 step.markCompleted(
                         summary.resultStatus(),
@@ -248,24 +258,32 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         }));
     }
 
-    private void markPlanCompleted(Long planId) {
+    private void markPlanCompleted(Long workspaceId, Long planId) {
         requireTransactionResult(transactionOperations.execute(status -> {
-            OrchestrationPlan plan = getPlanOrThrow(planId);
+            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
             plan.markCompleted();
             return orchestrationPlanRepository.save(plan);
         }));
     }
 
-    private void markPlanFailed(Long planId) {
+    private void markPlanFailed(Long workspaceId, Long planId) {
         requireTransactionResult(transactionOperations.execute(status -> {
-            OrchestrationPlan plan = getPlanOrThrow(planId);
+            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
             plan.markFailed();
             return orchestrationPlanRepository.save(plan);
         }));
     }
 
-    private OrchestrationPlan getPlanOrThrow(Long planId) {
-        return orchestrationPlanRepository.findById(planId)
+    private void markPlanCanceled(Long workspaceId, Long planId) {
+        requireTransactionResult(transactionOperations.execute(status -> {
+            OrchestrationPlan plan = getPlanOrThrow(workspaceId, planId);
+            plan.markCanceled();
+            return orchestrationPlanRepository.save(plan);
+        }));
+    }
+
+    private OrchestrationPlan getPlanOrThrow(Long workspaceId, Long planId) {
+        return orchestrationPlanRepository.findByIdAndWorkspaceId(planId, workspaceId)
                 .orElseThrow(() -> executionError("Orchestration 계획을 찾을 수 없습니다."));
     }
 
@@ -452,6 +470,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
 
     private record StepExecutionSummary(
             boolean failed,
+            boolean canceled,
             String resultStatus,
             String summary,
             String detail,
@@ -477,6 +496,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                 String finalText) {
             return new StepExecutionSummary(
                     false,
+                    false,
                     resultStatus,
                     summary,
                     detail,
@@ -490,6 +510,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         private static StepExecutionSummary failed(String failureReason, String finalText) {
             return new StepExecutionSummary(
                     true,
+                    false,
                     AgentExecutionStatus.FAILED.reportStatus(),
                     null,
                     null,
@@ -498,6 +519,20 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                     List.of(),
                     finalText,
                     failureReason);
+        }
+
+        private static StepExecutionSummary canceled(String cancelReason, String finalText) {
+            return new StepExecutionSummary(
+                    false,
+                    true,
+                    AgentExecutionStatus.CANCELED.reportStatus(),
+                    null,
+                    null,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    finalText,
+                    cancelReason);
         }
     }
 }

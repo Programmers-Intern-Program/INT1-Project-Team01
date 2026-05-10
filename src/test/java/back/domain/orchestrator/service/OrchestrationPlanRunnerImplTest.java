@@ -230,9 +230,68 @@ class OrchestrationPlanRunnerImplTest {
         verify(openClawGatewayClient).close();
     }
 
+    @Test
+    @DisplayName("Worker Agent 결과가 취소이면 Plan을 취소 처리하고 다음 Step은 실행하지 않는다")
+    void run_canceledStep_cancelsPlanAndStopsRemainingSteps() {
+        // given
+        stubPlanAndSteps();
+        given(workspaceGatewayBindingService.getConnectionContext(1L))
+                .willReturn(new OpenClawGatewayConnectionContext("ws://localhost:18789", "gateway-token"));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.BACKEND, AgentStatus.READY))
+                .willReturn(Optional.of(backendAgent));
+        given(workspaceArtifactStorage.resolveProjectRoot(1L))
+                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(new OpenClawChatResult("backend-session", "backend final"));
+        given(agentExecutionResultParser.parse("backend final"))
+                .willReturn(new AgentExecutionResult(
+                        new AgentReportSaveRequest("CANCELED", "백엔드 취소", "사용자 취소", null),
+                        List.of()));
+
+        // when
+        orchestrationPlanRunner.run(1L, 500L);
+
+        // then
+        assertThat(plan.getStatus()).isEqualTo(OrchestrationPlanStatus.CANCELED);
+        assertThat(backendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.CANCELED);
+        assertThat(backendStep.getFailureReason()).isEqualTo("사용자 취소");
+        assertThat(frontendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.PENDING);
+        verify(openClawGatewayClient, times(1)).sendChat(any(OpenClawChatCommand.class));
+        verify(agentRepository, never())
+                .findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.FRONTEND, AgentStatus.READY);
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("자동 선택된 Worker Agent의 OpenClaw Agent ID가 비어 있으면 실행하지 않고 실패 처리한다")
+    void run_autoSelectedAgentWithBlankOpenClawAgentId_marksFailed() {
+        // given
+        stubPlanAndSteps();
+        ReflectionTestUtils.setField(backendAgent, "openClawAgentId", " ");
+        given(workspaceGatewayBindingService.getConnectionContext(1L))
+                .willReturn(new OpenClawGatewayConnectionContext("ws://localhost:18789", "gateway-token"));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.BACKEND, AgentStatus.READY))
+                .willReturn(Optional.of(backendAgent));
+
+        // when
+        orchestrationPlanRunner.run(1L, 500L);
+
+        // then
+        assertThat(plan.getStatus()).isEqualTo(OrchestrationPlanStatus.FAILED);
+        assertThat(backendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.FAILED);
+        assertThat(backendStep.getFailureReason()).isEqualTo("Worker Agent가 READY 상태가 아닙니다.");
+        assertThat(frontendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.PENDING);
+        verify(openClawGatewayClient, never()).sendChat(any(OpenClawChatCommand.class));
+        verify(openClawGatewayClient).close();
+    }
+
     private void stubPlanAndSteps() {
         given(orchestrationPlanRepository.findByIdAndWorkspaceId(500L, 1L)).willReturn(Optional.of(plan));
-        given(orchestrationPlanRepository.findById(500L)).willReturn(Optional.of(plan));
         given(orchestrationPlanStepRepository.findByPlanIdOrderBySequenceNoAscIdAsc(500L))
                 .willReturn(List.of(frontendStep, backendStep));
         given(orchestrationPlanStepRepository.findById(backendStep.getId())).willReturn(Optional.of(backendStep));
