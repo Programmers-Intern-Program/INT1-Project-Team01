@@ -1,6 +1,7 @@
 package back.domain.github.service;
 
 import back.domain.github.dto.request.GithubCredentialCreateReq;
+import back.domain.github.dto.request.GithubCredentialUpdateReq;
 import back.domain.github.dto.response.GithubCredentialInfoRes;
 import back.domain.github.entity.GithubCredential;
 import back.domain.github.repository.GithubCredentialRepository;
@@ -12,6 +13,8 @@ import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -52,5 +55,47 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
         GithubCredential savedCredential = githubCredentialRepository.save(credential);
 
         return GithubCredentialInfoRes.from(savedCredential);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GithubCredentialInfoRes> getGithubCredentials(Long workspaceId, Long memberId) {
+        workspaceAccessValidator.requireMember(workspaceId, memberId);
+
+        return githubCredentialRepository.findAllByWorkspaceId(workspaceId).stream()
+                .map(GithubCredentialInfoRes::from)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public GithubCredentialInfoRes updateGithubCredential(Long workspaceId, Long credentialId, Long memberId, GithubCredentialUpdateReq req) {
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+
+        GithubCredential credential = githubCredentialRepository.findById(credentialId)
+                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Credential not found", "해당 GitHub 자격 증명을 찾을 수 없습니다."));
+
+        if (!credential.getWorkspace().getId().equals(workspaceId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 자격 증명이 아닙니다.");
+        }
+
+        credential.update(req.displayName(), req.token());
+
+        return GithubCredentialInfoRes.from(credential);
+    }
+
+    @Override
+    @Transactional
+    public void deleteGithubCredential(Long workspaceId, Long credentialId, Long memberId) {
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+
+        GithubCredential credential = githubCredentialRepository.findById(credentialId)
+                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Credential not found", "해당 GitHub 자격 증명을 찾을 수 없습니다."));
+
+        if (!credential.getWorkspace().getId().equals(workspaceId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 자격 증명이 아닙니다.");
+        }
+
+        githubCredentialRepository.delete(credential);
     }
 }

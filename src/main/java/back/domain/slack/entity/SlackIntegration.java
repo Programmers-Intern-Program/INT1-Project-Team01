@@ -8,6 +8,10 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
+
+import java.time.LocalDateTime;
 
 /**
  * Slack 채널과 Workspace 간의 연동 정보를 저장하는 도메인 엔티티입니다.
@@ -24,9 +28,9 @@ import lombok.NoArgsConstructor;
         value = {"EI_EXPOSE_REP"},
         justification = "JPA 연관 엔티티 반환은 Spring 컨텍스트에서 관리됨")
 @Entity
-@Table(name = "slack_integrations", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"slack_team_id", "slack_channel_id"})
-})
+@Table(name = "slack_integrations")
+@SQLDelete(sql = "UPDATE slack_integrations SET deleted_at = NOW() WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SlackIntegration extends BaseEntity {
@@ -51,6 +55,9 @@ public class SlackIntegration extends BaseEntity {
     @Column(nullable = false)
     private Long createdByMemberId;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Builder
     public SlackIntegration(Long workspaceId, String slackTeamId, String slackChannelId,
                             String botToken, String signingSecret, Long createdByMemberId) {
@@ -60,5 +67,12 @@ public class SlackIntegration extends BaseEntity {
         this.botToken = botToken;
         this.signingSecret = signingSecret;
         this.createdByMemberId = createdByMemberId;
+    }
+
+    public void update(String slackTeamId, String slackChannelId, String botToken, String signingSecret) {
+        if (slackTeamId != null && !slackTeamId.isBlank()) this.slackTeamId = slackTeamId;
+        if (slackChannelId != null && !slackChannelId.isBlank()) this.slackChannelId = slackChannelId;
+        if (botToken != null && !botToken.isBlank()) this.botToken = botToken;
+        if (signingSecret != null && !signingSecret.isBlank()) this.signingSecret = signingSecret;
     }
 }

@@ -9,6 +9,10 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
+
+import java.time.LocalDateTime;
 
 /**
  * Workspace 내에서 GitHub Repository 접근을 위해 사용되는 Personal Access Token(PAT) 정보를 저장하는 도메인 엔티티입니다.
@@ -25,6 +29,8 @@ import lombok.NoArgsConstructor;
         justification = "JPA 연관 엔티티 반환은 Spring 컨텍스트에서 관리됨")
 @Entity
 @Table(name = "github_credentials")
+@SQLDelete(sql = "UPDATE github_credentials SET deleted_at = NOW() WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class GithubCredential extends BaseEntity {
@@ -43,11 +49,19 @@ public class GithubCredential extends BaseEntity {
     @Column(nullable = false)
     private Long createdByMemberId;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Builder
     public GithubCredential(Workspace workspace, String displayName, String token, Long createdByMemberId) {
         this.workspace = workspace;
         this.displayName = displayName;
         this.token = token;
         this.createdByMemberId = createdByMemberId;
+    }
+
+    public void update(String displayName, String token) {
+        if (displayName != null && !displayName.isBlank()) this.displayName = displayName;
+        if (token != null && !token.isBlank()) this.token = token;
     }
 }

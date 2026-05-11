@@ -1,18 +1,16 @@
 package back.domain.slack.controller;
 
-import back.domain.slack.service.SlackIntegrationService;
-import back.testUtil.WebMvcTestSupport;
 import back.domain.slack.dto.request.SlackIntegrationCreateReq;
+import back.domain.slack.dto.request.SlackIntegrationUpdateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
+import back.domain.slack.service.SlackIntegrationService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
-import back.global.security.AuthenticatedMember;
+import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
@@ -20,12 +18,12 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 
 @WebMvcTest(SlackIntegrationController.class)
 class SlackIntegrationControllerTest extends WebMvcTestSupport {
@@ -33,51 +31,43 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
     @MockitoBean
     private SlackIntegrationService slackIntegrationService;
 
-    // 인증된 사용자 Security Context 생성을 위한 유틸리티 메서드
-    private UsernamePasswordAuthenticationToken createTestAuthentication(Long memberId, String role) {
-        AuthenticatedMember authenticatedMember = new AuthenticatedMember(memberId, role);
-        return new UsernamePasswordAuthenticationToken(
-                authenticatedMember, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-    }
-
     @Test
-    @DisplayName("유효한 요청이 들어오면 201 Created와 함께 마스킹된 데이터를 반환한다.")
+    @DisplayName("유효한 연동 정보로 등록을 요청하면 201 Created를 반환한다.")
     void createSlackIntegration_success() throws Exception {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
         SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "T123", "C123", "xoxb-secret-token", "secret-key"
+                "T12345", "C12345", "xoxb-real-bot-token-for-test", "secret-key"
         );
-        SlackIntegrationInfoRes mockRes = new SlackIntegrationInfoRes(
-                10L, "T123", "C123", "xoxb-****oken"
+
+        SlackIntegrationInfoRes res = new SlackIntegrationInfoRes(
+                10L, "T12345", "C12345", "xoxb-****test"
         );
 
         given(slackIntegrationService.createSlackIntegration(eq(workspaceId), eq(memberId), any(SlackIntegrationCreateReq.class)))
-                .willReturn(mockRes);
+                .willReturn(res);
 
         // when & then
         mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/slack/integrations", workspaceId)
-                        .with(csrf()) // 스프링 시큐리티 설정에 따라 필요 시 추가
+                        .with(csrf())
                         .with(authentication(createTestAuthentication(memberId, "ADMIN")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.message").value("Slack 연동 정보가 성공적으로 등록되었습니다."))
-                .andExpect(jsonPath("$.data.slackTeamId").value("T123"))
-                .andExpect(jsonPath("$.data.maskedBotToken").value("xoxb-****oken"));
+                .andExpect(jsonPath("$.data.id").value(10L))
+                .andExpect(jsonPath("$.data.slackTeamId").value("T12345"))
+                .andExpect(jsonPath("$.data.maskedBotToken").value("xoxb-****test"));
     }
 
     @Test
-    @DisplayName("필수 파라미터가 누락되면 400 Bad Request를 반환한다. (Validation 검증)")
+    @DisplayName("필수 필드가 누락된 상태로 등록을 요청하면 400 Bad Request를 반환한다.")
     void createSlackIntegration_validation_fail() throws Exception {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
-
-        // botToken이 공백인 잘못된 요청
         SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "T123", "C123", "", "secret-key"
+                "", "C12345", "xoxb-token", "secret"
         );
 
         // when & then
@@ -86,7 +76,7 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
                         .with(authentication(createTestAuthentication(memberId, "ADMIN")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(req)))
-                .andExpect(status().isBadRequest()); // GlobalExceptionHandler의 처리에 따라 세부 jsonPath가 달라질 수 있음
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -99,7 +89,6 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
                 "T123", "C123", "xoxb-token", "secret"
         );
 
-        // 서비스가 중복 예외를 던진다고 가정
         given(slackIntegrationService.createSlackIntegration(eq(workspaceId), eq(memberId), any(SlackIntegrationCreateReq.class)))
                 .willThrow(new ServiceException(
                         CommonErrorCode.CONFLICT,
@@ -114,5 +103,66 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
                         .content(jsonMapper.writeValueAsString(req)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("해당 Slack 채널은 이미 Workspace에 연동되어 있습니다."));
+    }
+
+    @Test
+    @DisplayName("워크스페이스에 등록된 슬랙 연동 정보 목록을 조회하면 200 OK를 반환한다.")
+    void getSlackIntegrations_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        SlackIntegrationInfoRes res = new SlackIntegrationInfoRes(10L, "T12345", "C12345", "xoxb-****test");
+
+        given(slackIntegrationService.getSlackIntegrations(workspaceId, memberId))
+                .willReturn(List.of(res));
+
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/{workspaceId}/slack/integrations", workspaceId)
+                        .with(authentication(createTestAuthentication(memberId, "MEMBER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(10L))
+                .andExpect(jsonPath("$.data[0].slackTeamId").value("T12345"));
+    }
+
+    @Test
+    @DisplayName("슬랙 연동 정보 수정 요청 시 200 OK와 수정된 결과를 반환한다.")
+    void updateSlackIntegration_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long integrationId = 10L;
+        Long memberId = 100L;
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null, null);
+
+        SlackIntegrationInfoRes res = new SlackIntegrationInfoRes(10L, "T12345", "C999", "xoxb-****test");
+
+        given(slackIntegrationService.updateSlackIntegration(eq(workspaceId), eq(integrationId), eq(memberId), any(SlackIntegrationUpdateReq.class)))
+                .willReturn(res);
+
+        // when & then
+        mockMvc.perform(patch("/api/v1/workspaces/{workspaceId}/slack/integrations/{integrationId}", workspaceId, integrationId)
+                        .with(csrf())
+                        .with(authentication(createTestAuthentication(memberId, "ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.slackChannelId").value("C999"));
+    }
+
+    @Test
+    @DisplayName("슬랙 연동 정보 삭제 요청 시 200 OK를 반환한다.")
+    void deleteSlackIntegration_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long integrationId = 10L;
+        Long memberId = 100L;
+
+        doNothing().when(slackIntegrationService).deleteSlackIntegration(workspaceId, integrationId, memberId);
+
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/{workspaceId}/slack/integrations/{integrationId}", workspaceId, integrationId)
+                        .with(csrf())
+                        .with(authentication(createTestAuthentication(memberId, "ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Slack 연동 정보가 성공적으로 삭제되었습니다."));
     }
 }
