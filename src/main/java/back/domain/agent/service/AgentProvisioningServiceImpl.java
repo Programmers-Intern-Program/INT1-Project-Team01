@@ -14,6 +14,7 @@ import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillFile;
+import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.repository.AgentSkillFileRepository;
 import back.domain.gateway.client.OpenClawAgentCreateCommand;
@@ -181,7 +182,10 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
     }
 
     private void validateDuplicateAgentName(Long workspaceId, String agentName) {
-        if (agentRepository.existsByWorkspaceIdAndName(workspaceId, agentName)) {
+        if (agentRepository.existsByWorkspaceIdAndNameAndStatusNot(
+                workspaceId,
+                agentName,
+                AgentStatus.DISABLED)) {
             throw new ServiceException(
                     CommonErrorCode.CONFLICT,
                     "[AgentProvisioningServiceImpl#validateDuplicateAgentName] duplicate agent name",
