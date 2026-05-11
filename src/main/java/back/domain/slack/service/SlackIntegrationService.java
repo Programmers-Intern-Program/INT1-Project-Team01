@@ -17,6 +17,23 @@ import java.util.List;
 public interface SlackIntegrationService {
 
     /**
+     * Slack OAuth 2.0 연동을 시작하기 위한 설치 URL을 생성합니다.
+     *
+     * @param workspaceId 연동할 Workspace 식별자
+     * @param memberId    요청하는 사용자(ADMIN) 식별자
+     * @return Slack 인증 페이지 리다이렉트 URL
+     */
+    String getOAuthInstallUrl(Long workspaceId, Long memberId);
+
+    /**
+     * Slack OAuth 승인 완료 후 콜백을 처리하여 토큰을 발급받고 연동 정보를 DB에 저장합니다.
+     *
+     * @param code  Slack이 전달한 일회성 인가 코드
+     * @param state 요청 시 전달했던 상태 값 (workspaceId 등 암호화 정보)
+     */
+    void handleOAuthCallback(String code, String state);
+
+    /**
      * Slack 채널과 Workspace 간의 연동 정보를 새롭게 등록합니다.
      */
     SlackIntegrationInfoRes createSlackIntegration(Long workspaceId, Long memberId, SlackIntegrationCreateReq req);
