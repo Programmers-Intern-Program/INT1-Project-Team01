@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
+import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
 import back.domain.gateway.dto.response.WorkspaceGatewayBindingRes;
+import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.global.response.RsData;
 import back.global.security.AuthenticatedMember;
@@ -18,13 +20,13 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/v1/workspaces/{workspaceId}/gateway/binding")
+@RequestMapping("/api/v1/workspaces/{workspaceId}/gateway")
 @RequiredArgsConstructor
 public class WorkspaceGatewayBindingController {
 
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
 
-    @PostMapping
+    @PostMapping("/binding")
     public ResponseEntity<RsData<WorkspaceGatewayBindingRes>> bindExternalGateway(
             @PathVariable Long workspaceId,
             @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
@@ -33,5 +35,16 @@ public class WorkspaceGatewayBindingController {
                 workspaceId, authenticatedMember.memberId(), request);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(new RsData<>(response, "Workspace Gateway 설정이 저장되었습니다."));
+    }
+
+    @PostMapping("/connection-test")
+    public ResponseEntity<RsData<WorkspaceGatewayConnectionTestRes>> testExternalGateway(
+            @PathVariable Long workspaceId,
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
+            @RequestBody @Valid WorkspaceGatewayConnectionTestReq request) {
+        WorkspaceGatewayConnectionTestRes response = workspaceGatewayBindingService.testExternalGateway(
+                workspaceId, authenticatedMember.memberId(), request);
+
+        return ResponseEntity.ok(new RsData<>(response, "Workspace Gateway 연결 테스트가 완료되었습니다."));
     }
 }

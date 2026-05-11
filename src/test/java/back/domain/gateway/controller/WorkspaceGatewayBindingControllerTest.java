@@ -11,23 +11,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.List;
 
-import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
 
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
+import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
+import back.domain.gateway.dto.response.GatewayConnectionTestStatus;
 import back.domain.gateway.dto.response.WorkspaceGatewayBindingRes;
+import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
 import back.domain.gateway.entity.GatewayMode;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.global.security.AuthenticatedMember;
-import tools.jackson.databind.json.JsonMapper;
+import back.testUtil.WebMvcTestSupport;
 
 @WebMvcTest(WorkspaceGatewayBindingController.class)
 class WorkspaceGatewayBindingControllerTest extends WebMvcTestSupport {
@@ -59,6 +59,37 @@ class WorkspaceGatewayBindingControllerTest extends WebMvcTestSupport {
                 .andExpect(jsonPath("$.data.id").value(100L))
                 .andExpect(jsonPath("$.data.gatewayUrl").value("ws://localhost:34115"))
                 .andExpect(jsonPath("$.data.maskedToken").value("gate****oken"));
+    }
+
+    @Test
+    @DisplayName("Gateway 연결 테스트 요청이 유효하면 연결 상태를 반환한다")
+    void testExternalGateway_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 10L;
+        WorkspaceGatewayConnectionTestRes response = new WorkspaceGatewayConnectionTestRes(
+                GatewayConnectionTestStatus.CONNECTED,
+                true,
+                "wss://gateway.example.com",
+                "OpenClaw Gateway 연결에 성공했습니다.",
+                2);
+        given(workspaceGatewayBindingService.testExternalGateway(
+                        eq(workspaceId), eq(memberId), any(WorkspaceGatewayConnectionTestReq.class)))
+                .willReturn(response);
+
+        // when & then
+        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/gateway/connection-test", workspaceId)
+                        .with(csrf())
+                        .with(authentication(createTestAuthentication(memberId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(new WorkspaceGatewayConnectionTestReq(
+                                "https://gateway.example.com", "gateway-secret-token"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Workspace Gateway 연결 테스트가 완료되었습니다."))
+                .andExpect(jsonPath("$.data.status").value("CONNECTED"))
+                .andExpect(jsonPath("$.data.connected").value(true))
+                .andExpect(jsonPath("$.data.gatewayUrl").value("wss://gateway.example.com"))
+                .andExpect(jsonPath("$.data.agentCount").value(2));
     }
 
     @Test
