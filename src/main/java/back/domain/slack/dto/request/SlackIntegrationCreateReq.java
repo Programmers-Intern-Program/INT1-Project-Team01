@@ -10,9 +10,6 @@ public record SlackIntegrationCreateReq(
         String slackChannelId,
 
         @NotBlank(message = "Bot Token은 필수입니다.")
-        String botToken,
-
-        @NotBlank(message = "Signing Secret은 필수입니다.")
-        String signingSecret
+        String botToken
 ) {
 }
