@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
@@ -30,6 +31,11 @@ import back.domain.agent.repository.AgentRepository;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
+import back.domain.chat.entity.ChatMessage;
+import back.domain.chat.entity.ChatSession;
+import back.domain.chat.entity.ChatSessionSource;
+import back.domain.chat.repository.ChatMessageRepository;
+import back.domain.chat.repository.ChatSessionRepository;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.service.AgentExecutionResult;
 import back.domain.execution.service.AgentExecutionResultParser;
@@ -46,6 +52,7 @@ import back.domain.orchestrator.entity.OrchestrationPlanStep;
 import back.domain.orchestrator.entity.OrchestrationPlanStepStatus;
 import back.domain.orchestrator.repository.OrchestrationPlanRepository;
 import back.domain.orchestrator.repository.OrchestrationPlanStepRepository;
+import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.domain.workspace.entity.Workspace;
 
 @ExtendWith(MockitoExtension.class)
@@ -78,8 +85,18 @@ class OrchestrationPlanRunnerImplTest {
     @Mock
     private WorkspaceArtifactStorage workspaceArtifactStorage;
 
+    @Mock
+    private ChatSessionRepository chatSessionRepository;
+
+    @Mock
+    private ChatMessageRepository chatMessageRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private OrchestrationPlanRunnerImpl orchestrationPlanRunner;
     private OrchestrationPlan plan;
+    private ChatSession chatSession;
     private OrchestrationPlanStep backendStep;
     private OrchestrationPlanStep frontendStep;
     private Agent backendAgent;
@@ -95,7 +112,10 @@ class OrchestrationPlanRunnerImplTest {
                 workspaceGatewayBindingService,
                 openClawGatewayClientFactory,
                 agentExecutionResultParser,
-                workspaceArtifactStorage);
+                workspaceArtifactStorage,
+                chatSessionRepository,
+                chatMessageRepository,
+                eventPublisher);
         given(transactionOperations.execute(any())).willAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
@@ -103,6 +123,8 @@ class OrchestrationPlanRunnerImplTest {
 
         plan = OrchestrationPlan.create(1L, 10L, 100L, 1000L, "회원가입 구현 계획", "{}");
         ReflectionTestUtils.setField(plan, "id", 500L);
+        chatSession = ChatSession.start(1L, 100L, ChatSessionSource.WEB, null, "chat-session-key");
+        ReflectionTestUtils.setField(chatSession, "id", 10L);
         backendStep = OrchestrationPlanStep.create(
                 plan,
                 2,
@@ -134,6 +156,11 @@ class OrchestrationPlanRunnerImplTest {
         lenient().when(orchestrationPlanRepository.save(any(OrchestrationPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(orchestrationPlanStepRepository.save(any(OrchestrationPlanStep.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(chatSessionRepository.findByIdAndWorkspaceId(10L, 1L)).thenReturn(Optional.of(chatSession));
+        lenient().when(chatSessionRepository.save(any(ChatSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(chatMessageRepository.save(any(ChatMessage.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -192,7 +219,57 @@ class OrchestrationPlanRunnerImplTest {
                 .containsExactly("openclaw-backend", "openclaw-frontend");
         assertThat(commandCaptor.getAllValues().getLast().message())
                 .contains("backend-1: 백엔드 완료 files=src/main/java/App.java");
+        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getOrchestrationPlanId()).isEqualTo(500L);
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("Orchestration 실행이 완료되었습니다.", "- 상태: COMPLETED", "backend-1: 백엔드 완료");
         verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Slack 세션에서 시작된 Orchestration은 최종 요약을 Slack reply 이벤트로 발행한다")
+    void run_slackSessionPublishesFinalReply() {
+        // given
+        ChatSession slackSession =
+                ChatSession.start(1L, 100L, ChatSessionSource.SLACK, "T123:C123:999.000", "slack-session-key");
+        ReflectionTestUtils.setField(slackSession, "id", 10L);
+        given(chatSessionRepository.findByIdAndWorkspaceId(10L, 1L)).willReturn(Optional.of(slackSession));
+        stubPlanAndSteps();
+        given(workspaceGatewayBindingService.getConnectionContext(1L))
+                .willReturn(new OpenClawGatewayConnectionContext("ws://localhost:18789", "gateway-token"));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.BACKEND, AgentStatus.READY))
+                .willReturn(Optional.of(backendAgent));
+        given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.FRONTEND, AgentStatus.READY))
+                .willReturn(Optional.of(frontendAgent));
+        given(workspaceArtifactStorage.resolveProjectRoot(1L))
+                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willReturn(
+                        new OpenClawChatResult("backend-session", "backend final"),
+                        new OpenClawChatResult("frontend-session", "frontend final"));
+        given(agentExecutionResultParser.parse("backend final"))
+                .willReturn(new AgentExecutionResult(
+                        new AgentReportSaveRequest("COMPLETED", "백엔드 완료", "API 구현 완료", null),
+                        List.of()));
+        given(agentExecutionResultParser.parse("frontend final"))
+                .willReturn(new AgentExecutionResult(
+                        new AgentReportSaveRequest("COMPLETED", "프론트 완료", "화면 구현 완료", null),
+                        List.of()));
+
+        // when
+        orchestrationPlanRunner.run(1L, 500L);
+
+        // then
+        ArgumentCaptor<SlackReplyRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(SlackReplyRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().sourceRef()).isEqualTo("T123:C123:999.000");
+        assertThat(eventCaptor.getValue().message()).contains("Orchestration 실행이 완료되었습니다.");
+        assertThat(eventCaptor.getValue().deduplicationKey()).isEqualTo("slack-orchestration-plan-500-COMPLETED");
     }
 
     @Test
@@ -227,6 +304,10 @@ class OrchestrationPlanRunnerImplTest {
         verify(agentRepository, never())
                 .findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY);
+        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("Orchestration 실행이 실패했습니다.", "- 실패 step: backend-1", "- 사유: 테스트 실패");
         verify(openClawGatewayClient).close();
     }
 
@@ -262,6 +343,10 @@ class OrchestrationPlanRunnerImplTest {
         verify(agentRepository, never())
                 .findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY);
+        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("Orchestration 실행이 취소되었습니다.", "- 취소 step: backend-1", "- 사유: 사용자 취소");
         verify(openClawGatewayClient).close();
     }
 

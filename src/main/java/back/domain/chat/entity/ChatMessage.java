@@ -40,6 +40,9 @@ public class ChatMessage extends BaseEntity {
     @Column(name = "task_execution_id")
     private Long taskExecutionId;
 
+    @Column(name = "orchestration_plan_id")
+    private Long orchestrationPlanId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ChatMessageRole role;
@@ -52,22 +55,24 @@ public class ChatMessage extends BaseEntity {
             Long chatSessionId,
             Long taskId,
             Long taskExecutionId,
+            Long orchestrationPlanId,
             ChatMessageRole role,
             String content) {
         this.workspaceId = requireId(workspaceId, "workspaceId");
         this.chatSessionId = requireId(chatSessionId, "chatSessionId");
         this.taskId = requireOptionalId(taskId, "taskId");
         this.taskExecutionId = requireOptionalId(taskExecutionId, "taskExecutionId");
+        this.orchestrationPlanId = requireOptionalId(orchestrationPlanId, "orchestrationPlanId");
         this.role = requireRole(role);
         this.content = requireNotBlank(content, "content");
     }
 
     public static ChatMessage user(Long workspaceId, Long chatSessionId, String content) {
-        return new ChatMessage(workspaceId, chatSessionId, null, null, ChatMessageRole.USER, content);
+        return new ChatMessage(workspaceId, chatSessionId, null, null, null, ChatMessageRole.USER, content);
     }
 
     public static ChatMessage assistant(Long workspaceId, Long chatSessionId, String content) {
-        return new ChatMessage(workspaceId, chatSessionId, null, null, ChatMessageRole.ASSISTANT, content);
+        return new ChatMessage(workspaceId, chatSessionId, null, null, null, ChatMessageRole.ASSISTANT, content);
     }
 
     public static ChatMessage assistantForTask(
@@ -77,12 +82,25 @@ public class ChatMessage extends BaseEntity {
                 chatSessionId,
                 requireId(taskId, "taskId"),
                 requireOptionalId(taskExecutionId, "taskExecutionId"),
+                null,
+                ChatMessageRole.ASSISTANT,
+                content);
+    }
+
+    public static ChatMessage assistantForOrchestration(
+            Long workspaceId, Long chatSessionId, Long orchestrationPlanId, String content) {
+        return new ChatMessage(
+                workspaceId,
+                chatSessionId,
+                null,
+                null,
+                requireId(orchestrationPlanId, "orchestrationPlanId"),
                 ChatMessageRole.ASSISTANT,
                 content);
     }
 
     public static ChatMessage system(Long workspaceId, Long chatSessionId, String content) {
-        return new ChatMessage(workspaceId, chatSessionId, null, null, ChatMessageRole.SYSTEM, content);
+        return new ChatMessage(workspaceId, chatSessionId, null, null, null, ChatMessageRole.SYSTEM, content);
     }
 
     public void linkTask(Long taskId, Long taskExecutionId) {
@@ -96,6 +114,14 @@ public class ChatMessage extends BaseEntity {
         }
         this.taskId = nextTaskId;
         this.taskExecutionId = nextTaskExecutionId;
+    }
+
+    public void linkOrchestrationPlan(Long orchestrationPlanId) {
+        Long nextOrchestrationPlanId = requireId(orchestrationPlanId, "orchestrationPlanId");
+        if (this.orchestrationPlanId != null && !this.orchestrationPlanId.equals(nextOrchestrationPlanId)) {
+            throw new IllegalStateException("message is already linked to another orchestration plan");
+        }
+        this.orchestrationPlanId = nextOrchestrationPlanId;
     }
 
     private static Long requireId(Long value, String fieldName) {

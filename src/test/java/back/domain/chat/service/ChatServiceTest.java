@@ -518,6 +518,7 @@ class ChatServiceTest {
         assertThat(plan.getTitle()).isEqualTo("회원가입 기능 구현 계획");
         assertThat(plan.getOrchestratorAgentId()).isEqualTo(orchestratorAgentId);
         assertThat(plan.getAssistantMessageId()).isEqualTo(response.messages().getLast().messageId());
+        assertThat(response.messages().getLast().orchestrationPlanId()).isEqualTo(plan.getId());
 
         List<OrchestrationPlanStep> steps =
                 orchestrationPlanStepRepository.findByPlanIdOrderBySequenceNoAscIdAsc(plan.getId());

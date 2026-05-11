@@ -12,6 +12,7 @@ public record ChatMessageResponse(
         Long chatSessionId,
         Long taskId,
         Long taskExecutionId,
+        Long orchestrationPlanId,
         ChatMessageRole role,
         String content,
         LocalDateTime createdAt) {
@@ -22,6 +23,7 @@ public record ChatMessageResponse(
                 message.getChatSessionId(),
                 message.getTaskId(),
                 message.getTaskExecutionId(),
+                message.getOrchestrationPlanId(),
                 message.getRole(),
                 message.getContent(),
                 message.getCreatedAt());
