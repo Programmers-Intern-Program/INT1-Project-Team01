@@ -2,6 +2,7 @@ package back.domain.slack.client;
 
 import back.domain.slack.dto.request.SlackMessageReq;
 import back.domain.slack.dto.response.SlackMessageRes;
+import back.domain.slack.dto.response.SlackOAuthAccessRes;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
@@ -9,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 @Slf4j
@@ -22,6 +25,7 @@ public class SlackClientImpl implements SlackClient {
 
     private final RestClient restClient;
     private static final String SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage";
+    private static final String SLACK_OAUTH_ACCESS_URL = "https://slack.com/api/oauth.v2.access";
 
     @Override
     public void sendMessage(String botToken, SlackMessageReq request) {
@@ -56,6 +60,50 @@ public class SlackClientImpl implements SlackClient {
                     CommonErrorCode.INTERNAL_SERVER_ERROR,
                     "[SlackClientImpl#sendMessage] Slack API network error: " + e.getMessage(),
                     "Slack 시스템과 통신하는 중 문제가 발생했습니다."
+            );
+        }
+    }
+
+    @Override
+    public SlackOAuthAccessRes exchangeToken(String code, String clientId, String clientSecret, String redirectUri) {
+        log.debug("Slack OAuth 토큰 교환 시도");
+
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        formData.add("code", code);
+        formData.add("client_id", clientId);
+        formData.add("client_secret", clientSecret);
+        if (redirectUri != null && !redirectUri.isBlank()) {
+            formData.add("redirect_uri", redirectUri);
+        }
+
+        try {
+            SlackOAuthAccessRes response = restClient.post()
+                    .uri(SLACK_OAUTH_ACCESS_URL)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(formData)
+                    .retrieve()
+                    .body(SlackOAuthAccessRes.class);
+
+            if (response == null || !response.ok()) {
+                String errorMessage = response != null ? response.error() : "Unknown error";
+                throw new ServiceException(
+                        CommonErrorCode.INTERNAL_SERVER_ERROR,
+                        "[SlackClientImpl#exchangeToken] Slack OAuth logical error: " + errorMessage,
+                        "Slack 인증에 실패했습니다. (error: " + errorMessage + ")"
+                );
+            }
+
+            log.info("Slack OAuth 토큰 교환 성공. teamId: {}", response.team().id());
+            return response;
+
+        } catch (ServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Slack OAuth 통신 중 네트워크 오류 발생", e);
+            throw new ServiceException(
+                    CommonErrorCode.INTERNAL_SERVER_ERROR,
+                    "[SlackClientImpl#exchangeToken] Slack API network error: " + e.getMessage(),
+                    "Slack 인증 서버와 통신하는 중 문제가 발생했습니다."
             );
         }
     }
