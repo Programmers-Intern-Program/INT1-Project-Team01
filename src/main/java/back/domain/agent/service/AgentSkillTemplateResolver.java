@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.springframework.core.io.ClassPathResource;
@@ -19,18 +20,17 @@ import back.global.exception.ServiceException;
 @Component
 public class AgentSkillTemplateResolver {
 
+    private static final String OPENCLAW_AGENT_FILE_NAME = "AGENTS.md";
+
     private static final List<TemplateResource> COMMON_TEMPLATES =
-            List.of(new TemplateResource("COMMON.md", "agent-templates/common/COMMON.md"));
+            List.of(new TemplateResource("agent-templates/common/COMMON.md"));
 
     private static final Map<AgentCategory, List<TemplateResource>> CATEGORY_TEMPLATES = Map.of(
             AgentCategory.ORCHESTRATOR,
-            List.of(new TemplateResource("ORCHESTRATOR.md", "agent-templates/orchestrator/ORCHESTRATOR.md")),
-            AgentCategory.BACKEND,
-            List.of(new TemplateResource("BACKEND.md", "agent-templates/backend/BACKEND.md")),
-            AgentCategory.FRONTEND,
-            List.of(new TemplateResource("FRONTEND.md", "agent-templates/frontend/FRONTEND.md")),
-            AgentCategory.QA,
-            List.of(new TemplateResource("QA.md", "agent-templates/qa/QA.md")));
+            List.of(new TemplateResource("agent-templates/orchestrator/ORCHESTRATOR.md")),
+            AgentCategory.BACKEND, List.of(new TemplateResource("agent-templates/backend/BACKEND.md")),
+            AgentCategory.FRONTEND, List.of(new TemplateResource("agent-templates/frontend/FRONTEND.md")),
+            AgentCategory.QA, List.of(new TemplateResource("agent-templates/qa/QA.md")));
 
     private final Map<AgentCategory, List<AgentSkillFileReq>> templatesByCategory;
 
@@ -47,15 +47,15 @@ public class AgentSkillTemplateResolver {
         Map<AgentCategory, List<AgentSkillFileReq>> templates = new EnumMap<>(AgentCategory.class);
         for (AgentCategory category : AgentCategory.values()) {
             List<TemplateResource> categoryTemplates = CATEGORY_TEMPLATES.getOrDefault(category, List.of());
-            List<AgentSkillFileReq> skillFiles = Stream.concat(COMMON_TEMPLATES.stream(), categoryTemplates.stream())
+            String content = Stream.concat(COMMON_TEMPLATES.stream(), categoryTemplates.stream())
                     .map(this::readTemplate)
-                    .toList();
-            templates.put(category, skillFiles);
+                    .collect(Collectors.joining("\n\n"));
+            templates.put(category, List.of(new AgentSkillFileReq(OPENCLAW_AGENT_FILE_NAME, content)));
         }
         return Map.copyOf(templates);
     }
 
-    private AgentSkillFileReq readTemplate(TemplateResource template) {
+    private String readTemplate(TemplateResource template) {
         ClassPathResource resource = new ClassPathResource(template.path());
         if (!resource.exists()) {
             throw new ServiceException(
@@ -64,8 +64,7 @@ public class AgentSkillTemplateResolver {
                     "Agent Skill 템플릿을 찾지 못했습니다.");
         }
         try {
-            String content = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-            return new AgentSkillFileReq(template.fileName(), content);
+            return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
             throw new ServiceException(
                     CommonErrorCode.INTERNAL_SERVER_ERROR,
@@ -77,5 +76,5 @@ public class AgentSkillTemplateResolver {
         }
     }
 
-    private record TemplateResource(String fileName, String path) {}
+    private record TemplateResource(String path) {}
 }
