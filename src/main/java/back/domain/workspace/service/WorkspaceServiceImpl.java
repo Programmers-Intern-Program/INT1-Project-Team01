@@ -135,6 +135,15 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         workspaceMemberRepository.delete(targetMember);
     }
 
+    // Workspace 나가기 (워크스페이스는 삭제하지 않고 요청자의 멤버십만 제거)
+    @Override
+    @Transactional
+    public void leaveWorkspace(long workspaceId, long memberId) {
+        WorkspaceMember workspaceMember = workspaceAccessValidator.requireMember(workspaceId, memberId);
+        validateLastAdminIsKept(workspaceMember, null);
+        workspaceMemberRepository.delete(workspaceMember);
+    }
+
     // Workspace 초대 링크 생성 (Admin만 가능)
     @Override
     @Transactional

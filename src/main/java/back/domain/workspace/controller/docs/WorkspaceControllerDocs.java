@@ -443,6 +443,49 @@ public interface WorkspaceControllerDocs {
             @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId,
             @Parameter(description = "삭제할 멤버 ID", example = "102") long memberId);
 
+    @Operation(summary = "워크스페이스 나가기", description = "로그인한 사용자가 워크스페이스에서 나갑니다. 워크스페이스 자체는 삭제하지 않으며, 마지막 ADMIN은 나갈 수 없습니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "워크스페이스 나가기 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스에서 나갔습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "마지막 ADMIN 나가기 시도",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스의 마지막 관리자는 변경하거나 제거할 수 없습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"로그인이 필요합니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "워크스페이스 멤버가 아님",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스 접근 권한이 없습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "워크스페이스를 찾을 수 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
+    })
+    ResponseEntity<RsData<Void>> leaveWorkspace(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
+
     @Operation(summary = "워크스페이스 초대 링크 생성", description = "워크스페이스 초대 링크를 생성합니다. ADMIN 역할만 가능하며, 만료일은 기본 7일입니다.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({

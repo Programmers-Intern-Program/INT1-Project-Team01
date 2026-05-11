@@ -107,6 +107,17 @@ public interface WorkspaceService {
     void removeMember(long workspaceId, long targetMemberId, long requesterId);
 
     /**
+     * 요청자가 워크스페이스에서 나갑니다. 워크스페이스 자체는 삭제하지 않습니다.
+     *
+     * @param workspaceId 대상 워크스페이스 ID
+     * @param memberId    나가기 요청자의 회원 ID
+     * @throws ServiceException 워크스페이스가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 워크스페이스에 속하지 않는 경우 (FORBIDDEN)
+     * @throws ServiceException 마지막 ADMIN인 경우 (BAD_REQUEST_STATE)
+     */
+    void leaveWorkspace(long workspaceId, long memberId);
+
+    /**
      * 워크스페이스 초대 링크를 생성합니다.
      *
      * @param workspaceId  대상 워크스페이스 ID

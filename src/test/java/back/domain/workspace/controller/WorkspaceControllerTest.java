@@ -193,6 +193,27 @@ class WorkspaceControllerTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 나가기 성공")
+    void leaveWorkspace_success() throws Exception {
+        // given
+        doNothing().when(workspaceService).leaveWorkspace(anyLong(), anyLong());
+
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/1/members/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("워크스페이스에서 나갔습니다."));
+    }
+
+    @Test
+    @DisplayName("워크스페이스 나가기 - 인증 없을 때 401")
+    void leaveWorkspace_noAuth_returns401() throws Exception {
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/1/members/me"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("초대 링크 생성 성공")
     void createInviteLink_success() throws Exception {
         // given
