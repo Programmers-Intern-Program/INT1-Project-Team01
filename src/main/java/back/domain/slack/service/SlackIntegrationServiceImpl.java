@@ -42,6 +42,8 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Override
     @Transactional(readOnly = true)
     public String getOAuthInstallUrl(Long workspaceId, Long memberId) {
+        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
+        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         String payload = workspaceId + ":" + memberId;
@@ -59,6 +61,8 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Transactional
     public void handleOAuthCallback(String code, String state) {
 
+        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
+        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
         String decodedState;
         try {
             decodedState = new String(Base64.getUrlDecoder().decode(state), StandardCharsets.UTF_8);
@@ -71,8 +75,14 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
             throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state format", "유효하지 않은 상태 값 포맷입니다.");
         }
 
-        Long workspaceId = Long.parseLong(parts[0]);
-        Long memberId = Long.parseLong(parts[1]);
+        Long workspaceId;
+        Long memberId;
+        try {
+            workspaceId = Long.parseLong(parts[0]);
+            memberId = Long.parseLong(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state values", "유효하지 않은 상태 값입니다.");
+        }
 
         SlackOAuthAccessRes response = slackClient.exchangeToken(code, clientId, clientSecret, redirectUri);
 
@@ -80,20 +90,24 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
         String channelId = response.incomingWebhook().channelId();
         String botToken = response.accessToken();
 
-        if (!slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(teamId, channelId)) {
-            SlackIntegration integration = SlackIntegration.builder()
-                    .workspaceId(workspaceId)
-                    .slackTeamId(teamId)
-                    .slackChannelId(channelId)
-                    .botToken(botToken)
-                    .createdByMemberId(memberId)
-                    .build();
-
-            slackIntegrationRepository.save(integration);
-            log.info("Slack OAuth 연동 성공. WorkspaceId: {}, TeamId: {}, ChannelId: {}", workspaceId, teamId, channelId);
-        } else {
-            log.info("이미 연동된 Slack 채널입니다. 저장을 건너뜁니다. WorkspaceId: {}, ChannelId: {}", workspaceId, channelId);
-        }
+        slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId(teamId, channelId)
+                .ifPresentOrElse(
+                        existing -> {
+                            existing.update(null, null, botToken);
+                            log.info("Slack 토큰 갱신 완료. WorkspaceId: {}, TeamId: {}, ChannelId: {}", workspaceId, teamId, channelId);
+                        },
+                        () -> {
+                            SlackIntegration integration = SlackIntegration.builder()
+                                    .workspaceId(workspaceId)
+                                    .slackTeamId(teamId)
+                                    .slackChannelId(channelId)
+                                    .botToken(botToken)
+                                    .createdByMemberId(memberId)
+                                    .build();
+                            slackIntegrationRepository.save(integration);
+                            log.info("Slack OAuth 연동 성공. WorkspaceId: {}, TeamId: {}, ChannelId: {}", workspaceId, teamId, channelId);
+                        }
+                );
     }
 
     @Override

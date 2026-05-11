@@ -80,7 +80,7 @@ class SlackIntegrationServiceImplTest {
 
     @Test
     @DisplayName("OAuth 콜백 처리 시 코드를 토큰으로 교환하고 중복이 아니면 DB에 저장한다.")
-    void handleOAuthCallback_success() {
+    void handleOAuthCallback_newIntegration_success() {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
@@ -93,13 +93,44 @@ class SlackIntegrationServiceImplTest {
         SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-token", team, webhook, null);
 
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
-        given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId("T12345", "C12345")).willReturn(false);
+        given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
+                .willReturn(Optional.empty()); // 신규
 
         // when
         slackIntegrationService.handleOAuthCallback(code, state);
 
         // then
         verify(slackIntegrationRepository).save(any(SlackIntegration.class));
+    }
+
+    @Test
+    @DisplayName("OAuth 콜백 처리 시 이미 연동된 채널이면 토큰만 갱신한다.")
+    void handleOAuthCallback_existingIntegration_updatesToken() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String code = "test-code";
+        String payload = workspaceId + ":" + memberId;
+        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+
+        SlackOAuthAccessRes.Team team = new SlackOAuthAccessRes.Team("T12345", "Test Team");
+        SlackOAuthAccessRes.IncomingWebhook webhook = new SlackOAuthAccessRes.IncomingWebhook("C12345", "https://url");
+        SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-newtoken", team, webhook, null);
+
+        SlackIntegration existing = SlackIntegration.builder()
+                .workspaceId(workspaceId).slackTeamId("T12345").slackChannelId("C12345")
+                .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
+
+        given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
+        given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
+                .willReturn(Optional.of(existing)); // 기존 존재
+
+        // when
+        slackIntegrationService.handleOAuthCallback(code, state);
+
+        // then
+        assertThat(existing.getBotToken()).isEqualTo("xoxb-newtoken");
+        verify(slackIntegrationRepository, Mockito.never()).save(any()); // save 호출 안 됨
     }
 
     @Test
