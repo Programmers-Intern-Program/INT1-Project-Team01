@@ -23,6 +23,7 @@ import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.exception.OpenClawGatewayException;
+import back.domain.gateway.service.GatewayConnectionFailureResolver;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.enums.WorkspaceMemberRole;
@@ -99,7 +100,7 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
             target.agent().markOpenClawCreated(summary.agentId());
             syncSkillFiles(client, target.agent(), target.skillFiles());
         } catch (OpenClawGatewayException exception) {
-            target.agent().markError(exception.getClientMessage());
+            target.agent().markError(GatewayConnectionFailureResolver.resolveClientMessage(exception));
         } finally {
             client.close();
         }
@@ -113,7 +114,7 @@ public class AgentProvisioningServiceImpl implements AgentProvisioningService {
                         agent.getOpenClawAgentId(), skillFile.getFileName(), skillFile.getContent()));
                 skillFile.markSynced();
             } catch (OpenClawGatewayException exception) {
-                skillFile.markFailed(exception.getClientMessage());
+                skillFile.markFailed(GatewayConnectionFailureResolver.resolveClientMessage(exception));
                 failed = true;
             }
         }

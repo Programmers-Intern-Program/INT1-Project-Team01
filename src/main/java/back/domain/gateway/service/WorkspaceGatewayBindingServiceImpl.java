@@ -2,7 +2,6 @@ package back.domain.gateway.service;
 
 import java.net.URI;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
 import org.springframework.stereotype.Service;
@@ -13,6 +12,8 @@ import back.domain.gateway.client.OpenClawAgentSummary;
 import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.transport.GatewayUrlError;
+import back.domain.gateway.client.transport.GatewayUrlNormalizationException;
 import back.domain.gateway.client.transport.GatewayUrlNormalizer;
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
 import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
@@ -21,9 +22,9 @@ import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
 import back.domain.gateway.dto.response.WorkspaceGatewayStatusRes;
 import back.domain.gateway.entity.GatewayConnectionStatus;
 import back.domain.gateway.entity.WorkspaceGatewayBinding;
-import back.domain.gateway.exception.OpenClawGatewayErrorCode;
 import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.repository.WorkspaceGatewayBindingRepository;
+import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.enums.WorkspaceMemberRole;
 import back.domain.workspace.repository.WorkspaceMemberRepository;
@@ -53,20 +54,29 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public WorkspaceGatewayBindingRes bindExternalGateway(
             Long workspaceId, Long memberId, WorkspaceGatewayBindingReq request) {
-        WorkspaceMember admin = requireAdmin(workspaceId, memberId);
+        Workspace workspace = requireAdmin(workspaceId, memberId);
         String normalizedGatewayUrl = normalizeGatewayUrl(request.gatewayUrl());
+        WorkspaceGatewayConnectionTestRes validationResult =
+                validateConnectionIfRequested(request, normalizedGatewayUrl);
+
         WorkspaceGatewayBinding binding = workspaceGatewayBindingRepository
                 .findByWorkspaceId(workspaceId)
                 .map(existing -> {
                     existing.updateExternal(normalizedGatewayUrl, request.token(), memberId);
+                    recordValidationResult(existing, validationResult);
                     return existing;
                 })
-                .orElseGet(() -> workspaceGatewayBindingRepository.save(WorkspaceGatewayBinding.external(
-                        admin.getWorkspace(), normalizedGatewayUrl, request.token(), memberId)));
+                .orElseGet(() -> {
+                    WorkspaceGatewayBinding newBinding = WorkspaceGatewayBinding.external(
+                            workspace, normalizedGatewayUrl, request.token(), memberId);
+                    recordValidationResult(newBinding, validationResult);
+                    return newBinding;
+                });
 
+        binding = workspaceGatewayBindingRepository.save(binding);
         return WorkspaceGatewayBindingRes.from(binding);
     }
 
@@ -76,31 +86,9 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
             Long workspaceId, Long memberId, WorkspaceGatewayConnectionTestReq request) {
         requireAdmin(workspaceId, memberId);
         String normalizedGatewayUrl = normalizeGatewayUrl(request.gatewayUrl());
-        OpenClawGatewayClient client = openClawGatewayClientFactory.create();
-
-        try {
-            client.connect(new OpenClawGatewayConnectionContext(normalizedGatewayUrl, request.token()));
-            List<OpenClawAgentSummary> agents = client.listAgents();
-            WorkspaceGatewayConnectionTestRes response =
-                    WorkspaceGatewayConnectionTestRes.connected(normalizedGatewayUrl, agents.size());
-            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
-            return response;
-        } catch (OpenClawGatewayException exception) {
-            GatewayConnectionStatus status = resolveConnectionTestStatus(exception);
-            WorkspaceGatewayConnectionTestRes response = WorkspaceGatewayConnectionTestRes.failed(
-                    status, normalizedGatewayUrl, exception.getClientMessage());
-            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
-            return response;
-        } catch (RuntimeException exception) {
-            WorkspaceGatewayConnectionTestRes response = WorkspaceGatewayConnectionTestRes.failed(
-                    GatewayConnectionStatus.UNREACHABLE,
-                    normalizedGatewayUrl,
-                    OpenClawGatewayErrorCode.CONNECTION_FAILED.defaultMessage());
-            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
-            return response;
-        } finally {
-            client.close();
-        }
+        WorkspaceGatewayConnectionTestRes response = checkExternalGateway(normalizedGatewayUrl, request.token());
+        recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
+        return response;
     }
 
     @Override
@@ -112,6 +100,52 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
                         "[WorkspaceGatewayBindingServiceImpl#getConnectionContext] gateway binding not found",
                         "워크스페이스 Gateway 설정이 존재하지 않습니다."));
         return new OpenClawGatewayConnectionContext(binding.getGatewayUrl(), binding.getToken());
+    }
+
+    private WorkspaceGatewayConnectionTestRes validateConnectionIfRequested(
+            WorkspaceGatewayBindingReq request, String normalizedGatewayUrl) {
+        if (!request.validateConnection()) {
+            return null;
+        }
+        WorkspaceGatewayConnectionTestRes response = checkExternalGateway(normalizedGatewayUrl, request.token());
+        if (!response.connected()) {
+            throw new ServiceException(
+                    GatewayConnectionFailureResolver.resolveErrorCode(response.status()),
+                    "[WorkspaceGatewayBindingServiceImpl#bindExternalGateway] gateway validation failed. status="
+                            + response.status(),
+                    response.message());
+        }
+        return response;
+    }
+
+    private WorkspaceGatewayConnectionTestRes checkExternalGateway(String normalizedGatewayUrl, String token) {
+        OpenClawGatewayClient client = openClawGatewayClientFactory.create();
+
+        try {
+            client.connect(new OpenClawGatewayConnectionContext(normalizedGatewayUrl, token));
+            List<OpenClawAgentSummary> agents = client.listAgents();
+            return WorkspaceGatewayConnectionTestRes.connected(normalizedGatewayUrl, agents.size());
+        } catch (OpenClawGatewayException exception) {
+            GatewayConnectionStatus status = GatewayConnectionFailureResolver.resolveStatus(exception);
+            WorkspaceGatewayConnectionTestRes response = WorkspaceGatewayConnectionTestRes.failed(
+                    status, normalizedGatewayUrl, GatewayConnectionFailureResolver.resolveClientMessage(status));
+            return response;
+        } catch (RuntimeException exception) {
+            return WorkspaceGatewayConnectionTestRes.failed(
+                    GatewayConnectionStatus.UNREACHABLE,
+                    normalizedGatewayUrl,
+                    GatewayConnectionFailureResolver.resolveClientMessage(GatewayConnectionStatus.UNREACHABLE));
+        } finally {
+            client.close();
+        }
+    }
+
+    private void recordValidationResult(
+            WorkspaceGatewayBinding binding, WorkspaceGatewayConnectionTestRes validationResult) {
+        if (validationResult == null) {
+            return;
+        }
+        binding.recordConnectionTestResult(validationResult.status(), null);
     }
 
     private void recordConnectionTestIfCurrentBinding(
@@ -131,45 +165,8 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
                 && Objects.equals(binding.getToken(), token);
     }
 
-    private GatewayConnectionStatus resolveConnectionTestStatus(OpenClawGatewayException exception) {
-        if (exception.getErrorCode() == OpenClawGatewayErrorCode.UNAUTHORIZED
-                || matchesGatewayCode(exception.gatewayErrorCode(), "UNAUTHORIZED", "AUTH_FAILED", "TOKEN_INVALID")) {
-            return GatewayConnectionStatus.TOKEN_INVALID;
-        }
-        if (exception.getErrorCode() == OpenClawGatewayErrorCode.RPC_TIMEOUT
-                || containsIgnoreCase(exception.gatewayErrorCode(), "timeout")) {
-            return GatewayConnectionStatus.TIMEOUT;
-        }
-        if (exception.getErrorCode() == OpenClawGatewayErrorCode.PAIRING_REQUIRED) {
-            return GatewayConnectionStatus.PAIRING_REQUIRED;
-        }
-        if (exception.getErrorCode() == OpenClawGatewayErrorCode.FORBIDDEN) {
-            return GatewayConnectionStatus.FORBIDDEN;
-        }
-        if (exception.getErrorCode() == OpenClawGatewayErrorCode.GATEWAY_DISCONNECTED
-                || exception.getErrorCode() == OpenClawGatewayErrorCode.CONNECTION_FAILED
-                || exception.getErrorCode() == OpenClawGatewayErrorCode.SEND_FAILED) {
-            return GatewayConnectionStatus.UNREACHABLE;
-        }
-        return GatewayConnectionStatus.FAILED;
-    }
-
-    private boolean matchesGatewayCode(String gatewayErrorCode, String... candidates) {
-        for (String candidate : candidates) {
-            if (candidate.equalsIgnoreCase(gatewayErrorCode)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null
-                && value.toLowerCase(Locale.ROOT).contains(keyword.toLowerCase(Locale.ROOT));
-    }
-
-    private WorkspaceMember requireAdmin(Long workspaceId, Long memberId) {
-        workspaceRepository
+    private Workspace requireAdmin(Long workspaceId, Long memberId) {
+        Workspace workspace = workspaceRepository
                 .findById(workspaceId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
@@ -187,25 +184,36 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
                     "[WorkspaceGatewayBindingServiceImpl#requireAdmin] workspace member is not admin",
                     "워크스페이스 관리자 권한이 필요합니다.");
         }
-        if (workspaceMember.getWorkspace() == null) {
-            throw new ServiceException(
-                    CommonErrorCode.INTERNAL_SERVER_ERROR,
-                    "[WorkspaceGatewayBindingServiceImpl#requireAdmin] workspace member has no workspace",
-                    "워크스페이스 정보를 확인하지 못했습니다.");
-        }
-        return workspaceMember;
+        return workspace;
     }
 
     private String normalizeGatewayUrl(String gatewayUrl) {
         try {
             URI webSocketUri = gatewayUrlNormalizer.toWebSocketUri(gatewayUrl);
             return webSocketUri.toString();
+        } catch (GatewayUrlNormalizationException exception) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST,
+                    "[WorkspaceGatewayBindingServiceImpl#normalizeGatewayUrl] invalid gateway url: "
+                            + exception.getMessage(),
+                    resolveGatewayUrlClientMessage(exception.getError()));
         } catch (IllegalArgumentException exception) {
             throw new ServiceException(
                     CommonErrorCode.BAD_REQUEST,
                     "[WorkspaceGatewayBindingServiceImpl#normalizeGatewayUrl] invalid gateway url: "
                             + exception.getMessage(),
-                    "Gateway URL 형식이 올바르지 않습니다.");
+                    "Gateway URL 형식이 올바르지 않습니다. 예: https://xxxx.ngrok-free.app");
         }
+    }
+
+    private String resolveGatewayUrlClientMessage(GatewayUrlError error) {
+        return switch (error) {
+            case BLANK -> "Gateway URL은 필수입니다.";
+            case SCHEME_REQUIRED -> "Gateway URL은 http://, https://, ws://, wss:// 로 시작해야 합니다.";
+            case HOST_REQUIRED -> "Gateway URL에 호스트가 포함되어야 합니다. 예: https://xxxx.ngrok-free.app";
+            case FRAGMENT_NOT_SUPPORTED -> "Gateway URL에는 #fragment를 포함할 수 없습니다.";
+            case UNSUPPORTED_SCHEME -> "Gateway URL은 http, https, ws, wss scheme만 사용할 수 있습니다.";
+            case SYNTAX_INVALID -> "Gateway URL 형식이 올바르지 않습니다. 예: https://xxxx.ngrok-free.app";
+        };
     }
 }

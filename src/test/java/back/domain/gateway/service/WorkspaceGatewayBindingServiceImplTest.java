@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.util.List;
@@ -162,6 +163,7 @@ class WorkspaceGatewayBindingServiceImplTest {
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
         given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
+        given(workspaceGatewayBindingRepository.save(binding)).willReturn(binding);
 
         // when
         WorkspaceGatewayBindingRes response = workspaceGatewayBindingService.bindExternalGateway(
@@ -196,6 +198,89 @@ class WorkspaceGatewayBindingServiceImplTest {
 
         // then
         assertThat(response.maskedToken()).isEqualTo("****");
+    }
+
+    @Test
+    @DisplayName("Gateway binding 저장 시 연결 검증을 요청하면 연결 성공 결과를 같이 저장한다")
+    void bindExternalGateway_validateConnection_success() {
+        // given
+        WorkspaceGatewayBindingReq request =
+                new WorkspaceGatewayBindingReq("https://gateway.example.com", "gateway-secret-token", true);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.listAgents()).willReturn(List.of(new OpenClawAgentSummary("agent-1", "backend")));
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.empty());
+        given(workspaceGatewayBindingRepository.save(any(WorkspaceGatewayBinding.class)))
+                .willAnswer(invocation -> {
+                    WorkspaceGatewayBinding binding = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(binding, "id", 100L);
+                    return binding;
+                });
+
+        // when
+        WorkspaceGatewayBindingRes response = workspaceGatewayBindingService.bindExternalGateway(1L, 10L, request);
+
+        // then
+        assertThat(response.id()).isEqualTo(100L);
+        ArgumentCaptor<OpenClawGatewayConnectionContext> contextCaptor =
+                ArgumentCaptor.forClass(OpenClawGatewayConnectionContext.class);
+        verify(openClawGatewayClient).connect(contextCaptor.capture());
+        assertThat(contextCaptor.getValue().gatewayUrl()).isEqualTo("wss://gateway.example.com");
+        assertThat(contextCaptor.getValue().token()).isEqualTo("gateway-secret-token");
+        ArgumentCaptor<WorkspaceGatewayBinding> bindingCaptor =
+                ArgumentCaptor.forClass(WorkspaceGatewayBinding.class);
+        verify(workspaceGatewayBindingRepository).save(bindingCaptor.capture());
+        assertThat(bindingCaptor.getValue().getLastStatus()).isEqualTo(GatewayConnectionStatus.CONNECTED);
+        assertThat(bindingCaptor.getValue().getLastError()).isNull();
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Gateway binding 저장 시 연결 검증에 실패하면 binding을 저장하지 않고 원인을 반환한다")
+    void bindExternalGateway_validateConnectionFailed_throwsException() {
+        // given
+        WorkspaceGatewayBindingReq request =
+                new WorkspaceGatewayBindingReq("ws://localhost:34115", "gateway-secret-token", true);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        OpenClawGatewayException exception = new OpenClawGatewayException(
+                OpenClawGatewayErrorCode.UNAUTHORIZED,
+                "TOKEN_INVALID",
+                "token=gateway-secret-token is invalid",
+                OpenClawGatewayErrorCode.UNAUTHORIZED.defaultMessage(),
+                null,
+                false,
+                false);
+        willThrow(exception).given(openClawGatewayClient).connect(any(OpenClawGatewayConnectionContext.class));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceGatewayBindingService.bindExternalGateway(1L, 10L, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting("clientMessage")
+                .isEqualTo("Gateway token이 올바르지 않습니다. OpenClaw에서 발급된 Gateway token을 다시 확인해 주세요.");
+        verify(workspaceGatewayBindingRepository, never()).findByWorkspaceId(1L);
+        verify(workspaceGatewayBindingRepository, never()).save(any(WorkspaceGatewayBinding.class));
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Gateway URL에 host가 없으면 사용자 친화 메시지로 거부한다")
+    void bindExternalGateway_missingHost_throwsException() {
+        // given
+        WorkspaceGatewayBindingReq request =
+                new WorkspaceGatewayBindingReq("https:///gateway", "gateway-secret-token");
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+
+        // when & then
+        assertThatThrownBy(() -> workspaceGatewayBindingService.bindExternalGateway(1L, 10L, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting("clientMessage")
+                .isEqualTo("Gateway URL에 호스트가 포함되어야 합니다. 예: https://xxxx.ngrok-free.app");
+        verify(openClawGatewayClientFactory, never()).create();
+        verify(workspaceGatewayBindingRepository, never()).save(any(WorkspaceGatewayBinding.class));
     }
 
     @Test
@@ -265,8 +350,9 @@ class WorkspaceGatewayBindingServiceImplTest {
         assertThat(response.status()).isEqualTo(GatewayConnectionStatus.TOKEN_INVALID);
         assertThat(response.connected()).isFalse();
         assertThat(response.message()).doesNotContain("gateway-secret-token");
+        assertThat(response.message()).contains("Gateway token");
         assertThat(binding.getLastStatus()).isEqualTo(GatewayConnectionStatus.TOKEN_INVALID);
-        assertThat(binding.getLastError()).isEqualTo(OpenClawGatewayErrorCode.UNAUTHORIZED.defaultMessage());
+        assertThat(binding.getLastError()).isEqualTo(response.message());
         verify(workspaceGatewayBindingRepository).save(binding);
         verify(openClawGatewayClient).close();
     }
@@ -293,8 +379,9 @@ class WorkspaceGatewayBindingServiceImplTest {
         // then
         assertThat(response.status()).isEqualTo(GatewayConnectionStatus.TIMEOUT);
         assertThat(response.connected()).isFalse();
+        assertThat(response.message()).contains("응답 시간이 초과");
         assertThat(binding.getLastStatus()).isEqualTo(GatewayConnectionStatus.TIMEOUT);
-        assertThat(binding.getLastError()).isEqualTo(OpenClawGatewayErrorCode.RPC_TIMEOUT.defaultMessage());
+        assertThat(binding.getLastError()).isEqualTo(response.message());
         verify(workspaceGatewayBindingRepository).save(binding);
         verify(openClawGatewayClient).close();
     }
