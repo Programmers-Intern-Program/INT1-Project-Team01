@@ -13,13 +13,15 @@ import back.domain.agent.entity.AgentStatus;
 
 public interface AgentRepository extends JpaRepository<Agent, Long> {
 
-    boolean existsByWorkspaceIdAndName(Long workspaceId, String name);
+    boolean existsByWorkspaceIdAndNameAndStatusNot(Long workspaceId, String name, AgentStatus status);
 
-    Optional<Agent> findByWorkspaceIdAndName(Long workspaceId, String name);
+    Optional<Agent> findByWorkspaceIdAndNameAndStatusNot(Long workspaceId, String name, AgentStatus status);
 
     Optional<Agent> findByIdAndWorkspaceId(Long agentId, Long workspaceId);
 
-    List<Agent> findByWorkspaceIdOrderByIdAsc(Long workspaceId);
+    Optional<Agent> findByIdAndWorkspaceIdAndStatusNot(Long agentId, Long workspaceId, AgentStatus status);
+
+    List<Agent> findByWorkspaceIdAndStatusNotOrderByIdAsc(Long workspaceId, AgentStatus status);
 
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
             Long workspaceId, AgentStatus status);
