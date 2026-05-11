@@ -4,7 +4,9 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -12,8 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import back.domain.agent.entity.AgentStatus;
+import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.task.entity.TaskStatus;
+import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
@@ -51,6 +57,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceInviteRepository workspaceInviteRepository;
     private final InviteEmailService inviteEmailService;
     private final WorkspaceAccessValidator workspaceAccessValidator;
+    private final AgentRepository agentRepository;
+    private final TaskRepository taskRepository;
 
     @Value("${custom.invite.base-url}")
     private String inviteBaseUrl;
@@ -72,9 +80,18 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     public List<WorkspaceSummaryInfoRes> listMyWorkspaces(long memberId) {
         getMemberOrThrow(memberId);
-        return workspaceMemberRepository.findAllByMemberIdWithWorkspace(memberId).stream()
+        List<WorkspaceMember> workspaceMembers = workspaceMemberRepository.findAllByMemberIdWithWorkspace(memberId)
+                .stream()
                 .sorted(Comparator.comparing(workspaceMember -> workspaceMember.getWorkspace().getId()))
-                .map(this::toWorkspaceSummaryResponse)
+                .toList();
+        List<Long> workspaceIds = workspaceMembers.stream()
+                .map(workspaceMember -> workspaceMember.getWorkspace().getId())
+                .toList();
+        Map<Long, Long> agentCounts = getAgentCounts(workspaceIds);
+        Map<Long, Long> runningTaskCounts = getRunningTaskCounts(workspaceIds);
+
+        return workspaceMembers.stream()
+                .map(workspaceMember -> toWorkspaceSummaryResponse(workspaceMember, agentCounts, runningTaskCounts))
                 .toList();
     }
 
@@ -319,16 +336,53 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     }
 
     // WorkspaceMember 엔티티를 WorkspaceSummaryInfoRes DTO로 변환한다
-    private WorkspaceSummaryInfoRes toWorkspaceSummaryResponse(WorkspaceMember workspaceMember) {
+    private WorkspaceSummaryInfoRes toWorkspaceSummaryResponse(
+            WorkspaceMember workspaceMember,
+            Map<Long, Long> agentCounts,
+            Map<Long, Long> runningTaskCounts) {
         Workspace workspace = workspaceMember.getWorkspace();
+        Long workspaceId = workspace.getId();
         return new WorkspaceSummaryInfoRes(
-                workspace.getId(),
+                workspaceId,
                 workspace.getName(),
                 workspace.getDescription(),
                 workspaceMember.getRole(),
-                0, // TODO: openclaw 연동 시 실제 agent 수로 수정
-                0, // TODO: openclaw 연동 시 실제 task 수로 수정
+                toIntCount(agentCounts.getOrDefault(workspaceId, 0L)),
+                toIntCount(runningTaskCounts.getOrDefault(workspaceId, 0L)),
                 workspace.getCreatedAt());
+    }
+
+    private Map<Long, Long> getAgentCounts(List<Long> workspaceIds) {
+        if (workspaceIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return agentRepository.countByWorkspaceIdsAndStatusNot(workspaceIds, AgentStatus.DISABLED).stream()
+                .collect(Collectors.toMap(
+                        AgentRepository.WorkspaceCount::getWorkspaceId,
+                        AgentRepository.WorkspaceCount::getCount));
+    }
+
+    private Map<Long, Long> getRunningTaskCounts(List<Long> workspaceIds) {
+        if (workspaceIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return taskRepository.countByWorkspaceIdsAndStatusIn(workspaceIds, runningTaskStatuses()).stream()
+                .collect(Collectors.toMap(
+                        TaskRepository.WorkspaceCount::getWorkspaceId,
+                        TaskRepository.WorkspaceCount::getCount));
+    }
+
+    private List<TaskStatus> runningTaskStatuses() {
+        return List.of(TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.WAITING_USER);
+    }
+
+    private int toIntCount(long count) {
+        if (count > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) count;
     }
 
     // WorkspaceMember 엔티티를 WorkspaceMemberInfoRes DTO로 변환한다
