@@ -102,6 +102,11 @@ public class Agent extends BaseEntity {
         this.syncError = normalizeError(syncError);
     }
 
+    public void disable() {
+        this.status = AgentStatus.DISABLED;
+        this.syncError = null;
+    }
+
     private static Workspace requireWorkspace(Workspace workspace) {
         if (workspace == null) {
             throw new IllegalArgumentException("workspace must not be null");
