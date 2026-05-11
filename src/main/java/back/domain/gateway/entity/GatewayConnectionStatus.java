@@ -1,6 +1,6 @@
-package back.domain.gateway.dto.response;
+package back.domain.gateway.entity;
 
-public enum GatewayConnectionTestStatus {
+public enum GatewayConnectionStatus {
     CONNECTED,
     UNREACHABLE,
     TOKEN_INVALID,
