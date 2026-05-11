@@ -3,8 +3,10 @@ package back.domain.agent.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -27,6 +29,7 @@ import back.domain.agent.dto.response.OpenClawAgentCreateRes;
 import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentSkillSyncStatus;
 import back.domain.agent.entity.AgentStatus;
+import back.domain.agent.service.AgentDeletionService;
 import back.domain.agent.service.AgentQueryService;
 import back.domain.agent.service.AgentProvisioningService;
 import back.global.security.AuthenticatedMember;
@@ -40,6 +43,9 @@ class AgentControllerTest extends WebMvcTestSupport {
 
     @MockitoBean
     private AgentQueryService agentQueryService;
+
+    @MockitoBean
+    private AgentDeletionService agentDeletionService;
 
     @Test
     @DisplayName("Agent 생성 요청이 유효하면 201 Created와 생성 결과를 반환한다")
@@ -143,6 +149,23 @@ class AgentControllerTest extends WebMvcTestSupport {
                 .andExpect(jsonPath("$.data.agentId").value(agentId))
                 .andExpect(jsonPath("$.data.name").value("Backend Agent"))
                 .andExpect(jsonPath("$.data.status").value("READY"));
+    }
+
+    @Test
+    @DisplayName("Agent 삭제 요청이 유효하면 200 OK를 반환한다")
+    void deleteAgent_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 10L;
+        Long agentId = 100L;
+        doNothing().when(agentDeletionService).deleteAgent(workspaceId, memberId, agentId);
+
+        // when & then
+        mockMvc.perform(delete("/api/v1/workspaces/{workspaceId}/agents/{agentId}", workspaceId, agentId)
+                        .with(csrf())
+                        .with(authentication(createTestAuthentication(memberId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Agent 삭제 성공"));
     }
 
     @Test
