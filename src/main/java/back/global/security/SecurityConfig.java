@@ -68,7 +68,6 @@ public class SecurityConfig {
                         .authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/slack/events").permitAll()
                         .requestMatchers("/api/v1/slack/oauth/callback").permitAll()
-                        .requestMatchers("/test/trigger-slack").permitAll() // TODO: [IT-9] 삭제 필요
                         .anyRequest()
                         .authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
