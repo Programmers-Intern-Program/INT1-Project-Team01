@@ -2,8 +2,10 @@ package back.domain.gateway.service;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import back.domain.gateway.client.OpenClawAgentSummary;
@@ -58,6 +60,7 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public WorkspaceGatewayConnectionTestRes testExternalGateway(
             Long workspaceId, Long memberId, WorkspaceGatewayConnectionTestReq request) {
         requireAdmin(workspaceId, memberId);
@@ -126,7 +129,8 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
     }
 
     private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null && value.toLowerCase().contains(keyword.toLowerCase());
+        return value != null
+                && value.toLowerCase(Locale.ROOT).contains(keyword.toLowerCase(Locale.ROOT));
     }
 
     private WorkspaceMember requireAdmin(Long workspaceId, Long memberId) {
