@@ -26,9 +26,11 @@ import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
 import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
-import back.domain.gateway.dto.response.GatewayConnectionTestStatus;
+import back.domain.gateway.dto.response.WorkspaceGatewayBindingStatus;
 import back.domain.gateway.dto.response.WorkspaceGatewayBindingRes;
 import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
+import back.domain.gateway.dto.response.WorkspaceGatewayStatusRes;
+import back.domain.gateway.entity.GatewayConnectionStatus;
 import back.domain.gateway.entity.GatewayMode;
 import back.domain.gateway.entity.WorkspaceGatewayBinding;
 import back.domain.gateway.exception.OpenClawGatewayErrorCode;
@@ -79,6 +81,49 @@ class WorkspaceGatewayBindingServiceImplTest {
     }
 
     @Test
+    @DisplayName("Gateway 상태 조회는 binding이 없으면 UNBOUND 상태를 반환한다")
+    void getWorkspaceGatewayStatus_missingBinding_returnsUnbound() {
+        // given
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.empty());
+
+        // when
+        WorkspaceGatewayStatusRes response = workspaceGatewayBindingService.getWorkspaceGatewayStatus(1L, 10L);
+
+        // then
+        assertThat(response.status()).isEqualTo(WorkspaceGatewayBindingStatus.UNBOUND);
+        assertThat(response.bound()).isFalse();
+        assertThat(response.maskedToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("Gateway 상태 조회는 binding과 마지막 연결 상태를 반환하고 token을 masking한다")
+    void getWorkspaceGatewayStatus_existingBinding_returnsBoundStatus() {
+        // given
+        WorkspaceGatewayBinding binding =
+                WorkspaceGatewayBinding.external(workspace, "ws://localhost:34115", "gateway-secret-token", 10L);
+        ReflectionTestUtils.setField(binding, "id", 100L);
+        binding.recordConnectionTestResult(GatewayConnectionStatus.CONNECTED, null);
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
+
+        // when
+        WorkspaceGatewayStatusRes response = workspaceGatewayBindingService.getWorkspaceGatewayStatus(1L, 10L);
+
+        // then
+        assertThat(response.status()).isEqualTo(WorkspaceGatewayBindingStatus.BOUND);
+        assertThat(response.bound()).isTrue();
+        assertThat(response.bindingId()).isEqualTo(100L);
+        assertThat(response.gatewayUrl()).isEqualTo("ws://localhost:34115");
+        assertThat(response.maskedToken()).isEqualTo("gate****oken");
+        assertThat(response.lastStatus()).isEqualTo(GatewayConnectionStatus.CONNECTED);
+        assertThat(response.lastCheckedAt()).isNotNull();
+        assertThat(response.lastError()).isNull();
+    }
+
+    @Test
     @DisplayName("워크스페이스 관리자는 외부 Gateway URL과 token을 binding으로 저장할 수 있다")
     void bindExternalGateway_newBinding_success() {
         // given
@@ -113,6 +158,7 @@ class WorkspaceGatewayBindingServiceImplTest {
         WorkspaceGatewayBinding binding =
                 WorkspaceGatewayBinding.external(workspace, "ws://localhost:1111", "old-secret-token", 10L);
         ReflectionTestUtils.setField(binding, "id", 100L);
+        binding.recordConnectionTestResult(GatewayConnectionStatus.CONNECTED, null);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
         given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
@@ -125,6 +171,9 @@ class WorkspaceGatewayBindingServiceImplTest {
         assertThat(response.id()).isEqualTo(100L);
         assertThat(response.gatewayUrl()).isEqualTo("wss://gateway.example.com/ws");
         assertThat(binding.getToken()).isEqualTo("new-secret-token");
+        assertThat(binding.getLastStatus()).isNull();
+        assertThat(binding.getLastCheckedAt()).isNull();
+        assertThat(binding.getLastError()).isNull();
     }
 
     @Test
@@ -161,13 +210,16 @@ class WorkspaceGatewayBindingServiceImplTest {
         given(openClawGatewayClient.listAgents()).willReturn(List.of(
                 new OpenClawAgentSummary("agent-1", "backend"),
                 new OpenClawAgentSummary("agent-2", "frontend")));
+        WorkspaceGatewayBinding binding =
+                WorkspaceGatewayBinding.external(workspace, "wss://gateway.example.com", "gateway-secret-token", 10L);
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
 
         // when
         WorkspaceGatewayConnectionTestRes response = workspaceGatewayBindingService.testExternalGateway(
                 1L, 10L, request);
 
         // then
-        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.CONNECTED);
+        assertThat(response.status()).isEqualTo(GatewayConnectionStatus.CONNECTED);
         assertThat(response.connected()).isTrue();
         assertThat(response.gatewayUrl()).isEqualTo("wss://gateway.example.com");
         assertThat(response.agentCount()).isEqualTo(2);
@@ -176,6 +228,10 @@ class WorkspaceGatewayBindingServiceImplTest {
         verify(openClawGatewayClient).connect(contextCaptor.capture());
         assertThat(contextCaptor.getValue().gatewayUrl()).isEqualTo("wss://gateway.example.com");
         assertThat(contextCaptor.getValue().token()).isEqualTo("gateway-secret-token");
+        assertThat(binding.getLastStatus()).isEqualTo(GatewayConnectionStatus.CONNECTED);
+        assertThat(binding.getLastCheckedAt()).isNotNull();
+        assertThat(binding.getLastError()).isNull();
+        verify(workspaceGatewayBindingRepository).save(binding);
         verify(openClawGatewayClient).close();
     }
 
@@ -188,6 +244,9 @@ class WorkspaceGatewayBindingServiceImplTest {
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        WorkspaceGatewayBinding binding =
+                WorkspaceGatewayBinding.external(workspace, "ws://localhost:34115", "gateway-secret-token", 10L);
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
         OpenClawGatewayException exception = new OpenClawGatewayException(
                 OpenClawGatewayErrorCode.UNAUTHORIZED,
                 "TOKEN_INVALID",
@@ -203,9 +262,12 @@ class WorkspaceGatewayBindingServiceImplTest {
                 1L, 10L, request);
 
         // then
-        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.TOKEN_INVALID);
+        assertThat(response.status()).isEqualTo(GatewayConnectionStatus.TOKEN_INVALID);
         assertThat(response.connected()).isFalse();
         assertThat(response.message()).doesNotContain("gateway-secret-token");
+        assertThat(binding.getLastStatus()).isEqualTo(GatewayConnectionStatus.TOKEN_INVALID);
+        assertThat(binding.getLastError()).isEqualTo(OpenClawGatewayErrorCode.UNAUTHORIZED.defaultMessage());
+        verify(workspaceGatewayBindingRepository).save(binding);
         verify(openClawGatewayClient).close();
     }
 
@@ -218,6 +280,9 @@ class WorkspaceGatewayBindingServiceImplTest {
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        WorkspaceGatewayBinding binding =
+                WorkspaceGatewayBinding.external(workspace, "ws://localhost:34115", "gateway-secret-token", 10L);
+        given(workspaceGatewayBindingRepository.findByWorkspaceId(1L)).willReturn(Optional.of(binding));
         given(openClawGatewayClient.listAgents())
                 .willThrow(OpenClawGatewayException.rpcTimeout("agents.list", "request-1"));
 
@@ -226,8 +291,11 @@ class WorkspaceGatewayBindingServiceImplTest {
                 1L, 10L, request);
 
         // then
-        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.TIMEOUT);
+        assertThat(response.status()).isEqualTo(GatewayConnectionStatus.TIMEOUT);
         assertThat(response.connected()).isFalse();
+        assertThat(binding.getLastStatus()).isEqualTo(GatewayConnectionStatus.TIMEOUT);
+        assertThat(binding.getLastError()).isEqualTo(OpenClawGatewayErrorCode.RPC_TIMEOUT.defaultMessage());
+        verify(workspaceGatewayBindingRepository).save(binding);
         verify(openClawGatewayClient).close();
     }
 

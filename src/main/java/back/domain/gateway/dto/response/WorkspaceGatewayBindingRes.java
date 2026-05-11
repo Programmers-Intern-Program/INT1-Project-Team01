@@ -16,10 +16,10 @@ public record WorkspaceGatewayBindingRes(
                 binding.getWorkspace().getId(),
                 binding.getMode(),
                 binding.getGatewayUrl(),
-                mask(binding.getToken()));
+                maskToken(binding.getToken()));
     }
 
-    private static String mask(String secret) {
+    public static String maskToken(String secret) {
         if (secret == null || secret.length() <= VISIBLE_PREFIX_LENGTH + VISIBLE_SUFFIX_LENGTH + MIN_HIDDEN_LENGTH) {
             return MASK_STRING;
         }

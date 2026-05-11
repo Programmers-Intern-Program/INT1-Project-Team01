@@ -1,7 +1,9 @@
 package back.domain.gateway.dto.response;
 
+import back.domain.gateway.entity.GatewayConnectionStatus;
+
 public record WorkspaceGatewayConnectionTestRes(
-        GatewayConnectionTestStatus status,
+        GatewayConnectionStatus status,
         boolean connected,
         String gatewayUrl,
         String message,
@@ -9,7 +11,7 @@ public record WorkspaceGatewayConnectionTestRes(
 
     public static WorkspaceGatewayConnectionTestRes connected(String gatewayUrl, int agentCount) {
         return new WorkspaceGatewayConnectionTestRes(
-                GatewayConnectionTestStatus.CONNECTED,
+                GatewayConnectionStatus.CONNECTED,
                 true,
                 gatewayUrl,
                 "OpenClaw Gateway 연결에 성공했습니다.",
@@ -17,7 +19,7 @@ public record WorkspaceGatewayConnectionTestRes(
     }
 
     public static WorkspaceGatewayConnectionTestRes failed(
-            GatewayConnectionTestStatus status, String gatewayUrl, String message) {
+            GatewayConnectionStatus status, String gatewayUrl, String message) {
         return new WorkspaceGatewayConnectionTestRes(status, false, gatewayUrl, message, 0);
     }
 }
