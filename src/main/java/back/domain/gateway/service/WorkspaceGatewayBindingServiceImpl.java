@@ -3,6 +3,7 @@ package back.domain.gateway.service;
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -16,8 +17,9 @@ import back.domain.gateway.client.transport.GatewayUrlNormalizer;
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
 import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
 import back.domain.gateway.dto.response.WorkspaceGatewayBindingRes;
-import back.domain.gateway.dto.response.GatewayConnectionTestStatus;
 import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
+import back.domain.gateway.dto.response.WorkspaceGatewayStatusRes;
+import back.domain.gateway.entity.GatewayConnectionStatus;
 import back.domain.gateway.entity.WorkspaceGatewayBinding;
 import back.domain.gateway.exception.OpenClawGatewayErrorCode;
 import back.domain.gateway.exception.OpenClawGatewayException;
@@ -40,6 +42,15 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
     private final WorkspaceGatewayBindingRepository workspaceGatewayBindingRepository;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
     private final GatewayUrlNormalizer gatewayUrlNormalizer = new GatewayUrlNormalizer();
+
+    @Override
+    public WorkspaceGatewayStatusRes getWorkspaceGatewayStatus(Long workspaceId, Long memberId) {
+        requireAdmin(workspaceId, memberId);
+        return workspaceGatewayBindingRepository
+                .findByWorkspaceId(workspaceId)
+                .map(WorkspaceGatewayStatusRes::from)
+                .orElseGet(WorkspaceGatewayStatusRes::unbound);
+    }
 
     @Override
     @Transactional
@@ -70,16 +81,23 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
         try {
             client.connect(new OpenClawGatewayConnectionContext(normalizedGatewayUrl, request.token()));
             List<OpenClawAgentSummary> agents = client.listAgents();
-            return WorkspaceGatewayConnectionTestRes.connected(normalizedGatewayUrl, agents.size());
+            WorkspaceGatewayConnectionTestRes response =
+                    WorkspaceGatewayConnectionTestRes.connected(normalizedGatewayUrl, agents.size());
+            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
+            return response;
         } catch (OpenClawGatewayException exception) {
-            GatewayConnectionTestStatus status = resolveConnectionTestStatus(exception);
-            return WorkspaceGatewayConnectionTestRes.failed(
+            GatewayConnectionStatus status = resolveConnectionTestStatus(exception);
+            WorkspaceGatewayConnectionTestRes response = WorkspaceGatewayConnectionTestRes.failed(
                     status, normalizedGatewayUrl, exception.getClientMessage());
+            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
+            return response;
         } catch (RuntimeException exception) {
-            return WorkspaceGatewayConnectionTestRes.failed(
-                    GatewayConnectionTestStatus.UNREACHABLE,
+            WorkspaceGatewayConnectionTestRes response = WorkspaceGatewayConnectionTestRes.failed(
+                    GatewayConnectionStatus.UNREACHABLE,
                     normalizedGatewayUrl,
                     OpenClawGatewayErrorCode.CONNECTION_FAILED.defaultMessage());
+            recordConnectionTestIfCurrentBinding(workspaceId, normalizedGatewayUrl, request.token(), response);
+            return response;
         } finally {
             client.close();
         }
@@ -96,27 +114,44 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
         return new OpenClawGatewayConnectionContext(binding.getGatewayUrl(), binding.getToken());
     }
 
-    private GatewayConnectionTestStatus resolveConnectionTestStatus(OpenClawGatewayException exception) {
+    private void recordConnectionTestIfCurrentBinding(
+            Long workspaceId, String gatewayUrl, String token, WorkspaceGatewayConnectionTestRes response) {
+        workspaceGatewayBindingRepository
+                .findByWorkspaceId(workspaceId)
+                .filter(binding -> isSameBindingTarget(binding, gatewayUrl, token))
+                .ifPresent(binding -> {
+                    String errorMessage = response.connected() ? null : response.message();
+                    binding.recordConnectionTestResult(response.status(), errorMessage);
+                    workspaceGatewayBindingRepository.save(binding);
+                });
+    }
+
+    private boolean isSameBindingTarget(WorkspaceGatewayBinding binding, String gatewayUrl, String token) {
+        return Objects.equals(binding.getGatewayUrl(), gatewayUrl)
+                && Objects.equals(binding.getToken(), token);
+    }
+
+    private GatewayConnectionStatus resolveConnectionTestStatus(OpenClawGatewayException exception) {
         if (exception.getErrorCode() == OpenClawGatewayErrorCode.UNAUTHORIZED
                 || matchesGatewayCode(exception.gatewayErrorCode(), "UNAUTHORIZED", "AUTH_FAILED", "TOKEN_INVALID")) {
-            return GatewayConnectionTestStatus.TOKEN_INVALID;
+            return GatewayConnectionStatus.TOKEN_INVALID;
         }
         if (exception.getErrorCode() == OpenClawGatewayErrorCode.RPC_TIMEOUT
                 || containsIgnoreCase(exception.gatewayErrorCode(), "timeout")) {
-            return GatewayConnectionTestStatus.TIMEOUT;
+            return GatewayConnectionStatus.TIMEOUT;
         }
         if (exception.getErrorCode() == OpenClawGatewayErrorCode.PAIRING_REQUIRED) {
-            return GatewayConnectionTestStatus.PAIRING_REQUIRED;
+            return GatewayConnectionStatus.PAIRING_REQUIRED;
         }
         if (exception.getErrorCode() == OpenClawGatewayErrorCode.FORBIDDEN) {
-            return GatewayConnectionTestStatus.FORBIDDEN;
+            return GatewayConnectionStatus.FORBIDDEN;
         }
         if (exception.getErrorCode() == OpenClawGatewayErrorCode.GATEWAY_DISCONNECTED
                 || exception.getErrorCode() == OpenClawGatewayErrorCode.CONNECTION_FAILED
                 || exception.getErrorCode() == OpenClawGatewayErrorCode.SEND_FAILED) {
-            return GatewayConnectionTestStatus.UNREACHABLE;
+            return GatewayConnectionStatus.UNREACHABLE;
         }
-        return GatewayConnectionTestStatus.FAILED;
+        return GatewayConnectionStatus.FAILED;
     }
 
     private boolean matchesGatewayCode(String gatewayErrorCode, String... candidates) {
