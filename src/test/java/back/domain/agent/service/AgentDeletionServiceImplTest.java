@@ -2,6 +2,7 @@ package back.domain.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
@@ -17,6 +18,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
@@ -42,6 +45,9 @@ class AgentDeletionServiceImplTest {
 
     @Mock
     private AgentRepository agentRepository;
+
+    @Mock
+    private TransactionOperations transactionOperations;
 
     @Mock
     private WorkspaceGatewayBindingService workspaceGatewayBindingService;
@@ -70,6 +76,10 @@ class AgentDeletionServiceImplTest {
 
         admin = WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN);
         gatewayContext = new OpenClawGatewayConnectionContext("ws://localhost:34115", "gateway-secret-token");
+        given(transactionOperations.execute(any())).willAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
     }
 
     @Test

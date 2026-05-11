@@ -1,7 +1,9 @@
 package back.domain.agent.service;
 
+import java.util.Objects;
+
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
@@ -18,12 +20,12 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 @SuppressFBWarnings(
         value = "EI_EXPOSE_REP2",
         justification = "Spring-managed dependencies are injected and retained by this service.")
 public class AgentDeletionServiceImpl implements AgentDeletionService {
 
+    private final TransactionOperations transactionOperations;
     private final WorkspaceAccessValidator workspaceAccessValidator;
     private final AgentRepository agentRepository;
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
@@ -31,6 +33,18 @@ public class AgentDeletionServiceImpl implements AgentDeletionService {
 
     @Override
     public void deleteAgent(Long workspaceId, Long memberId, Long agentId) {
+        AgentDeletionTarget target = requireTransactionResult(transactionOperations.execute(
+                status -> resolveDeletionTarget(workspaceId, memberId, agentId)));
+
+        deleteOpenClawAgent(workspaceId, target.openClawAgentId());
+
+        requireTransactionResult(transactionOperations.execute(status -> {
+            disableAgent(workspaceId, target.agentId());
+            return Boolean.TRUE;
+        }));
+    }
+
+    private AgentDeletionTarget resolveDeletionTarget(Long workspaceId, Long memberId, Long agentId) {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
         Agent agent = agentRepository
                 .findByIdAndWorkspaceIdAndStatusNot(agentId, workspaceId, AgentStatus.DISABLED)
@@ -40,13 +54,22 @@ public class AgentDeletionServiceImpl implements AgentDeletionService {
                                 + ", workspaceId="
                                 + workspaceId,
                         "Agent를 찾을 수 없습니다."));
+        return new AgentDeletionTarget(agent.getId(), agent.getOpenClawAgentId());
+    }
 
-        deleteOpenClawAgent(workspaceId, agent);
+    private void disableAgent(Long workspaceId, Long agentId) {
+        Agent agent = agentRepository
+                .findByIdAndWorkspaceIdAndStatusNot(agentId, workspaceId, AgentStatus.DISABLED)
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[AgentDeletionServiceImpl#disableAgent] agent not found. agentId=" + agentId
+                                + ", workspaceId="
+                                + workspaceId,
+                        "Agent를 찾을 수 없습니다."));
         agent.disable();
     }
 
-    private void deleteOpenClawAgent(Long workspaceId, Agent agent) {
-        String openClawAgentId = agent.getOpenClawAgentId();
+    private void deleteOpenClawAgent(Long workspaceId, String openClawAgentId) {
         if (openClawAgentId == null || openClawAgentId.isBlank()) {
             return;
         }
@@ -60,4 +83,10 @@ public class AgentDeletionServiceImpl implements AgentDeletionService {
             client.close();
         }
     }
+
+    private <T> T requireTransactionResult(T result) {
+        return Objects.requireNonNull(result, "transaction result must not be null");
+    }
+
+    private record AgentDeletionTarget(Long agentId, String openClawAgentId) {}
 }
