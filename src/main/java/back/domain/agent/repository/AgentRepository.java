@@ -1,5 +1,6 @@
 package back.domain.agent.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,23 @@ import back.domain.agent.entity.AgentStatus;
 public interface AgentRepository extends JpaRepository<Agent, Long> {
 
     boolean existsByWorkspaceIdAndNameAndStatusNot(Long workspaceId, String name, AgentStatus status);
+
+    long countByWorkspaceIdAndStatusNot(Long workspaceId, AgentStatus status);
+
+    long countByWorkspaceIdAndStatus(Long workspaceId, AgentStatus status);
+
+    long countByWorkspaceIdAndStatusIn(Long workspaceId, Collection<AgentStatus> statuses);
+
+    @Query("""
+            SELECT a.workspace.id AS workspaceId, COUNT(a) AS count
+            FROM Agent a
+            WHERE a.workspace.id IN :workspaceIds
+              AND a.status <> :status
+            GROUP BY a.workspace.id
+            """)
+    List<WorkspaceCount> countByWorkspaceIdsAndStatusNot(
+            @Param("workspaceIds") Collection<Long> workspaceIds,
+            @Param("status") AgentStatus status);
 
     Optional<Agent> findByWorkspaceIdAndNameAndStatusNot(Long workspaceId, String name, AgentStatus status);
 
@@ -45,4 +63,10 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
             @Param("workspaceId") Long workspaceId,
             @Param("category") AgentCategory category,
             @Param("status") AgentStatus status);
+
+    interface WorkspaceCount {
+        Long getWorkspaceId();
+
+        long getCount();
+    }
 }

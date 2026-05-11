@@ -1,10 +1,15 @@
 package back.domain.execution.repository;
 
 import back.domain.execution.entity.ExecutionAgentReport;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ExecutionAgentReportRepository extends JpaRepository<ExecutionAgentReport, Long> {
 
     Optional<ExecutionAgentReport> findByTaskExecutionId(Long taskExecutionId);
+
+    List<ExecutionAgentReport> findAllByTaskExecutionIdInOrderByCreatedAtDescIdDesc(
+            Collection<Long> taskExecutionIds);
 }
