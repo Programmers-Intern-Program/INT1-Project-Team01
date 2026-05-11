@@ -246,6 +246,7 @@ class AgentProvisioningServiceImplTest {
         // then
         assertThat(response.status()).isEqualTo(AgentStatus.ERROR);
         assertThat(response.openClawAgentId()).isNull();
+        assertThat(response.syncError()).contains("Gateway에 연결할 수 없습니다");
         verify(openClawGatewayClient, never()).setAgentFile(any(OpenClawAgentFileCommand.class));
         verify(openClawGatewayClient).close();
     }
