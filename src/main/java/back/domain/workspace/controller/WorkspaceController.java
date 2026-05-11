@@ -26,8 +26,10 @@ import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceDashboardSummaryRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
+import back.domain.workspace.service.WorkspaceDashboardService;
 import back.domain.workspace.service.WorkspaceService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
@@ -44,6 +46,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class WorkspaceController implements WorkspaceControllerDocs {
     private final WorkspaceService workspaceService;
+    private final WorkspaceDashboardService workspaceDashboardService;
 
     // Workspace 생성
     @Override
@@ -56,7 +59,7 @@ public class WorkspaceController implements WorkspaceControllerDocs {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 new RsData<>(
                         response,
-                "워크스페이스가 생성되었습니다."
+                        "워크스페이스가 생성되었습니다."
                 )
         );
     }
@@ -85,6 +88,21 @@ public class WorkspaceController implements WorkspaceControllerDocs {
                 new RsData<>(
                         workspaceService.getWorkspace(workspaceId, memberId),
                         "워크스페이스 조회 성공"
+                )
+        );
+    }
+
+    // Workspace Dashboard Summary 조회
+    @Override
+    @GetMapping("/{workspaceId}/dashboard/summary")
+    public ResponseEntity<RsData<WorkspaceDashboardSummaryRes>> getDashboardSummary(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
+            @PathVariable long workspaceId) {
+        long memberId = resolveAuthenticatedMemberId(authenticatedMember);
+        return ResponseEntity.ok(
+                new RsData<>(
+                        workspaceDashboardService.getSummary(workspaceId, memberId),
+                        "워크스페이스 대시보드 요약 조회 성공"
                 )
         );
     }
