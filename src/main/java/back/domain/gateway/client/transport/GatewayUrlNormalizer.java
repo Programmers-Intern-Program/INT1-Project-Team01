@@ -7,13 +7,15 @@ public class GatewayUrlNormalizer {
 
     public URI toWebSocketUri(String gatewayUrl) {
         if (gatewayUrl == null || gatewayUrl.isBlank()) {
-            throw new IllegalArgumentException("gatewayUrl must not be blank");
+            throw new GatewayUrlNormalizationException(GatewayUrlError.BLANK, "gatewayUrl must not be blank");
         }
 
         URI uri = createUri(gatewayUrl.trim());
         String scheme = uri.getScheme();
         if (scheme == null) {
-            throw new IllegalArgumentException("gatewayUrl scheme is required");
+            throw new GatewayUrlNormalizationException(
+                    GatewayUrlError.SCHEME_REQUIRED,
+                    "gatewayUrl scheme is required");
         }
         validateFragment(uri);
 
@@ -21,7 +23,9 @@ public class GatewayUrlNormalizer {
             case "ws", "wss" -> uri;
             case "http" -> replaceScheme(uri, "ws");
             case "https" -> replaceScheme(uri, "wss");
-            default -> throw new IllegalArgumentException("unsupported gatewayUrl scheme: " + scheme);
+            default -> throw new GatewayUrlNormalizationException(
+                    GatewayUrlError.UNSUPPORTED_SCHEME,
+                    "unsupported gatewayUrl scheme: " + scheme);
         };
         validateWebSocketUri(webSocketUri);
         return webSocketUri;
@@ -31,20 +35,27 @@ public class GatewayUrlNormalizer {
         try {
             return URI.create(gatewayUrl);
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("gatewayUrl syntax is invalid");
+            throw new GatewayUrlNormalizationException(
+                    GatewayUrlError.SYNTAX_INVALID,
+                    "gatewayUrl syntax is invalid",
+                    exception);
         }
     }
 
     private void validateWebSocketUri(URI uri) {
         if (uri.getHost() == null || uri.getHost().isBlank()) {
-            throw new IllegalArgumentException("gatewayUrl host is required");
+            throw new GatewayUrlNormalizationException(
+                    GatewayUrlError.HOST_REQUIRED,
+                    "gatewayUrl host is required");
         }
         validateFragment(uri);
     }
 
     private void validateFragment(URI uri) {
         if (uri.getRawFragment() != null) {
-            throw new IllegalArgumentException("gatewayUrl fragment is not supported");
+            throw new GatewayUrlNormalizationException(
+                    GatewayUrlError.FRAGMENT_NOT_SUPPORTED,
+                    "gatewayUrl fragment is not supported");
         }
     }
 

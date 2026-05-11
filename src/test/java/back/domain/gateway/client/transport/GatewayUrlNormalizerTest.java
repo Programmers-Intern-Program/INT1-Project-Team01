@@ -35,8 +35,10 @@ class GatewayUrlNormalizerTest {
     void toWebSocketUri_unsupportedScheme_throwsException() {
         // when & then
         assertThatThrownBy(() -> normalizer.toWebSocketUri("ftp://gateway.example"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("unsupported");
+                .isInstanceOf(GatewayUrlNormalizationException.class)
+                .hasMessageContaining("unsupported")
+                .extracting("error")
+                .isEqualTo(GatewayUrlError.UNSUPPORTED_SCHEME);
     }
 
     @Test
@@ -44,8 +46,9 @@ class GatewayUrlNormalizerTest {
     void toWebSocketUri_missingScheme_throwsException() {
         // when & then
         assertThatThrownBy(() -> normalizer.toWebSocketUri("gateway.example"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("scheme");
+                .isInstanceOf(GatewayUrlNormalizationException.class)
+                .extracting("error")
+                .isEqualTo(GatewayUrlError.SCHEME_REQUIRED);
     }
 
     @Test
@@ -53,8 +56,9 @@ class GatewayUrlNormalizerTest {
     void toWebSocketUri_missingHost_throwsException() {
         // when & then
         assertThatThrownBy(() -> normalizer.toWebSocketUri("https:///gateway"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("host");
+                .isInstanceOf(GatewayUrlNormalizationException.class)
+                .extracting("error")
+                .isEqualTo(GatewayUrlError.HOST_REQUIRED);
     }
 
     @Test
@@ -62,8 +66,10 @@ class GatewayUrlNormalizerTest {
     void toWebSocketUri_invalidSyntax_throwsException() {
         // when & then
         assertThatThrownBy(() -> normalizer.toWebSocketUri("https://gateway example"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("syntax");
+                .isInstanceOf(GatewayUrlNormalizationException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class)
+                .extracting("error")
+                .isEqualTo(GatewayUrlError.SYNTAX_INVALID);
     }
 
     @Test
@@ -71,7 +77,8 @@ class GatewayUrlNormalizerTest {
     void toWebSocketUri_fragment_throwsException() {
         // when & then
         assertThatThrownBy(() -> normalizer.toWebSocketUri("https://gateway.example#token=abc"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("fragment");
+                .isInstanceOf(GatewayUrlNormalizationException.class)
+                .extracting("error")
+                .isEqualTo(GatewayUrlError.FRAGMENT_NOT_SUPPORTED);
     }
 }
