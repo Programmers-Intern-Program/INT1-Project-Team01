@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import back.domain.agent.dto.response.AgentInfoRes;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentSkillFile;
+import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.repository.AgentSkillFileRepository;
 import back.domain.workspace.service.WorkspaceAccessValidator;
@@ -33,7 +34,9 @@ public class AgentQueryServiceImpl implements AgentQueryService {
     @Override
     public List<AgentInfoRes> listAgents(Long workspaceId, Long memberId) {
         workspaceAccessValidator.requireMember(workspaceId, memberId);
-        List<Agent> agents = agentRepository.findByWorkspaceIdOrderByIdAsc(workspaceId);
+        List<Agent> agents = agentRepository.findByWorkspaceIdAndStatusNotOrderByIdAsc(
+                workspaceId,
+                AgentStatus.DISABLED);
         Map<Long, List<AgentSkillFile>> skillFilesByAgentId = findSkillFilesByAgentId(agents);
         return agents.stream()
                 .map(agent -> AgentInfoRes.from(agent, skillFilesByAgentId.getOrDefault(agent.getId(), List.of())))
@@ -44,7 +47,7 @@ public class AgentQueryServiceImpl implements AgentQueryService {
     public AgentInfoRes getAgent(Long workspaceId, Long memberId, Long agentId) {
         workspaceAccessValidator.requireMember(workspaceId, memberId);
         Agent agent = agentRepository
-                .findByIdAndWorkspaceId(agentId, workspaceId)
+                .findByIdAndWorkspaceIdAndStatusNot(agentId, workspaceId, AgentStatus.DISABLED)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[AgentQueryServiceImpl#getAgent] agent not found. agentId=" + agentId
