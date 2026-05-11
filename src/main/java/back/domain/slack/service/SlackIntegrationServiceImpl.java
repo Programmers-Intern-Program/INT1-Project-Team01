@@ -72,7 +72,7 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
             throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 연동 정보가 아닙니다.");
         }
 
-        // 부분 업데이트 수행
+        // TODO: [IT-9] 중복 체크 로직 추가 (사전 UX 개선 및 명확한 예외 처리 목적)
         integration.update(req.slackTeamId(), req.slackChannelId(), req.botToken(), req.signingSecret());
 
         return SlackIntegrationInfoRes.from(integration);
