@@ -17,6 +17,7 @@ class OpenClawGatewayClientTest {
         Method connect = OpenClawGatewayClient.class.getMethod("connect", OpenClawGatewayConnectionContext.class);
         Method listAgents = OpenClawGatewayClient.class.getMethod("listAgents");
         Method createAgent = OpenClawGatewayClient.class.getMethod("createAgent", OpenClawAgentCreateCommand.class);
+        Method deleteAgent = OpenClawGatewayClient.class.getMethod("deleteAgent", String.class, boolean.class);
         Method setAgentFile = OpenClawGatewayClient.class.getMethod("setAgentFile", OpenClawAgentFileCommand.class);
         Method sendChat = OpenClawGatewayClient.class.getMethod("sendChat", OpenClawChatCommand.class);
 
@@ -24,6 +25,7 @@ class OpenClawGatewayClientTest {
         assertThat(connect.getReturnType()).isEqualTo(Void.TYPE);
         assertThat(listAgents.getReturnType()).isEqualTo(List.class);
         assertThat(createAgent.getReturnType()).isEqualTo(OpenClawAgentSummary.class);
+        assertThat(deleteAgent.getReturnType()).isEqualTo(Void.TYPE);
         assertThat(setAgentFile.getReturnType()).isEqualTo(Void.TYPE);
         assertThat(sendChat.getReturnType()).isEqualTo(OpenClawChatResult.class);
     }

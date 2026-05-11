@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,22 +17,28 @@ import back.domain.agent.controller.docs.AgentControllerDocs;
 import back.domain.agent.dto.request.OpenClawAgentCreateReq;
 import back.domain.agent.dto.response.AgentInfoRes;
 import back.domain.agent.dto.response.OpenClawAgentCreateRes;
+import back.domain.agent.service.AgentDeletionService;
 import back.domain.agent.service.AgentQueryService;
 import back.domain.agent.service.AgentProvisioningService;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.response.RsData;
 import back.global.security.AuthenticatedMember;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/v1/workspaces/{workspaceId}/agents")
 @RequiredArgsConstructor
+@SuppressFBWarnings(
+        value = "EI_EXPOSE_REP2",
+        justification = "Spring-managed services are injected and retained by this controller.")
 public class AgentController implements AgentControllerDocs {
 
     private final AgentProvisioningService agentProvisioningService;
     private final AgentQueryService agentQueryService;
+    private final AgentDeletionService agentDeletionService;
 
     @Override
     @PostMapping
@@ -67,6 +74,17 @@ public class AgentController implements AgentControllerDocs {
         return ResponseEntity.ok(new RsData<>(
                 agentQueryService.getAgent(workspaceId, memberId, agentId),
                 "Agent 상세 조회 성공"));
+    }
+
+    @Override
+    @DeleteMapping("/{agentId}")
+    public ResponseEntity<RsData<Void>> deleteAgent(
+            @PathVariable Long workspaceId,
+            @PathVariable Long agentId,
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember) {
+        Long memberId = resolveAuthenticatedMemberId(authenticatedMember);
+        agentDeletionService.deleteAgent(workspaceId, memberId, agentId);
+        return ResponseEntity.ok(new RsData<>(null, "Agent 삭제 성공"));
     }
 
     private Long resolveAuthenticatedMemberId(AuthenticatedMember authenticatedMember) {

@@ -110,7 +110,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
 
     private Agent resolveAssignedAgent(Long workspaceId, Long assignedAgentId) {
         Agent agent = agentRepository
-                .findByIdAndWorkspaceId(assignedAgentId, workspaceId)
+                .findByIdAndWorkspaceIdAndStatusNot(assignedAgentId, workspaceId, AgentStatus.DISABLED)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[TaskExecutionRunnerImpl#resolveAssignedAgent] assigned agent not found. "

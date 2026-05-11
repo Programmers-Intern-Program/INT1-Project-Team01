@@ -230,6 +230,29 @@ class OpenClawGatewayRpcClientTest {
     }
 
     @Test
+    @DisplayName("agents.delete는 agentId와 deleteFiles를 RPC 요청으로 보낸다")
+    void deleteAgent_successResponse_success() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(request.id(), Map.of()));
+        OpenClawGatewayRpcClient client = newClient(transport);
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when
+        client.deleteAgent("openclaw-agent-1", true);
+
+        // then
+        List<OpenClawRpcRequest> businessRequests = businessRequests(transport);
+        assertThat(businessRequests).hasSize(1);
+        OpenClawRpcRequest request = businessRequests.getFirst();
+        assertThat(request.method()).isEqualTo("agents.delete");
+        assertThat(request.params()).containsEntry("agentId", "openclaw-agent-1");
+        assertThat(request.params()).containsEntry("deleteFiles", true);
+
+        client.close();
+    }
+
+    @Test
     @DisplayName("chat.send는 sessionKey, message, idempotencyKey를 RPC 요청으로 보내고 "
             + "final text를 반환한다")
     void sendChat_successResponse_success() {

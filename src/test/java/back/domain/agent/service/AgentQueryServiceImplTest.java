@@ -77,7 +77,8 @@ class AgentQueryServiceImplTest {
         skillFile.markSynced();
 
         given(workspaceAccessValidator.requireMember(1L, 10L)).willReturn(workspaceMember);
-        given(agentRepository.findByWorkspaceIdOrderByIdAsc(1L)).willReturn(List.of(backendAgent, qaAgent));
+        given(agentRepository.findByWorkspaceIdAndStatusNotOrderByIdAsc(1L, AgentStatus.DISABLED))
+                .willReturn(List.of(backendAgent, qaAgent));
         given(agentSkillFileRepository.findByAgentIdInOrderByAgentIdAscIdAsc(List.of(100L, 101L)))
                 .willReturn(List.of(skillFile));
 
@@ -103,7 +104,8 @@ class AgentQueryServiceImplTest {
         AgentSkillFile skillFile = AgentSkillFile.create(agent, "AGENTS.md", "instruction");
         ReflectionTestUtils.setField(skillFile, "id", 200L);
         given(workspaceAccessValidator.requireMember(1L, 10L)).willReturn(workspaceMember);
-        given(agentRepository.findByIdAndWorkspaceId(100L, 1L)).willReturn(Optional.of(agent));
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(100L, 1L, AgentStatus.DISABLED))
+                .willReturn(Optional.of(agent));
         given(agentSkillFileRepository.findByAgentIdOrderByIdAsc(100L)).willReturn(List.of(skillFile));
 
         // when
@@ -121,7 +123,8 @@ class AgentQueryServiceImplTest {
     void getAgent_missingAgent_throwsException() {
         // given
         given(workspaceAccessValidator.requireMember(1L, 10L)).willReturn(workspaceMember);
-        given(agentRepository.findByIdAndWorkspaceId(999L, 1L)).willReturn(Optional.empty());
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(999L, 1L, AgentStatus.DISABLED))
+                .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> agentQueryService.getAgent(1L, 10L, 999L))

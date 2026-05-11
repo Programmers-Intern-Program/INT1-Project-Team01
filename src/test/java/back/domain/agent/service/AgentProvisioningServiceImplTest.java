@@ -121,7 +121,8 @@ class AgentProvisioningServiceImplTest {
                 new AgentSkillFileReq("COMMON.md", "common instruction"),
                 new AgentSkillFileReq("BACKEND.md", "backend instruction")));
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
         given(agentSkillFileRepository.save(any(AgentSkillFile.class))).willAnswer(skillFileSaveAnswer());
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
@@ -179,7 +180,8 @@ class AgentProvisioningServiceImplTest {
                 new AgentSkillFileReq("COMMON.md", "common instruction"),
                 new AgentSkillFileReq("BACKEND.md", "template backend instruction")));
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
         given(agentSkillFileRepository.save(any(AgentSkillFile.class))).willAnswer(skillFileSaveAnswer());
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
@@ -210,7 +212,8 @@ class AgentProvisioningServiceImplTest {
         // given
         OpenClawAgentCreateReq request = new OpenClawAgentCreateReq("Backend Agent", null, null, List.of());
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
         given(workspaceGatewayBindingService.getConnectionContext(1L))
                 .willThrow(new ServiceException(
@@ -232,7 +235,8 @@ class AgentProvisioningServiceImplTest {
         OpenClawAgentCreateReq request = new OpenClawAgentCreateReq(
                 "Backend Agent", null, null, List.of(new AgentSkillFileReq("AGENTS.md", "You are a backend agent.")));
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
         given(agentSkillFileRepository.save(any(AgentSkillFile.class))).willAnswer(skillFileSaveAnswer());
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
@@ -263,7 +267,8 @@ class AgentProvisioningServiceImplTest {
                         new AgentSkillFileReq("IDENTITY.md", "identity"),
                         new AgentSkillFileReq("AGENTS.md", "agents")));
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(false);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(false);
         given(agentRepository.save(any(Agent.class))).willAnswer(agentSaveAnswer(100L));
         given(agentSkillFileRepository.save(any(AgentSkillFile.class))).willAnswer(skillFileSaveAnswer());
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
@@ -292,7 +297,8 @@ class AgentProvisioningServiceImplTest {
         // given
         OpenClawAgentCreateReq request = new OpenClawAgentCreateReq("Backend Agent", null, null, List.of());
         givenWorkspaceAdmin();
-        given(agentRepository.existsByWorkspaceIdAndName(1L, "Backend Agent")).willReturn(true);
+        given(agentRepository.existsByWorkspaceIdAndNameAndStatusNot(1L, "Backend Agent", AgentStatus.DISABLED))
+                .willReturn(true);
 
         // when & then
         assertThatThrownBy(() -> agentProvisioningService.createAgent(1L, 10L, request))

@@ -159,13 +159,17 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
 
     private Agent resolveAgent(Long workspaceId, StepExecutionContext stepContext) {
         if (stepContext.agentId() != null) {
-            Agent agent = agentRepository.findByIdAndWorkspaceId(stepContext.agentId(), workspaceId)
+            Agent agent = agentRepository
+                    .findByIdAndWorkspaceIdAndStatusNot(
+                            stepContext.agentId(), workspaceId, AgentStatus.DISABLED)
                     .orElseThrow(() -> executionError("선택한 Worker Agent를 찾을 수 없습니다."));
             validateExecutableAgent(agent);
             return agent;
         }
         if (stepContext.agentName() != null) {
-            Agent agent = agentRepository.findByWorkspaceIdAndName(workspaceId, stepContext.agentName())
+            Agent agent = agentRepository
+                    .findByWorkspaceIdAndNameAndStatusNot(
+                            workspaceId, stepContext.agentName(), AgentStatus.DISABLED)
                     .orElseThrow(() -> executionError("선택한 Worker Agent를 찾을 수 없습니다."));
             validateExecutableAgent(agent);
             return agent;

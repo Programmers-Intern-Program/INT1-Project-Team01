@@ -20,7 +20,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
-@Tag(name = "Agent", description = "OpenClaw Agent 생성/조회 API")
+@Tag(name = "Agent", description = "OpenClaw Agent 생성/조회/삭제 API")
 public interface AgentControllerDocs {
 
     @Operation(summary = "Agent 생성", description = "워크스페이스에 OpenClaw Agent를 생성하고 Skill 파일을 동기화합니다.")
@@ -126,6 +126,30 @@ public interface AgentControllerDocs {
             @ApiResponse(responseCode = "404", description = "Agent를 찾을 수 없음")
     })
     ResponseEntity<RsData<AgentInfoRes>> getAgent(
+            @Parameter(description = "워크스페이스 ID", example = "1") @PathVariable Long workspaceId,
+            @Parameter(description = "Agent ID", example = "1") @PathVariable Long agentId,
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember);
+
+    @Operation(summary = "Agent 삭제", description = "워크스페이스 내 특정 Agent를 OpenClaw Gateway에서 삭제하고 비활성화합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Agent 삭제 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                    {
+                      "data": null,
+                      "message": "Agent 삭제 성공"
+                    }
+                    """))),
+            @ApiResponse(responseCode = "403", description = "워크스페이스 관리자 권한 없음"),
+            @ApiResponse(responseCode = "404", description = "Agent를 찾을 수 없음"),
+            @ApiResponse(responseCode = "502", description = "OpenClaw Gateway 삭제 요청 실패")
+    })
+    ResponseEntity<RsData<Void>> deleteAgent(
             @Parameter(description = "워크스페이스 ID", example = "1") @PathVariable Long workspaceId,
             @Parameter(description = "Agent ID", example = "1") @PathVariable Long agentId,
             @Parameter(hidden = true) AuthenticatedMember authenticatedMember);

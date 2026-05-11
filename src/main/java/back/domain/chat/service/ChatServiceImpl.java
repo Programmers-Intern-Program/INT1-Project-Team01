@@ -92,7 +92,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatMessageSendResponse sendSlackMessageWithNamedAgent(Long workspaceId, ChatSendCommand command) {
-        Agent agent = agentRepository.findByWorkspaceIdAndName(workspaceId, command.agentName())
+        Agent agent = agentRepository
+                .findByWorkspaceIdAndNameAndStatusNot(workspaceId, command.agentName(), AgentStatus.DISABLED)
                 .orElse(null);
         if (agent == null) {
             return slackGuidanceResponse(
@@ -589,7 +590,8 @@ public class ChatServiceImpl implements ChatService {
             validateAgentReady(agent);
             return agent;
         }
-        Agent agent = agentRepository.findByIdAndWorkspaceId(agentId, workspaceId)
+        Agent agent = agentRepository
+                .findByIdAndWorkspaceIdAndStatusNot(agentId, workspaceId, AgentStatus.DISABLED)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[ChatServiceImpl#resolveAgent] agent not found. workspaceId="
