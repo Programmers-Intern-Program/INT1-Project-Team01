@@ -83,6 +83,8 @@ app:
     base-path: ${APP_ARTIFACT_BASE_PATH:runtime-workspaces}
     max-file-size-bytes: ${APP_ARTIFACT_MAX_FILE_SIZE_BYTES:1048576}
     max-files-per-result: ${APP_ARTIFACT_MAX_FILES_PER_RESULT:50}
+  frontend:
+    base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
 
 logging:
   level:

@@ -29,7 +29,7 @@ public class SlackIntegrationController implements SlackIntegrationControllerDoc
 
     private final SlackIntegrationService slackIntegrationService;
 
-    @Value("${custom.cors.allowed-origin-patterns:http://localhost:3000}")
+    @Value("${app.frontend.base-url:http://localhost:3000}")
     private String frontendUrl;
 
     @Override
