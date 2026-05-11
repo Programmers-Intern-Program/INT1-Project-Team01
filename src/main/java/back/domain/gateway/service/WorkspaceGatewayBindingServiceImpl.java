@@ -12,6 +12,8 @@ import back.domain.gateway.client.OpenClawAgentSummary;
 import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.client.transport.GatewayUrlError;
+import back.domain.gateway.client.transport.GatewayUrlNormalizationException;
 import back.domain.gateway.client.transport.GatewayUrlNormalizer;
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
 import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
@@ -189,32 +191,29 @@ public class WorkspaceGatewayBindingServiceImpl implements WorkspaceGatewayBindi
         try {
             URI webSocketUri = gatewayUrlNormalizer.toWebSocketUri(gatewayUrl);
             return webSocketUri.toString();
+        } catch (GatewayUrlNormalizationException exception) {
+            throw new ServiceException(
+                    CommonErrorCode.BAD_REQUEST,
+                    "[WorkspaceGatewayBindingServiceImpl#normalizeGatewayUrl] invalid gateway url: "
+                            + exception.getMessage(),
+                    resolveGatewayUrlClientMessage(exception.getError()));
         } catch (IllegalArgumentException exception) {
             throw new ServiceException(
                     CommonErrorCode.BAD_REQUEST,
                     "[WorkspaceGatewayBindingServiceImpl#normalizeGatewayUrl] invalid gateway url: "
                             + exception.getMessage(),
-                    resolveGatewayUrlClientMessage(exception));
+                    "Gateway URL 형식이 올바르지 않습니다. 예: https://xxxx.ngrok-free.app");
         }
     }
 
-    private String resolveGatewayUrlClientMessage(IllegalArgumentException exception) {
-        String message = exception.getMessage();
-        if ("gatewayUrl must not be blank".equals(message)) {
-            return "Gateway URL은 필수입니다.";
-        }
-        if ("gatewayUrl scheme is required".equals(message)) {
-            return "Gateway URL은 http://, https://, ws://, wss:// 로 시작해야 합니다.";
-        }
-        if ("gatewayUrl host is required".equals(message)) {
-            return "Gateway URL에 호스트가 포함되어야 합니다. 예: https://xxxx.ngrok-free.app";
-        }
-        if ("gatewayUrl fragment is not supported".equals(message)) {
-            return "Gateway URL에는 #fragment를 포함할 수 없습니다.";
-        }
-        if (message != null && message.startsWith("unsupported gatewayUrl scheme")) {
-            return "Gateway URL은 http, https, ws, wss scheme만 사용할 수 있습니다.";
-        }
-        return "Gateway URL 형식이 올바르지 않습니다. 예: https://xxxx.ngrok-free.app";
+    private String resolveGatewayUrlClientMessage(GatewayUrlError error) {
+        return switch (error) {
+            case BLANK -> "Gateway URL은 필수입니다.";
+            case SCHEME_REQUIRED -> "Gateway URL은 http://, https://, ws://, wss:// 로 시작해야 합니다.";
+            case HOST_REQUIRED -> "Gateway URL에 호스트가 포함되어야 합니다. 예: https://xxxx.ngrok-free.app";
+            case FRAGMENT_NOT_SUPPORTED -> "Gateway URL에는 #fragment를 포함할 수 없습니다.";
+            case UNSUPPORTED_SCHEME -> "Gateway URL은 http, https, ws, wss scheme만 사용할 수 있습니다.";
+            case SYNTAX_INVALID -> "Gateway URL 형식이 올바르지 않습니다. 예: https://xxxx.ngrok-free.app";
+        };
     }
 }
