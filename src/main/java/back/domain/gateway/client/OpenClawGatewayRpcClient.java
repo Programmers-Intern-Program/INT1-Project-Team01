@@ -144,6 +144,15 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     @Override
+    public void deleteAgent(String agentId, boolean deleteFiles) {
+        sendRpc(
+                "agents.delete",
+                Map.of(
+                        "agentId", requireNotBlank(agentId, "agentId"),
+                        "deleteFiles", deleteFiles));
+    }
+
+    @Override
     public void setAgentFile(OpenClawAgentFileCommand command) {
         Objects.requireNonNull(command);
         sendRpc(
@@ -519,6 +528,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             throw new IllegalArgumentException(fieldName + " must be positive");
         }
         return timeout;
+    }
+
+    private static String requireNotBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return value.trim();
     }
 
     private static class PendingChatStream {

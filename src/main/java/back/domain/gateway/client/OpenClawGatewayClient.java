@@ -10,6 +10,8 @@ public interface OpenClawGatewayClient {
 
     OpenClawAgentSummary createAgent(OpenClawAgentCreateCommand command);
 
+    void deleteAgent(String agentId, boolean deleteFiles);
+
     void setAgentFile(OpenClawAgentFileCommand command);
 
     OpenClawChatResult sendChat(OpenClawChatCommand command);
