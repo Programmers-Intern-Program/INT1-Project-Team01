@@ -1,5 +1,7 @@
 package back.domain.gateway.entity;
 
+import java.time.LocalDateTime;
+
 import back.domain.workspace.entity.Workspace;
 import back.global.jpa.entity.BaseEntity;
 import back.global.security.crypto.TinkCryptoConverter;
@@ -44,6 +46,15 @@ public class WorkspaceGatewayBinding extends BaseEntity {
     @Column(nullable = false)
     private Long updatedByMemberId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private GatewayConnectionStatus lastStatus;
+
+    private LocalDateTime lastCheckedAt;
+
+    @Column(length = 500)
+    private String lastError;
+
     private WorkspaceGatewayBinding(
             Workspace workspace, GatewayMode mode, String gatewayUrl, String token, Long updatedByMemberId) {
         this.workspace = requireWorkspace(workspace);
@@ -63,6 +74,22 @@ public class WorkspaceGatewayBinding extends BaseEntity {
         this.gatewayUrl = requireNotBlank(gatewayUrl, "gatewayUrl");
         this.token = requireNotBlank(token, "token");
         this.updatedByMemberId = requireMemberId(memberId);
+        clearConnectionTestResult();
+    }
+
+    public void recordConnectionTestResult(GatewayConnectionStatus status, String errorMessage) {
+        if (status == null) {
+            throw new IllegalArgumentException("status must not be null");
+        }
+        this.lastStatus = status;
+        this.lastCheckedAt = LocalDateTime.now();
+        this.lastError = status == GatewayConnectionStatus.CONNECTED ? null : normalizeErrorMessage(errorMessage);
+    }
+
+    private void clearConnectionTestResult() {
+        this.lastStatus = null;
+        this.lastCheckedAt = null;
+        this.lastError = null;
     }
 
     private static Workspace requireWorkspace(Workspace workspace) {
@@ -84,5 +111,16 @@ public class WorkspaceGatewayBinding extends BaseEntity {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return value.trim();
+    }
+
+    private static String normalizeErrorMessage(String errorMessage) {
+        if (errorMessage == null || errorMessage.isBlank()) {
+            return null;
+        }
+        String normalized = errorMessage.trim();
+        if (normalized.length() <= 500) {
+            return normalized;
+        }
+        return normalized.substring(0, 500);
     }
 }
