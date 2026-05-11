@@ -1,7 +1,10 @@
 package back.domain.workspace.service;
 
+import back.domain.agent.entity.AgentStatus;
+import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
 import back.domain.workspace.dto.request.CreateWorkspaceReq;
@@ -53,6 +56,8 @@ class WorkspaceServiceImplTest {
     @Mock private WorkspaceMemberRepository workspaceMemberRepository;
     @Mock private WorkspaceInviteRepository workspaceInviteRepository;
     @Mock private InviteEmailService inviteEmailService;
+    @Mock private AgentRepository agentRepository;
+    @Mock private TaskRepository taskRepository;
 
     private WorkspaceServiceImpl workspaceService;
     private WorkspaceAccessValidator workspaceAccessValidator;
@@ -78,7 +83,9 @@ class WorkspaceServiceImplTest {
                 workspaceMemberRepository,
                 workspaceInviteRepository,
                 inviteEmailService,
-                workspaceAccessValidator);
+                workspaceAccessValidator,
+                agentRepository,
+                taskRepository);
         ReflectionTestUtils.setField(workspaceService, "inviteBaseUrl", "http://localhost:8080/api/v1/invites");
     }
 
@@ -117,12 +124,17 @@ class WorkspaceServiceImplTest {
         // given
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
         given(workspaceMemberRepository.findAllByMemberIdWithWorkspace(1L)).willReturn(List.of(adminWorkspaceMember));
+        given(agentRepository.countByWorkspaceIdsAndStatusNot(List.of(1L), AgentStatus.DISABLED))
+                .willReturn(List.of(agentCount(1L, 3L)));
+        given(taskRepository.countByWorkspaceIdsAndStatusIn(any(), any())).willReturn(List.of(taskCount(1L, 2L)));
 
         // when
         List<WorkspaceSummaryInfoRes> result = workspaceService.listMyWorkspaces(1L);
 
         // then
         assertThat(result).hasSize(1);
+        assertThat(result.getFirst().agentCount()).isEqualTo(3);
+        assertThat(result.getFirst().runningTaskCount()).isEqualTo(2);
     }
 
     @Test
@@ -828,5 +840,33 @@ class WorkspaceServiceImplTest {
 
     private WorkspaceInvite createInvite(LocalDateTime expiresAt) {
         return WorkspaceInvite.create(workspace, "token", WorkspaceMemberRole.MEMBER, member, expiresAt);
+    }
+
+    private AgentRepository.WorkspaceCount agentCount(Long workspaceId, long count) {
+        return new AgentRepository.WorkspaceCount() {
+            @Override
+            public Long getWorkspaceId() {
+                return workspaceId;
+            }
+
+            @Override
+            public long getCount() {
+                return count;
+            }
+        };
+    }
+
+    private TaskRepository.WorkspaceCount taskCount(Long workspaceId, long count) {
+        return new TaskRepository.WorkspaceCount() {
+            @Override
+            public Long getWorkspaceId() {
+                return workspaceId;
+            }
+
+            @Override
+            public long getCount() {
+                return count;
+            }
+        };
     }
 }
