@@ -92,7 +92,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatMessageSendResponse sendSlackMessageWithNamedAgent(Long workspaceId, ChatSendCommand command) {
-        Agent agent = agentRepository.findByWorkspaceIdAndName(workspaceId, command.agentName())
+        Agent agent = agentRepository
+                .findByWorkspaceIdAndNameAndStatusNot(workspaceId, command.agentName(), AgentStatus.DISABLED)
                 .orElse(null);
         if (agent == null) {
             return slackGuidanceResponse(
