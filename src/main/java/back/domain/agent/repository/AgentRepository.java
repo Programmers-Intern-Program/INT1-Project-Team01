@@ -19,6 +19,8 @@ public interface AgentRepository extends JpaRepository<Agent, Long> {
 
     Optional<Agent> findByIdAndWorkspaceId(Long agentId, Long workspaceId);
 
+    List<Agent> findByWorkspaceIdOrderByIdAsc(Long workspaceId);
+
     Optional<Agent> findFirstByWorkspaceIdAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
             Long workspaceId, AgentStatus status);
 
