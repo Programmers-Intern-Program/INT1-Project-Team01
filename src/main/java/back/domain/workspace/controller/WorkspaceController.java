@@ -161,6 +161,19 @@ public class WorkspaceController implements WorkspaceControllerDocs {
         );
     }
 
+    // Workspace 나가기 (삭제 아님)
+    @Override
+    @DeleteMapping("/{workspaceId}/members/me")
+    public ResponseEntity<RsData<Void>> leaveWorkspace(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember,
+            @PathVariable long workspaceId) {
+        long memberId = resolveAuthenticatedMemberId(authenticatedMember);
+        workspaceService.leaveWorkspace(workspaceId, memberId);
+        return ResponseEntity.ok(
+                new RsData<>("워크스페이스에서 나갔습니다.")
+        );
+    }
+
     // Workspace 초대 링크 생성
     @Override
     @PostMapping("/{workspaceId}/invites")
