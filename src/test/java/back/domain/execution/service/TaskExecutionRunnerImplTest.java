@@ -118,7 +118,7 @@ class TaskExecutionRunnerImplTest {
                 new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
                 null);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findByIdAndWorkspaceId(100L, 1L))
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(100L, 1L, AgentStatus.DISABLED))
                 .willReturn(Optional.of(readyAgent));
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
@@ -176,7 +176,7 @@ class TaskExecutionRunnerImplTest {
                 new AgentReportSaveRequest("COMPLETED", "작업 완료", "작업을 완료했습니다.", null),
                 null);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findByIdAndWorkspaceId(100L, 1L))
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(100L, 1L, AgentStatus.DISABLED))
                 .willReturn(Optional.of(readyAgent));
         given(workspaceGatewayBindingService.getConnectionContext(1L)).willReturn(gatewayContext);
         given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
@@ -248,7 +248,8 @@ class TaskExecutionRunnerImplTest {
         // given
         TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 999L, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findByIdAndWorkspaceId(999L, 1L)).willReturn(Optional.empty());
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(999L, 1L, AgentStatus.DISABLED))
+                .willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> taskExecutionRunner.run(command))
@@ -267,7 +268,8 @@ class TaskExecutionRunnerImplTest {
         errorAgent.markError("sync failed");
         TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 101L, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findByIdAndWorkspaceId(101L, 1L)).willReturn(Optional.of(errorAgent));
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(101L, 1L, AgentStatus.DISABLED))
+                .willReturn(Optional.of(errorAgent));
 
         // when & then
         assertThatThrownBy(() -> taskExecutionRunner.run(command))
@@ -286,7 +288,8 @@ class TaskExecutionRunnerImplTest {
         unsyncedAgent.markReady();
         TaskExecutionRunCommand command = new TaskExecutionRunCommand(1L, 50L, 102L, null, "작업 실행", false);
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
-        given(agentRepository.findByIdAndWorkspaceId(102L, 1L)).willReturn(Optional.of(unsyncedAgent));
+        given(agentRepository.findByIdAndWorkspaceIdAndStatusNot(102L, 1L, AgentStatus.DISABLED))
+                .willReturn(Optional.of(unsyncedAgent));
 
         // when & then
         assertThatThrownBy(() -> taskExecutionRunner.run(command))

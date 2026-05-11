@@ -590,7 +590,8 @@ public class ChatServiceImpl implements ChatService {
             validateAgentReady(agent);
             return agent;
         }
-        Agent agent = agentRepository.findByIdAndWorkspaceId(agentId, workspaceId)
+        Agent agent = agentRepository
+                .findByIdAndWorkspaceIdAndStatusNot(agentId, workspaceId, AgentStatus.DISABLED)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[ChatServiceImpl#resolveAgent] agent not found. workspaceId="

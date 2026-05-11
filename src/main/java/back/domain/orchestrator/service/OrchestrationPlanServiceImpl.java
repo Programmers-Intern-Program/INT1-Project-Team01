@@ -116,7 +116,9 @@ public class OrchestrationPlanServiceImpl implements OrchestrationPlanService {
             if (step.agentId() == null) {
                 continue;
             }
-            Agent agent = agentRepository.findByIdAndWorkspaceId(step.agentId(), workspaceId)
+            Agent agent = agentRepository
+                    .findByIdAndWorkspaceIdAndStatusNot(
+                            step.agentId(), workspaceId, AgentStatus.DISABLED)
                     .orElseThrow(() -> invalidPlan("존재하지 않는 agentId가 포함되어 있습니다: " + step.agentId()));
             if (agent.getStatus() != AgentStatus.READY || isBlank(agent.getOpenClawAgentId())) {
                 throw invalidPlan("READY 상태가 아닌 Agent가 포함되어 있습니다: " + step.agentId());
