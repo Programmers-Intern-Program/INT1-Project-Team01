@@ -39,6 +39,11 @@ custom:
       from: ${spring.mail.username}
       from-name: ${CUSTOM_INVITE_EMAIL_FROM_NAME:AI Office}
       subject-prefix: ${CUSTOM_INVITE_EMAIL_SUBJECT_PREFIX:[AI Office]}
+  slack:
+    client-id: ${SLACK_CLIENT_ID:test-client-id}
+    client-secret: ${SLACK_CLIENT_SECRET:test-client-secret}
+    signing-secret: ${SLACK_SIGNING_SECRET:test-signing-secret}
+    redirect-uri: ${SLACK_REDIRECT_URI:http://localhost:8080/api/v1/slack/oauth/callback}
 
 security:
   encryption:
