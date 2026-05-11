@@ -322,6 +322,37 @@ class WorkspaceServiceImplTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 나가기 성공 - 멤버십만 삭제")
+    void leaveWorkspace_success() {
+        // given
+        WorkspaceMember memberRole = WorkspaceMember.create(workspace, member, WorkspaceMemberRole.MEMBER);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L)).willReturn(Optional.of(memberRole));
+
+        // when
+        workspaceService.leaveWorkspace(1L, 1L);
+
+        // then
+        verify(workspaceMemberRepository).delete(memberRole);
+        assertThat(workspace.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("워크스페이스 나가기 실패 - 마지막 관리자 나가기 불가")
+    void leaveWorkspace_lastAdmin_throwsException() {
+        // given
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceMemberRepository.countByWorkspaceIdAndRole(1L, WorkspaceMemberRole.ADMIN)).willReturn(1L);
+
+        // when & then
+        assertThatThrownBy(() -> workspaceService.leaveWorkspace(1L, 1L))
+                .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
     @DisplayName("초대 링크 생성 성공")
     void createInviteLink_success() {
         // given
