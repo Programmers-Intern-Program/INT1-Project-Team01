@@ -50,14 +50,11 @@ class SlackIntegrationRepositoryTest {
     void convertToDatabaseColumn_encryption_verify() {
         // given
         String plainBotToken = "xoxb-real-plain-token";
-        String plainSigningSecret = "real-signing-secret";
-
         SlackIntegration integration = SlackIntegration.builder()
                 .workspaceId(workspace.getId())
                 .slackTeamId("T12345")
                 .slackChannelId("C12345")
                 .botToken(plainBotToken)
-                .signingSecret(plainSigningSecret)
                 .createdByMemberId(100L)
                 .build();
 

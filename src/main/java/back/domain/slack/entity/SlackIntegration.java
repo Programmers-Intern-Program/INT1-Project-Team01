@@ -48,10 +48,6 @@ public class SlackIntegration extends BaseEntity {
     @Column(nullable = false, columnDefinition = "TEXT", name = "bot_token_encrypted")
     private String botToken;
 
-    @Convert(converter = TinkCryptoConverter.class)
-    @Column(nullable = false, columnDefinition = "TEXT", name = "signing_secret_encrypted")
-    private String signingSecret;
-
     @Column(nullable = false)
     private Long createdByMemberId;
 
@@ -60,19 +56,21 @@ public class SlackIntegration extends BaseEntity {
 
     @Builder
     public SlackIntegration(Long workspaceId, String slackTeamId, String slackChannelId,
-                            String botToken, String signingSecret, Long createdByMemberId) {
+                            String botToken, Long createdByMemberId) {
         this.workspaceId = workspaceId;
         this.slackTeamId = slackTeamId;
         this.slackChannelId = slackChannelId;
         this.botToken = botToken;
-        this.signingSecret = signingSecret;
         this.createdByMemberId = createdByMemberId;
     }
 
-    public void update(String slackTeamId, String slackChannelId, String botToken, String signingSecret) {
+    /**
+     * 연동 정보를 부분 수정합니다.
+     * null이거나 비어있지 않은 값만 갱신됩니다.
+     */
+    public void update(String slackTeamId, String slackChannelId, String botToken) {
         if (slackTeamId != null && !slackTeamId.isBlank()) this.slackTeamId = slackTeamId;
         if (slackChannelId != null && !slackChannelId.isBlank()) this.slackChannelId = slackChannelId;
         if (botToken != null && !botToken.isBlank()) this.botToken = botToken;
-        if (signingSecret != null && !signingSecret.isBlank()) this.signingSecret = signingSecret;
     }
 }

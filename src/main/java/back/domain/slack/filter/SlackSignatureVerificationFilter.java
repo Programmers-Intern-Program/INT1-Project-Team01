@@ -1,7 +1,5 @@
 package back.domain.slack.filter;
 
-import back.domain.slack.entity.SlackIntegration;
-import back.domain.slack.repository.SlackIntegrationRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import back.global.filter.RepeatableReadRequestWrapper;
@@ -30,14 +28,13 @@ import java.util.HexFormat;
 
 /**
  * Slack Events API(Webhook) 요청의 무결성을 검증하는 보안 필터입니다.
- * HMAC-SHA256 알고리즘을 통해 검증하며, 실패 시 ServiceException을 발생시켜 일관된 응답을 제공합니다.
+ * 배포형 앱(Public Distribution) 전환으로 인해 전역 환경변수의 Signing Secret을 사용합니다.
  */
 @Slf4j
 @Component
 @SuppressFBWarnings(
         value = "EI_EXPOSE_REP2",
         justification = "JsonMapper는 Jackson이 관리하는 스레드 안전 객체이며 불변으로 사용됨")
-
 public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
 
     private static final String SLACK_WEBHOOK_URI = "/api/v1/slack/events";
@@ -46,15 +43,15 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
     private final JsonMapper jsonMapper;
-    private final SlackIntegrationRepository slackIntegrationRepository;
+    private final String globalSigningSecret;
     private final int replayAttackThresholdSeconds;
 
     public SlackSignatureVerificationFilter(
             JsonMapper jsonMapper,
-            SlackIntegrationRepository slackIntegrationRepository,
-            @Value("${security.slack.replay-timeout-seconds}") int replayAttackThresholdSeconds) {
+            @Value("${custom.slack.signing-secret}") String globalSigningSecret,
+            @Value("${security.slack.replay-timeout-seconds:300}") int replayAttackThresholdSeconds) {
         this.jsonMapper = jsonMapper;
-        this.slackIntegrationRepository = slackIntegrationRepository;
+        this.globalSigningSecret = globalSigningSecret;
         this.replayAttackThresholdSeconds = replayAttackThresholdSeconds;
     }
 
@@ -75,7 +72,6 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
         RepeatableReadRequestWrapper wrappedRequest = wrapRequest(request);
 
         try {
-            // TODO: [IT-9] 추후 공식 단일 Slack App (OAuth) 도입 시 전역 Signing Secret 사용하도록 리팩토링 필요
             if (isUrlVerificationRequest(wrappedRequest.getCachedBody())) {
                 log.info("Slack URL Verification 요청 - 서명 검증 skip");
                 validateHeadersAndTimestamp(wrappedRequest);
@@ -84,9 +80,7 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
             }
 
             validateHeadersAndTimestamp(wrappedRequest);
-            String slackTeamId = extractTeamIdFromBody(wrappedRequest.getCachedBody());
-            String plainSigningSecret = getSigningSecret(slackTeamId);
-            verifySignature(wrappedRequest, plainSigningSecret);
+            verifySignature(wrappedRequest, globalSigningSecret);
 
             filterChain.doFilter(wrappedRequest, response);
 
@@ -148,49 +142,6 @@ public class SlackSignatureVerificationFilter extends OncePerRequestFilter {
                     "유효하지 않은 타임스탬프 형식입니다."
             );
         }
-    }
-
-    /**
-     * HTTP 바디(JSON)를 파싱하여 최상단에 위치한 'team_id'를 추출합니다.
-     * 잘못된 JSON 형식이 전달될 경우를 대비해 파싱 예외를 명시적으로 처리합니다.
-     */
-    private String extractTeamIdFromBody(byte[] cachedBody) {
-        JsonNode rootNode;
-        try {
-            rootNode = jsonMapper.readTree(cachedBody);
-        } catch (Exception e) {
-            throw new ServiceException(
-                    CommonErrorCode.BAD_REQUEST,
-                    "Invalid JSON payload: " + e.getMessage(),
-                    "잘못된 JSON 페이로드 형식입니다."
-            );
-        }
-
-        String teamId = rootNode.path("team_id").asString();
-
-        if (teamId == null || teamId.isBlank()) {
-            throw new ServiceException(
-                    CommonErrorCode.BAD_REQUEST,
-                    "Missing team_id in payload",
-                    "페이로드에 team_id가 존재하지 않습니다."
-            );
-        }
-        return teamId;
-    }
-
-    /**
-     * 추출한 team_id를 기반으로 DB에서 암호화된 Signing Secret을 조회 시,
-     * Converter에 의해 복호화된 Signing Secret을 가져옵니다
-     */
-    private String getSigningSecret(String slackTeamId) {
-        SlackIntegration integration = slackIntegrationRepository.findFirstBySlackTeamId(slackTeamId)
-                .orElseThrow(() -> new ServiceException(
-                        CommonErrorCode.NOT_FOUND,
-                        "Unregistered team_id: " + slackTeamId,
-                        "등록되지 않은 Slack 워크스페이스입니다."
-                ));
-
-        return integration.getSigningSecret();
     }
 
     /**

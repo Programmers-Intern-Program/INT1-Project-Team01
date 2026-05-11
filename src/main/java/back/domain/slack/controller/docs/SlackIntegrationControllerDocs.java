@@ -16,13 +16,48 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
+/**
+ * Slack 연동 정보 관리를 위한 API 명세서입니다.
+ */
 @Tag(name = "Slack Integration", description = "Slack 연동 정보 관리 API")
 public interface SlackIntegrationControllerDocs {
 
-    @Operation(summary = "Slack 연동 정보 신규 등록", description = "Workspace의 Slack 연동 정보(Bot Token, Signing Secret 등)를 신규 등록합니다.")
+    @Operation(summary = "Slack OAuth 인증 시작", description = "Slack 앱 연동을 위한 OAuth 2.0 설치 리다이렉트 URL을 생성하여 반환합니다. 반환된 URL로 브라우저를 이동시키면 Slack 설치 과정이 시작됩니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "URL 생성 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "data": "https://slack.com/oauth/v2/authorize?client_id=...",
+                                              "message": "Slack 설치 URL이 생성되었습니다."
+                                            }
+                                            """)))
+    })
+    ResponseEntity<RsData<String>> installSlack(
+            @Parameter(description = "대상 워크스페이스 ID") @PathVariable Long workspaceId,
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember);
+
+    @Operation(summary = "Slack OAuth 콜백 (전역)", description = "Slack 인증 완료 후 인가 코드(code)를 받아 토큰을 교환하고 DB에 저장하는 전역 콜백 API입니다. 처리가 완료되면 프론트엔드의 특정 페이지로 리다이렉트됩니다.")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "302",
+                    description = "토큰 교환 성공 후 프론트엔드 리다이렉트",
+                    content = @Content(mediaType = "application/json"))
+    })
+    ResponseEntity<Void> handleOAuthCallback(
+            @Parameter(description = "Slack에서 발급한 인가 코드") @RequestParam String code,
+            @Parameter(description = "서버가 전송한 상태값 (보안 및 워크스페이스 식별용)") @RequestParam String state);
+
+    @Operation(summary = "Slack 연동 정보 신규 등록 (수동)", description = "Workspace의 Slack 연동 정보(Bot Token 등)를 직접 등록합니다. (OAuth 자동 연동 사용이 어려운 특수한 경우에만 사용합니다.)")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
             @ApiResponse(
@@ -72,7 +107,7 @@ public interface SlackIntegrationControllerDocs {
             @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
-                    description = "등록할 Slack 연동 정보",
+                    description = "등록할 Slack 연동 정보 (Signing Secret은 전역 관리되므로 제외)",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(
@@ -80,8 +115,7 @@ public interface SlackIntegrationControllerDocs {
                                             {
                                               "slackTeamId": "T12345",
                                               "slackChannelId": "C12345",
-                                              "botToken": "xoxb-real-token",
-                                              "signingSecret": "real-secret-key"
+                                              "botToken": "xoxb-real-token"
                                             }
                                             """
                             )

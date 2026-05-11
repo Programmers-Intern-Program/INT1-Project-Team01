@@ -7,7 +7,6 @@ package back.domain.slack.dto.request;
 public record SlackIntegrationUpdateReq(
         String slackTeamId,
         String slackChannelId,
-        String botToken,
-        String signingSecret
+        String botToken
 ) {
 }

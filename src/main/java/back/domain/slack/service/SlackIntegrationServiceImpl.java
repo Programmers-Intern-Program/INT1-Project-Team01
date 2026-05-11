@@ -1,25 +1,114 @@
 package back.domain.slack.service;
 
+import back.domain.slack.client.SlackClient;
 import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.request.SlackIntegrationUpdateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
+import back.domain.slack.dto.response.SlackOAuthAccessRes;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
 import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SlackIntegrationServiceImpl implements SlackIntegrationService {
 
     private final SlackIntegrationRepository slackIntegrationRepository;
     private final WorkspaceAccessValidator workspaceAccessValidator;
+    private final SlackClient slackClient;
+
+    @Value("${custom.slack.client-id}")
+    private String clientId;
+
+    @Value("${custom.slack.client-secret}")
+    private String clientSecret;
+
+    @Value("${custom.slack.redirect-uri}")
+    private String redirectUri;
+
+    @Override
+    @Transactional(readOnly = true)
+    public String getOAuthInstallUrl(Long workspaceId, Long memberId) {
+        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
+        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+
+        String payload = workspaceId + ":" + memberId;
+        String encodedState = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+
+        return UriComponentsBuilder.fromUriString("https://slack.com/oauth/v2/authorize")
+                .queryParam("client_id", clientId)
+                .queryParam("scope", "chat:write,incoming-webhook")
+                .queryParam("state", encodedState)
+                .queryParam("redirect_uri", redirectUri)
+                .build().toUriString();
+    }
+
+    @Override
+    @Transactional
+    public void handleOAuthCallback(String code, String state) {
+
+        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
+        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
+        String decodedState;
+        try {
+            decodedState = new String(Base64.getUrlDecoder().decode(state), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state parameter", "유효하지 않은 보안 식별자입니다.");
+        }
+
+        String[] parts = decodedState.split(":");
+        if (parts.length != 2) {
+            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state format", "유효하지 않은 상태 값 포맷입니다.");
+        }
+
+        Long workspaceId;
+        Long memberId;
+        try {
+            workspaceId = Long.parseLong(parts[0]);
+            memberId = Long.parseLong(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state values", "유효하지 않은 상태 값입니다.");
+        }
+
+        SlackOAuthAccessRes response = slackClient.exchangeToken(code, clientId, clientSecret, redirectUri);
+
+        String teamId = response.team().id();
+        String channelId = response.incomingWebhook().channelId();
+        String botToken = response.accessToken();
+
+        slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId(teamId, channelId)
+                .ifPresentOrElse(
+                        existing -> {
+                            existing.update(null, null, botToken);
+                            log.info("Slack 토큰 갱신 완료. WorkspaceId: {}, TeamId: {}, ChannelId: {}", workspaceId, teamId, channelId);
+                        },
+                        () -> {
+                            SlackIntegration integration = SlackIntegration.builder()
+                                    .workspaceId(workspaceId)
+                                    .slackTeamId(teamId)
+                                    .slackChannelId(channelId)
+                                    .botToken(botToken)
+                                    .createdByMemberId(memberId)
+                                    .build();
+                            slackIntegrationRepository.save(integration);
+                            log.info("Slack OAuth 연동 성공. WorkspaceId: {}, TeamId: {}, ChannelId: {}", workspaceId, teamId, channelId);
+                        }
+                );
+    }
 
     @Override
     @Transactional
@@ -41,7 +130,6 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
                 .slackTeamId(req.slackTeamId())
                 .slackChannelId(req.slackChannelId())
                 .botToken(req.botToken())
-                .signingSecret(req.signingSecret())
                 .createdByMemberId(memberId)
                 .build();
 
@@ -73,7 +161,7 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
         }
 
         // TODO: [IT-9] 중복 체크 로직 추가 (사전 UX 개선 및 명확한 예외 처리 목적)
-        integration.update(req.slackTeamId(), req.slackChannelId(), req.botToken(), req.signingSecret());
+        integration.update(req.slackTeamId(), req.slackChannelId(), req.botToken());
 
         return SlackIntegrationInfoRes.from(integration);
     }
