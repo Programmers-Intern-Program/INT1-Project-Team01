@@ -4,8 +4,6 @@ import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.request.SlackIntegrationUpdateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
 import back.domain.slack.service.SlackIntegrationService;
-import back.global.exception.CommonErrorCode;
-import back.global.exception.ServiceException;
 import back.testUtil.WebMvcTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
