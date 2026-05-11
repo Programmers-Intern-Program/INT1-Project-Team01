@@ -22,9 +22,11 @@ import static org.mockito.Mockito.doNothing;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * SlackIntegrationController의 API 동작을 검증하는 슬라이스 테스트입니다.
+ */
 @WebMvcTest(SlackIntegrationController.class)
 class SlackIntegrationControllerTest extends WebMvcTestSupport {
 
@@ -32,13 +34,48 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
     private SlackIntegrationService slackIntegrationService;
 
     @Test
-    @DisplayName("유효한 연동 정보로 등록을 요청하면 201 Created를 반환한다.")
+    @DisplayName("Slack 설치 URL 요청 시 200 OK와 생성된 URL을 반환한다.")
+    void installSlack_success() throws Exception {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String mockOauthUrl = "https://slack.com/oauth/v2/authorize?client_id=test";
+
+        given(slackIntegrationService.getOAuthInstallUrl(workspaceId, memberId))
+                .willReturn(mockOauthUrl);
+
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/{workspaceId}/slack/install", workspaceId)
+                        .with(authentication(createTestAuthentication(memberId, "ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(mockOauthUrl));
+    }
+
+    @Test
+    @DisplayName("Slack OAuth 콜백 처리 후 프론트엔드 성공 페이지로 리다이렉트된다.")
+    void handleOAuthCallback_success() throws Exception {
+        // given
+        String code = "valid-code";
+        String state = "encoded-state";
+
+        doNothing().when(slackIntegrationService).handleOAuthCallback(code, state);
+
+        // when & then
+        mockMvc.perform(get("/api/v1/slack/oauth/callback")
+                        .param("code", code)
+                        .param("state", state))
+                .andExpect(status().isFound())
+                .andExpect(header().exists("Location"));
+    }
+
+    @Test
+    @DisplayName("유효한 연동 정보로 수동 등록을 요청하면 201 Created를 반환한다.")
     void createSlackIntegration_success() throws Exception {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
         SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "T12345", "C12345", "xoxb-real-bot-token-for-test", "secret-key"
+                "T12345", "C12345", "xoxb-real-bot-token-for-test"
         );
 
         SlackIntegrationInfoRes res = new SlackIntegrationInfoRes(
@@ -67,7 +104,7 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
         Long workspaceId = 1L;
         Long memberId = 100L;
         SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "", "C12345", "xoxb-token", "secret"
+                "", "C12345", "xoxb-token"
         );
 
         // when & then
@@ -77,32 +114,6 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("이미 존재하는 채널 연동 요청 시 409 Conflict를 반환한다.")
-    void createSlackIntegration_duplicate_conflict() throws Exception {
-        // given
-        Long workspaceId = 1L;
-        Long memberId = 100L;
-        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "T123", "C123", "xoxb-token", "secret"
-        );
-
-        given(slackIntegrationService.createSlackIntegration(eq(workspaceId), eq(memberId), any(SlackIntegrationCreateReq.class)))
-                .willThrow(new ServiceException(
-                        CommonErrorCode.CONFLICT,
-                        "[SlackIntegrationServiceImpl#createSlackIntegration] duplicate",
-                        "해당 Slack 채널은 이미 Workspace에 연동되어 있습니다."));
-
-        // when & then
-        mockMvc.perform(post("/api/v1/workspaces/{workspaceId}/slack/integrations", workspaceId)
-                        .with(csrf())
-                        .with(authentication(createTestAuthentication(memberId, "ADMIN")))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(jsonMapper.writeValueAsString(req)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("해당 Slack 채널은 이미 Workspace에 연동되어 있습니다."));
     }
 
     @Test
@@ -131,7 +142,7 @@ class SlackIntegrationControllerTest extends WebMvcTestSupport {
         Long workspaceId = 1L;
         Long integrationId = 10L;
         Long memberId = 100L;
-        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null, null);
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null);
 
         SlackIntegrationInfoRes res = new SlackIntegrationInfoRes(10L, "T12345", "C999", "xoxb-****test");
 

@@ -1,7 +1,5 @@
 package back.domain.slack.filter;
 
-import back.domain.slack.entity.SlackIntegration;
-import back.domain.slack.repository.SlackIntegrationRepository;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -9,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -22,16 +19,15 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.BDDMockito.given;
 
 /**
  * {@link SlackSignatureVerificationFilter} 단독 테스트.
  * <p>
  * Spring 컨텍스트 없이 필터 인스턴스를 직접 생성하여
  * 서명 검증, 타임스탬프 검증, Replay Attack 방지 로직을 검증합니다.
+ * (배포형 전역 Signing Secret 구조 적용)
  *
  * @author minhee
  * @since 2026-05-04
@@ -39,21 +35,17 @@ import static org.mockito.BDDMockito.given;
 @ExtendWith(MockitoExtension.class)
 class SlackSignatureVerificationFilterTest {
 
-    @Mock
-    private SlackIntegrationRepository slackIntegrationRepository;
-
     private SlackSignatureVerificationFilter filter;
-    private JsonMapper jsonMapper;
 
     private static final String PLAIN_SIGNING_SECRET = "test-signing-secret";
     private static final String SLACK_WEBHOOK_URI = "/api/v1/slack/events";
 
     @BeforeEach
     void setUp() {
-        jsonMapper = JsonMapper.builder().build();
+        JsonMapper jsonMapper = JsonMapper.builder().build();
         filter = new SlackSignatureVerificationFilter(
                 jsonMapper,
-                slackIntegrationRepository,
+                PLAIN_SIGNING_SECRET,
                 300
         );
     }
@@ -87,13 +79,6 @@ class SlackSignatureVerificationFilterTest {
         String timestamp = String.valueOf(Instant.now().getEpochSecond());
 
         String signature = calculateSignature(timestamp, body);
-
-        SlackIntegration integration = SlackIntegration.builder()
-                .signingSecret(PLAIN_SIGNING_SECRET)
-                .build();
-
-        given(slackIntegrationRepository.findFirstBySlackTeamId("T12345"))
-                .willReturn(Optional.of(integration));
 
         MockHttpServletRequest request = buildRequest(timestamp, signature, body);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -182,61 +167,11 @@ class SlackSignatureVerificationFilterTest {
     }
 
     @Test
-    @DisplayName("team_id가 없는 페이로드면 400을 반환한다")
-    void missingTeamId_returns400() throws Exception {
-        // given
-        String body = "{\"type\":\"event_callback\"}";
-        String timestamp = String.valueOf(Instant.now().getEpochSecond());
-        String signature = calculateSignature(timestamp, body);
-
-        MockHttpServletRequest request = buildRequest(timestamp, signature, body);
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
-
-        // when
-        filter.doFilter(request, response, chain);
-
-        // then
-        assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(chain.getRequest()).isNull();
-    }
-
-    @Test
-    @DisplayName("등록되지 않은 team_id면 404를 반환한다")
-    void unregisteredTeamId_returns404() throws Exception {
-        // given
-        String body = "{\"team_id\":\"UNKNOWN\",\"type\":\"event_callback\"}";
-        String timestamp = String.valueOf(Instant.now().getEpochSecond());
-        String signature = calculateSignature(timestamp, body);
-
-        given(slackIntegrationRepository.findFirstBySlackTeamId("UNKNOWN"))
-                .willReturn(Optional.empty());
-
-        MockHttpServletRequest request = buildRequest(timestamp, signature, body);
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
-
-        // when
-        filter.doFilter(request, response, chain);
-
-        // then
-        assertThat(response.getStatus()).isEqualTo(404);
-        assertThat(chain.getRequest()).isNull();
-    }
-
-    @Test
     @DisplayName("서명이 불일치하면 401을 반환한다")
     void signatureMismatch_returns401() throws Exception {
         // given
         String body = "{\"team_id\":\"T12345\",\"type\":\"event_callback\"}";
         String timestamp = String.valueOf(Instant.now().getEpochSecond());
-
-        SlackIntegration integration = SlackIntegration.builder()
-                .signingSecret("PLAIN_SIGNING_SECRET")
-                .build();
-
-        given(slackIntegrationRepository.findFirstBySlackTeamId("T12345"))
-                .willReturn(Optional.of(integration));
 
         MockHttpServletRequest request = buildRequest(timestamp, "v0=invalidsignature", body);
         MockHttpServletResponse response = new MockHttpServletResponse();

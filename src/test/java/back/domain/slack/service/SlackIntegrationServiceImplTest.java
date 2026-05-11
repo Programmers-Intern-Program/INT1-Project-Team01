@@ -1,8 +1,10 @@
 package back.domain.slack.service;
 
+import back.domain.slack.client.SlackClient;
 import back.domain.slack.dto.request.SlackIntegrationCreateReq;
 import back.domain.slack.dto.request.SlackIntegrationUpdateReq;
 import back.domain.slack.dto.response.SlackIntegrationInfoRes;
+import back.domain.slack.dto.response.SlackOAuthAccessRes;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
 import back.domain.workspace.entity.WorkspaceMember;
@@ -18,15 +20,22 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+/**
+ * {@link SlackIntegrationServiceImpl}의 비즈니스 로직을 검증하는 테스트 클래스입니다.
+ * OAuth 자동 연동 및 수동 등록/수정/삭제 로직을 포함합니다.
+ */
 @ExtendWith(MockitoExtension.class)
 class SlackIntegrationServiceImplTest {
 
@@ -35,6 +44,9 @@ class SlackIntegrationServiceImplTest {
 
     @Mock
     private WorkspaceAccessValidator workspaceAccessValidator;
+
+    @Mock
+    private SlackClient slackClient;
 
     @InjectMocks
     private SlackIntegrationServiceImpl slackIntegrationService;
@@ -47,13 +59,57 @@ class SlackIntegrationServiceImplTest {
     }
 
     @Test
+    @DisplayName("OAuth 설치 URL을 생성할 때 state 값에 workspaceId와 memberId가 인코딩되어 포함된다.")
+    void getOAuthInstallUrl_success() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String payload = workspaceId + ":" + memberId;
+        String expectedState = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+
+        // when
+        String url = slackIntegrationService.getOAuthInstallUrl(workspaceId, memberId);
+
+        // then
+        assertThat(url).contains("https://slack.com/oauth/v2/authorize");
+        assertThat(url).contains("state=" + expectedState);
+        assertThat(url).contains("scope=chat:write,incoming-webhook");
+    }
+
+    @Test
+    @DisplayName("OAuth 콜백 처리 시 코드를 토큰으로 교환하고 중복이 아니면 DB에 저장한다.")
+    void handleOAuthCallback_success() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String code = "test-code";
+        String payload = workspaceId + ":" + memberId;
+        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+
+        SlackOAuthAccessRes.Team team = new SlackOAuthAccessRes.Team("T12345", "Test Team");
+        SlackOAuthAccessRes.IncomingWebhook webhook = new SlackOAuthAccessRes.IncomingWebhook("C12345", "https://url");
+        SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-token", team, webhook, null);
+
+        given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
+        given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId("T12345", "C12345")).willReturn(false);
+
+        // when
+        slackIntegrationService.handleOAuthCallback(code, state);
+
+        // then
+        verify(slackIntegrationRepository).save(any(SlackIntegration.class));
+    }
+
+    @Test
     @DisplayName("중복되지 않은 유효한 정보가 주어지면, 성공적으로 연동 정보가 등록되고 마스킹된 토큰이 반환된다.")
     void createSlackIntegration_success() {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
         SlackIntegrationCreateReq req = new SlackIntegrationCreateReq(
-                "T12345", "C12345", "xoxb-real-bot-token-for-test", "secret-key"
+                "T12345", "C12345", "xoxb-real-bot-token-for-test"
         );
 
         SlackIntegration mockEntity = SlackIntegration.builder()
@@ -61,7 +117,6 @@ class SlackIntegrationServiceImplTest {
                 .slackTeamId(req.slackTeamId())
                 .slackChannelId(req.slackChannelId())
                 .botToken(req.botToken())
-                .signingSecret(req.signingSecret())
                 .createdByMemberId(memberId)
                 .build();
 
@@ -87,7 +142,7 @@ class SlackIntegrationServiceImplTest {
     void createSlackIntegration_notAdmin_throwsException() {
         Long workspaceId = 1L;
         Long memberId = 100L;
-        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq("T12345", "C12345", "xoxb-token", "secret");
+        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq("T12345", "C12345", "xoxb-token");
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
                 .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN, "not admin", "워크스페이스 관리자 권한이 필요합니다."));
@@ -102,7 +157,7 @@ class SlackIntegrationServiceImplTest {
     void createSlackIntegration_duplicate_throws_exception() {
         Long workspaceId = 1L;
         Long memberId = 100L;
-        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq("T12345", "C12345", "botToken", "secret");
+        SlackIntegrationCreateReq req = new SlackIntegrationCreateReq("T12345", "C12345", "botToken");
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId()))
@@ -120,7 +175,7 @@ class SlackIntegrationServiceImplTest {
         Long memberId = 100L;
         SlackIntegration integration = SlackIntegration.builder()
                 .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
-                .botToken("xoxb-token12345").signingSecret("sec").createdByMemberId(memberId).build();
+                .botToken("xoxb-token12345").createdByMemberId(memberId).build();
 
         given(workspaceAccessValidator.requireMember(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.findAllByWorkspaceId(workspaceId)).willReturn(List.of(integration));
@@ -138,11 +193,11 @@ class SlackIntegrationServiceImplTest {
         Long workspaceId = 1L;
         Long integrationId = 10L;
         Long memberId = 100L;
-        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", "xoxb-newtoken1234", null);
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", "xoxb-newtoken1234");
 
         SlackIntegration integration = SlackIntegration.builder()
                 .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
-                .botToken("xoxb-oldtoken").signingSecret("old-secret").createdByMemberId(memberId).build();
+                .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.findById(integrationId)).willReturn(Optional.of(integration));
@@ -152,7 +207,6 @@ class SlackIntegrationServiceImplTest {
         assertThat(integration.getSlackChannelId()).isEqualTo("C999");
         assertThat(integration.getBotToken()).isEqualTo("xoxb-newtoken1234");
         assertThat(integration.getSlackTeamId()).isEqualTo("T1");
-        assertThat(integration.getSigningSecret()).isEqualTo("old-secret");
         assertThat(res.slackChannelId()).isEqualTo("C999");
     }
 
@@ -162,11 +216,11 @@ class SlackIntegrationServiceImplTest {
         Long workspaceId = 1L;
         Long integrationId = 10L;
         Long memberId = 100L;
-        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null, null);
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null);
 
         SlackIntegration integration = SlackIntegration.builder()
                 .workspaceId(999L).slackTeamId("T1").slackChannelId("C1")
-                .botToken("token").signingSecret("sec").createdByMemberId(memberId).build();
+                .botToken("token").createdByMemberId(memberId).build();
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackIntegrationRepository.findById(integrationId)).willReturn(Optional.of(integration));
