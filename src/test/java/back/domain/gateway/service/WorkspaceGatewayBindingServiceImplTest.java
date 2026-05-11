@@ -4,24 +4,35 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import back.domain.gateway.client.OpenClawAgentSummary;
+import back.domain.gateway.client.OpenClawGatewayClient;
+import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.dto.request.WorkspaceGatewayBindingReq;
+import back.domain.gateway.dto.request.WorkspaceGatewayConnectionTestReq;
+import back.domain.gateway.dto.response.GatewayConnectionTestStatus;
 import back.domain.gateway.dto.response.WorkspaceGatewayBindingRes;
+import back.domain.gateway.dto.response.WorkspaceGatewayConnectionTestRes;
 import back.domain.gateway.entity.GatewayMode;
 import back.domain.gateway.entity.WorkspaceGatewayBinding;
+import back.domain.gateway.exception.OpenClawGatewayErrorCode;
+import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.repository.WorkspaceGatewayBindingRepository;
 import back.domain.member.entity.Member;
 import back.domain.workspace.entity.Workspace;
@@ -42,6 +53,12 @@ class WorkspaceGatewayBindingServiceImplTest {
 
     @Mock
     private WorkspaceGatewayBindingRepository workspaceGatewayBindingRepository;
+
+    @Mock
+    private OpenClawGatewayClientFactory openClawGatewayClientFactory;
+
+    @Mock
+    private OpenClawGatewayClient openClawGatewayClient;
 
     @InjectMocks
     private WorkspaceGatewayBindingServiceImpl workspaceGatewayBindingService;
@@ -130,6 +147,88 @@ class WorkspaceGatewayBindingServiceImplTest {
 
         // then
         assertThat(response.maskedToken()).isEqualTo("****");
+    }
+
+    @Test
+    @DisplayName("Gateway 연결 테스트는 URL을 WebSocket URL로 정규화하고 agents.list 성공 상태를 반환한다")
+    void testExternalGateway_success() {
+        // given
+        WorkspaceGatewayConnectionTestReq request =
+                new WorkspaceGatewayConnectionTestReq("https://gateway.example.com", "gateway-secret-token");
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.listAgents()).willReturn(List.of(
+                new OpenClawAgentSummary("agent-1", "backend"),
+                new OpenClawAgentSummary("agent-2", "frontend")));
+
+        // when
+        WorkspaceGatewayConnectionTestRes response = workspaceGatewayBindingService.testExternalGateway(
+                1L, 10L, request);
+
+        // then
+        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.CONNECTED);
+        assertThat(response.connected()).isTrue();
+        assertThat(response.gatewayUrl()).isEqualTo("wss://gateway.example.com");
+        assertThat(response.agentCount()).isEqualTo(2);
+        ArgumentCaptor<OpenClawGatewayConnectionContext> contextCaptor =
+                ArgumentCaptor.forClass(OpenClawGatewayConnectionContext.class);
+        verify(openClawGatewayClient).connect(contextCaptor.capture());
+        assertThat(contextCaptor.getValue().gatewayUrl()).isEqualTo("wss://gateway.example.com");
+        assertThat(contextCaptor.getValue().token()).isEqualTo("gateway-secret-token");
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Gateway 연결 테스트는 인증 실패를 TOKEN_INVALID 상태로 반환한다")
+    void testExternalGateway_tokenInvalid_returnsStatus() {
+        // given
+        WorkspaceGatewayConnectionTestReq request =
+                new WorkspaceGatewayConnectionTestReq("ws://localhost:34115", "gateway-secret-token");
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        OpenClawGatewayException exception = new OpenClawGatewayException(
+                OpenClawGatewayErrorCode.UNAUTHORIZED,
+                "TOKEN_INVALID",
+                "token=gateway-secret-token is invalid",
+                OpenClawGatewayErrorCode.UNAUTHORIZED.defaultMessage(),
+                null,
+                false,
+                false);
+        willThrow(exception).given(openClawGatewayClient).connect(any(OpenClawGatewayConnectionContext.class));
+
+        // when
+        WorkspaceGatewayConnectionTestRes response = workspaceGatewayBindingService.testExternalGateway(
+                1L, 10L, request);
+
+        // then
+        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.TOKEN_INVALID);
+        assertThat(response.connected()).isFalse();
+        assertThat(response.message()).doesNotContain("gateway-secret-token");
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Gateway 연결 테스트는 RPC timeout을 TIMEOUT 상태로 반환한다")
+    void testExternalGateway_timeout_returnsStatus() {
+        // given
+        WorkspaceGatewayConnectionTestReq request =
+                new WorkspaceGatewayConnectionTestReq("ws://localhost:34115", "gateway-secret-token");
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 10L)).willReturn(Optional.of(admin));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(openClawGatewayClient.listAgents())
+                .willThrow(OpenClawGatewayException.rpcTimeout("agents.list", "request-1"));
+
+        // when
+        WorkspaceGatewayConnectionTestRes response = workspaceGatewayBindingService.testExternalGateway(
+                1L, 10L, request);
+
+        // then
+        assertThat(response.status()).isEqualTo(GatewayConnectionTestStatus.TIMEOUT);
+        assertThat(response.connected()).isFalse();
+        verify(openClawGatewayClient).close();
     }
 
     @Test
