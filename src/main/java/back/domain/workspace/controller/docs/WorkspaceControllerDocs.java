@@ -10,6 +10,7 @@ import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceDashboardSummaryRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 import back.global.response.RsData;
@@ -172,6 +173,58 @@ public interface WorkspaceControllerDocs {
                                     value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
     })
     ResponseEntity<RsData<WorkspaceInfoRes>> getWorkspace(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
+
+    @Operation(summary = "워크스페이스 대시보드 요약 조회", description = "워크스페이스의 Agent/Task 상태 집계와 최근 리포트/로그를 조회합니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "대시보드 요약 조회 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = """
+                    {
+                      "data": {
+                        "agentCount": 4,
+                        "runningAgentCount": 1,
+                        "idleAgentCount": 2,
+                        "errorAgentCount": 1,
+                        "taskCount": 10,
+                        "runningTaskCount": 3,
+                        "completedTaskCount": 6,
+                        "failedTaskCount": 1,
+                        "recentReports": [],
+                        "recentLogs": []
+                      },
+                      "message": "워크스페이스 대시보드 요약 조회 성공"
+                    }
+                    """))),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"로그인이 필요합니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "워크스페이스 멤버가 아님",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스 접근 권한이 없습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "워크스페이스를 찾을 수 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
+    })
+    ResponseEntity<RsData<WorkspaceDashboardSummaryRes>> getDashboardSummary(
             @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
             @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
 
