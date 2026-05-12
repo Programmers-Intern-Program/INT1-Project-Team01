@@ -62,7 +62,7 @@ custom:
     client-secret: ${SLACK_CLIENT_SECRET:}
     signing-secret: ${SLACK_SIGNING_SECRET:}
     redirect-uri: ${SLACK_REDIRECT_URI:http://localhost:8080/api/v1/slack/oauth/callback}
-    oauth-state-secret: ${SLACK_OAUTH_STATE_SECRET:team01-ai-office-default-slack-oauth-state-secret-key}
+    oauth-state-secret: ${SLACK_OAUTH_STATE_SECRET:}
 
 springdoc:
   api-docs:
