@@ -2,6 +2,7 @@ package back.domain.gateway.client;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -18,6 +19,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -34,8 +36,12 @@ class OpenClawGatewayDeviceIdentityStore {
     }
 
     static OpenClawGatewayDeviceIdentityStore defaultStore() {
+        return new OpenClawGatewayDeviceIdentityStore(defaultDirectory());
+    }
+
+    static Path defaultDirectory() {
         String home = System.getProperty("user.home", ".");
-        return new OpenClawGatewayDeviceIdentityStore(Path.of(home, ".ai-office", DEVICES_DIR_NAME));
+        return Path.of(home, ".ai-office", DEVICES_DIR_NAME);
     }
 
     OpenClawGatewayDeviceIdentity loadOrCreate(String identityKey) {
@@ -45,9 +51,15 @@ class OpenClawGatewayDeviceIdentityStore {
             if (parentDirectory != null) {
                 Files.createDirectories(parentDirectory);
             }
-            return readIdentity(identityPath).orElseGet(() -> writeNewIdentity(identityPath));
+            Optional<OpenClawGatewayDeviceIdentity> existingIdentity = readIdentity(identityPath);
+            if (existingIdentity.isPresent()) {
+                return existingIdentity.get();
+            }
+            return writeNewIdentity(identityPath);
         } catch (IOException exception) {
-            return generateIdentity();
+            throw new IllegalStateException(
+                    "OpenClaw device identity persistence failed: " + identityPath,
+                    exception);
         }
     }
 
@@ -63,31 +75,55 @@ class OpenClawGatewayDeviceIdentityStore {
                 return Optional.empty();
             }
             return Optional.of(new OpenClawGatewayDeviceIdentity(payload.id, payload.publicKey, payload.privateKeyPem));
-        } catch (RuntimeException exception) {
-            return Optional.empty();
+        } catch (JsonProcessingException | RuntimeException exception) {
+            throw new IllegalStateException(
+                    "OpenClaw device identity file is invalid: " + identityPath,
+                    exception);
         }
     }
 
-    private OpenClawGatewayDeviceIdentity writeNewIdentity(Path identityPath) {
+    private OpenClawGatewayDeviceIdentity writeNewIdentity(Path identityPath) throws IOException {
         OpenClawGatewayDeviceIdentity identity = generateIdentity();
         try {
-            Map<String, String> payload = Map.of(
-                    "id", identity.id(),
-                    "publicKey", identity.publicKey(),
-                    "privateKeyPem", identity.privateKeyPem(),
-                    "createdAt", Instant.now().toString());
-            String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(payload) + "\n";
+            writeIdentityFile(identityPath, identity);
+            return identity;
+        } catch (FileAlreadyExistsException exception) {
+            return readIdentity(identityPath)
+                    .orElseThrow(() -> new IOException(
+                            "OpenClaw device identity file already exists but is unreadable: " + identityPath,
+                            exception));
+        }
+    }
+
+    private void writeIdentityFile(Path identityPath, OpenClawGatewayDeviceIdentity identity) throws IOException {
+        Map<String, String> payload = Map.of(
+                "id", identity.id(),
+                "publicKey", identity.publicKey(),
+                "privateKeyPem", identity.privateKeyPem(),
+                "createdAt", Instant.now().toString());
+        String json = OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(payload) + "\n";
+        try {
             Files.writeString(
                     identityPath,
                     json,
                     StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE);
             restrictOwnerAccess(identityPath);
-        } catch (IOException exception) {
-            return identity;
+        } catch (FileAlreadyExistsException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
+            deleteCreatedIdentityFile(identityPath, exception);
+            throw exception;
         }
-        return identity;
+    }
+
+    private void deleteCreatedIdentityFile(Path identityPath, Exception cause) {
+        try {
+            Files.deleteIfExists(identityPath);
+        } catch (IOException deleteException) {
+            cause.addSuppressed(deleteException);
+        }
     }
 
     private OpenClawGatewayDeviceIdentity generateIdentity() {
@@ -141,7 +177,9 @@ class OpenClawGatewayDeviceIdentityStore {
                     identityPath,
                     Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
         } catch (UnsupportedOperationException exception) {
-            // Non-POSIX filesystems keep the process default permissions.
+            throw new IOException(
+                    "POSIX file permissions are required for OpenClaw device identity file: " + identityPath,
+                    exception);
         }
     }
 
