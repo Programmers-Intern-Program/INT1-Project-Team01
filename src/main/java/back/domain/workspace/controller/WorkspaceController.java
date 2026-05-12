@@ -26,6 +26,7 @@ import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceDashboardSummaryRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -146,6 +147,20 @@ public class WorkspaceController implements WorkspaceControllerDocs {
                 new RsData<>(
                         workspaceService.listMembers(workspaceId, memberId),
                         "워크스페이스 멤버 목록 조회 성공"
+                )
+        );
+    }
+
+    // Workspace 멤버별 담당 Task 통계 조회
+    @Override
+    @GetMapping("/{workspaceId}/members/task-stats")
+    public ResponseEntity<RsData<List<WorkspaceMemberTaskStatsRes>>> listMemberTaskStats(
+            @AuthenticationPrincipal AuthenticatedMember authenticatedMember, @PathVariable long workspaceId) {
+        long memberId = resolveAuthenticatedMemberId(authenticatedMember);
+        return ResponseEntity.ok(
+                new RsData<>(
+                        workspaceService.listMemberTaskStats(workspaceId, memberId),
+                        "워크스페이스 멤버 Task 통계 조회 성공"
                 )
         );
     }

@@ -10,6 +10,7 @@ import back.domain.workspace.dto.request.UpdateWorkspaceReq;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceDashboardSummaryRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
@@ -109,6 +110,7 @@ public interface WorkspaceControllerDocs {
                           "myRole": "ADMIN",
                           "agentCount": 0,
                           "runningTaskCount": 0,
+                          "completedTaskCount": 0,
                           "createdAt": "2025-01-01T09:00:00"
                         }
                       ],
@@ -393,6 +395,65 @@ public interface WorkspaceControllerDocs {
                                     value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
     })
     ResponseEntity<RsData<List<WorkspaceMemberInfoRes>>> listMembers(
+            @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
+            @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
+
+    @Operation(
+            summary = "워크스페이스 멤버 Task 통계 조회",
+            description = "워크스페이스 멤버별 담당 Task 통계와 프로필 점수를 조회합니다. 담당 Task는 멤버가 생성한 Agent에 배정된 Task 기준입니다.")
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "멤버 Task 통계 조회 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    name = "성공",
+                                    value = """
+                    {
+                      "data": [
+                        {
+                          "memberId": 1,
+                          "memberName": "홍길동",
+                          "rank": 1,
+                          "taskCount": 12,
+                          "completedTaskCount": 8,
+                          "runningTaskCount": 2,
+                          "failedTaskCount": 1,
+                          "waitingUserTaskCount": 1,
+                          "healthScore": 88,
+                          "flowScore": 72,
+                          "impactScore": 67,
+                          "totalScore": 75
+                        }
+                      ],
+                      "message": "워크스페이스 멤버 Task 통계 조회 성공"
+                    }
+                    """))),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"로그인이 필요합니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "워크스페이스 멤버가 아님",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스 접근 권한이 없습니다.\"}"))),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "워크스페이스를 찾을 수 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(
+                                    value = "{\"data\":null,\"message\":\"워크스페이스가 존재하지 않습니다.\"}")))
+    })
+    ResponseEntity<RsData<List<WorkspaceMemberTaskStatsRes>>> listMemberTaskStats(
             @Parameter(hidden = true) AuthenticatedMember authenticatedMember,
             @Parameter(description = "워크스페이스 ID", example = "1") long workspaceId);
 

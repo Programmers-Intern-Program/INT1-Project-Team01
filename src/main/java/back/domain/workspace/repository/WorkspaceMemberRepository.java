@@ -20,5 +20,8 @@ public interface WorkspaceMemberRepository extends JpaRepository<WorkspaceMember
 
     List<WorkspaceMember> findAllByWorkspaceId(Long workspaceId);
 
+    @Query("SELECT wm FROM WorkspaceMember wm JOIN FETCH wm.member WHERE wm.workspace.id = :workspaceId")
+    List<WorkspaceMember> findAllByWorkspaceIdWithMember(@Param("workspaceId") Long workspaceId);
+
     long countByWorkspaceIdAndRole(Long workspaceId, WorkspaceMemberRole role);
 }

@@ -11,6 +11,7 @@ public record WorkspaceSummaryInfoRes(
         WorkspaceMemberRole myRole,
         int agentCount,
         int runningTaskCount,
+        int completedTaskCount,
         LocalDateTime createdAt
 ) {
 }
