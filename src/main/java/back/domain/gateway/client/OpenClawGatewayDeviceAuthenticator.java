@@ -55,7 +55,7 @@ class OpenClawGatewayDeviceAuthenticator {
         device.put("signature", sign(payload, identity.privateKeyPem()));
         device.put("signedAt", signedAt);
         device.put("nonce", nonce);
-        return device;
+        return Map.copyOf(device);
     }
 
     private Object requireChallengeValue(Map<String, Object> challenge, String fieldName) {
