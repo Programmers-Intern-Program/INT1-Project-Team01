@@ -53,7 +53,12 @@ class OpenClawGatewayRpcClientTest {
         assertThat(connectRequest.params()).containsEntry("minProtocol", 3);
         assertThat(connectRequest.params()).containsEntry("maxProtocol", 3);
         assertThat(connectRequest.params()).containsKey("auth");
+        assertThat(connectRequest.params()).containsEntry(
+                "scopes",
+                List.of("operator.read", "operator.write", "operator.admin"));
         assertThat(connectRequest.params()).containsEntry("role", "operator");
+        assertThat(connectRequest.params()).doesNotContainKey("device");
+        assertAuthToken(connectRequest.params(), "secret-token");
         assertThat(connectRequest.params()).containsEntry(
                 "client",
                 Map.of(
@@ -86,14 +91,43 @@ class OpenClawGatewayRpcClientTest {
         assertThat(connectParams).containsEntry("role", "operator");
         assertThat(connectParams)
                 .containsEntry("scopes", List.of("operator.read", "operator.write", "operator.admin"));
+        assertAuthToken(connectParams, "secret-token");
         assertThat(connectParams).containsKey("device");
         assertThat(connectParams.get("device")).isInstanceOf(Map.class);
         Map<?, ?> device = (Map<?, ?>) connectParams.get("device");
         assertThat(device.containsKey("id")).isTrue();
         assertThat(device.containsKey("publicKey")).isTrue();
-        assertThat(device.containsKey("signature")).isTrue();
+        assertThat(device.get("signature")).isInstanceOf(String.class).asString().isNotBlank();
         assertThat(device.get("signedAt")).isEqualTo(1234567890L);
         assertThat(device.get("nonce")).isEqualTo("nonce-1");
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("원격 Gateway는 connect 전에 challenge를 잠시 기다린다")
+    void connect_remoteChallengeAfterTransportConnect_waitsBeforeLegacyConnect(@TempDir Path tempDir) {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onConnect = connectedTransport -> emitChallengeAfter(
+                connectedTransport,
+                Duration.ofMillis(25),
+                Map.of("nonce", "remote-nonce", "ts", 1234567892L));
+        OpenClawGatewayRpcClient client = newClient(
+                transport,
+                new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)),
+                Duration.ofMillis(200));
+
+        // when
+        client.connect(new OpenClawGatewayConnectionContext("wss://gateway.example.test", "secret-token"));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        Map<String, Object> connectParams = transport.sentRequests.getFirst().params();
+        assertThat(connectParams).containsKey("device");
+        Map<?, ?> device = (Map<?, ?>) connectParams.get("device");
+        assertThat(device.get("signedAt")).isEqualTo(1234567892L);
+        assertThat(device.get("nonce")).isEqualTo("remote-nonce");
 
         client.close();
     }
@@ -128,6 +162,42 @@ class OpenClawGatewayRpcClientTest {
         Map<?, ?> device = (Map<?, ?>) retriedConnectParams.get("device");
         assertThat(device.get("signedAt")).isEqualTo(1234567891L);
         assertThat(device.get("nonce")).isEqualTo("late-nonce");
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("connect.challenge 재시도 실패는 Gateway RPC 예외로 전파하고 연결을 닫는다")
+    void connect_lateChallengeRetryFailure_throwsGatewayException(@TempDir Path tempDir) {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.autoRespondToConnect = false;
+        transport.onSend = request -> {
+            if (CONNECT_METHOD.equals(request.method()) && !request.params().containsKey("device")) {
+                transport.emit(OpenClawGatewayEvent.of(
+                        "connect.challenge",
+                        Map.of("nonce", "late-nonce", "ts", 1234567891L)));
+                return;
+            }
+            transport.respond(OpenClawRpcResponse.failure(
+                    request.id(),
+                    new back.domain.gateway.client.rpc.dto.OpenClawRpcError(
+                            "INVALID_REQUEST",
+                            "missing scope: operator.read")));
+        };
+        OpenClawGatewayRpcClient client = newClient(
+                transport,
+                new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)));
+
+        // when & then
+        assertThatThrownBy(() -> client.connect(
+                        new OpenClawGatewayConnectionContext("wss://gateway.example.test", "secret-token")))
+                .isInstanceOf(OpenClawGatewayException.class)
+                .extracting("gatewayErrorCode")
+                .isEqualTo("INVALID_REQUEST");
+        assertThat(transport.sentRequests).hasSize(2);
+        assertThat(transport.sentRequests.getLast().params()).containsKey("device");
+        assertThat(transport.isConnected()).isFalse();
 
         client.close();
     }
@@ -539,6 +609,13 @@ class OpenClawGatewayRpcClientTest {
     private OpenClawGatewayRpcClient newClient(
             FakeGatewayTransport transport,
             OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
+        return newClient(transport, deviceAuthenticator, Duration.ZERO);
+    }
+
+    private OpenClawGatewayRpcClient newClient(
+            FakeGatewayTransport transport,
+            OpenClawGatewayDeviceAuthenticator deviceAuthenticator,
+            Duration remoteConnectChallengeWait) {
         AtomicInteger sequence = new AtomicInteger();
         return new OpenClawGatewayRpcClient(
                 transport,
@@ -546,13 +623,35 @@ class OpenClawGatewayRpcClientTest {
                 () -> "req-" + sequence.incrementAndGet(),
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(1),
-                deviceAuthenticator);
+                deviceAuthenticator,
+                remoteConnectChallengeWait);
     }
 
     private List<OpenClawRpcRequest> businessRequests(FakeGatewayTransport transport) {
         return transport.sentRequests.stream()
                 .filter(request -> !CONNECT_METHOD.equals(request.method()))
                 .toList();
+    }
+
+    private void assertAuthToken(Map<String, Object> params, String expectedToken) {
+        assertThat(params.get("auth")).isInstanceOf(Map.class);
+        Map<?, ?> auth = (Map<?, ?>) params.get("auth");
+        assertThat(auth.get("token")).isEqualTo(expectedToken);
+    }
+
+    private void emitChallengeAfter(
+            FakeGatewayTransport transport, Duration delay, Map<String, Object> challengePayload) {
+        Thread emitter = new Thread(
+                () -> {
+                    try {
+                        Thread.sleep(delay.toMillis());
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                    }
+                    transport.emit(OpenClawGatewayEvent.of("connect.challenge", challengePayload));
+                },
+                "fake-openclaw-connect-challenge");
+        emitter.start();
     }
 
     private static class FakeGatewayTransport implements OpenClawGatewayTransport {
@@ -564,6 +663,7 @@ class OpenClawGatewayRpcClientTest {
         private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
         private Map<String, Object> challengeOnConnect = Map.of();
         private boolean autoRespondToConnect = true;
+        private Consumer<FakeGatewayTransport> onConnect = transport -> {};
         private Consumer<OpenClawRpcRequest> onSend = request -> {};
 
         @Override
@@ -579,6 +679,7 @@ class OpenClawGatewayRpcClientTest {
             if (!challengeOnConnect.isEmpty()) {
                 emit(OpenClawGatewayEvent.of("connect.challenge", challengeOnConnect));
             }
+            onConnect.accept(this);
         }
 
         @Override
