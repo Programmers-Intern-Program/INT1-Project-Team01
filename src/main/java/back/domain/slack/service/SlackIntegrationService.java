@@ -29,7 +29,7 @@ public interface SlackIntegrationService {
      * Slack OAuth 승인 완료 후 콜백을 처리하여 토큰을 발급받고 연동 정보를 DB에 저장합니다.
      *
      * @param code  Slack이 전달한 일회성 인가 코드
-     * @param state 요청 시 전달했던 상태 값 (workspaceId 등 암호화 정보)
+     * @param state 요청 시 전달했던 상태 값 (위변조 방지를 위해 workspaceId 등이 포함된 JWT 서명 토큰)
      */
     void handleOAuthCallback(String code, String state);
 

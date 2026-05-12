@@ -10,6 +10,8 @@ import back.domain.slack.repository.SlackIntegrationRepository;
 import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import back.global.security.OAuthStateTokenProvider;
+import back.global.security.OAuthStateTokenProvider.OAuthStatePayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,9 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
+
+// TODO: [IT-9] Exception 컨벤션 따라 수정 필요
 
 @Slf4j
 @Service
@@ -29,6 +31,7 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     private final SlackIntegrationRepository slackIntegrationRepository;
     private final WorkspaceAccessValidator workspaceAccessValidator;
     private final SlackClient slackClient;
+    private final OAuthStateTokenProvider oauthStateTokenProvider;
 
     @Value("${custom.slack.client-id}")
     private String clientId;
@@ -42,17 +45,14 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Override
     @Transactional(readOnly = true)
     public String getOAuthInstallUrl(Long workspaceId, Long memberId) {
-        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
-        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
-        String payload = workspaceId + ":" + memberId;
-        String encodedState = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        String stateToken = oauthStateTokenProvider.generateOAuthState(workspaceId, memberId);
 
         return UriComponentsBuilder.fromUriString("https://slack.com/oauth/v2/authorize")
                 .queryParam("client_id", clientId)
                 .queryParam("scope", "chat:write,incoming-webhook")
-                .queryParam("state", encodedState)
+                .queryParam("state", stateToken)
                 .queryParam("redirect_uri", redirectUri)
                 .build().toUriString();
     }
@@ -61,28 +61,9 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Transactional
     public void handleOAuthCallback(String code, String state) {
 
-        // TODO: [IT-9] state에 서버 서명(HMAC 또는 JWT) 또는 Redis nonce 검증 추가 필요
-        // 현재 state는 Base64 인코딩만 되어 있어 위변조 가능성 있음
-        String decodedState;
-        try {
-            decodedState = new String(Base64.getUrlDecoder().decode(state), StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
-            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state parameter", "유효하지 않은 보안 식별자입니다.");
-        }
-
-        String[] parts = decodedState.split(":");
-        if (parts.length != 2) {
-            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state format", "유효하지 않은 상태 값 포맷입니다.");
-        }
-
-        Long workspaceId;
-        Long memberId;
-        try {
-            workspaceId = Long.parseLong(parts[0]);
-            memberId = Long.parseLong(parts[1]);
-        } catch (NumberFormatException e) {
-            throw new ServiceException(CommonErrorCode.BAD_REQUEST, "Invalid state values", "유효하지 않은 상태 값입니다.");
-        }
+        OAuthStatePayload payload = oauthStateTokenProvider.parseOAuthState(state);
+        Long workspaceId = payload.workspaceId();
+        Long memberId = payload.memberId();
 
         SlackOAuthAccessRes response = slackClient.exchangeToken(code, clientId, clientSecret, redirectUri);
 
@@ -113,7 +94,6 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     @Override
     @Transactional
     public SlackIntegrationInfoRes createSlackIntegration(Long workspaceId, Long memberId, SlackIntegrationCreateReq req) {
-
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         if (slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelId(req.slackTeamId(), req.slackChannelId())) {
@@ -178,7 +158,6 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
             throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 연동 정보가 아닙니다.");
         }
 
-        // @SQLDelete에 의해 자동으로 deleted_at이 갱신됩니다.
         slackIntegrationRepository.delete(integration);
     }
 }
