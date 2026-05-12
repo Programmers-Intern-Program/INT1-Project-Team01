@@ -104,4 +104,27 @@ class OAuthStateTokenProviderTest {
                 .hasMessageContaining("Mismatched token type")
                 .extracting("errorCode").isEqualTo(CommonErrorCode.BAD_REQUEST);
     }
+
+    @Test
+    @DisplayName("토큰의 페이로드에서 workspaceId를 임의로 조작하면 서명 검증에 실패하여 차단된다.")
+    void parseOAuthState_manipulatedWorkspaceId_throwsException() {
+        // given
+        String validToken = tokenProvider.generateOAuthState(1L, 100L);
+
+        // 페이로드 변조 (workspaceId를 999로 변경)
+        String[] parts = validToken.split("\\.");
+        String header = parts[0];
+        String originalPayload = new String(java.util.Base64.getUrlDecoder().decode(parts[1]));
+
+        String manipulatedPayload = originalPayload.replace("\"workspaceId\":1", "\"workspaceId\":999");
+        String encodedManipulatedPayload = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(manipulatedPayload.getBytes(StandardCharsets.UTF_8));
+
+        String forgedToken = header + "." + encodedManipulatedPayload + "." + parts[2];
+
+        // when & then
+        assertThatThrownBy(() -> tokenProvider.parseOAuthState(forgedToken))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("Invalid token signature")
+                .extracting("errorCode").isEqualTo(CommonErrorCode.BAD_REQUEST);
+    }
 }
