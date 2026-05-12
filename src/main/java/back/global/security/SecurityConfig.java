@@ -54,9 +54,10 @@ public class SecurityConfig {
                                 "/login/oauth2/**",
                                 "/h2-console/**",
                                 "/actuator/**",
-                                "/api/v1/health",
-                                "/api/v1/workspaces/**"
+                                "/api/v1/health"
                         )
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/workspaces/*/presence/stream")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/google/login")
                         .permitAll()
