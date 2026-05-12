@@ -69,8 +69,21 @@ public class SlackIntegration extends BaseEntity {
      * null이거나 비어있지 않은 값만 갱신됩니다.
      */
     public void update(String slackTeamId, String slackChannelId, String botToken) {
-        if (slackTeamId != null && !slackTeamId.isBlank()) this.slackTeamId = slackTeamId;
-        if (slackChannelId != null && !slackChannelId.isBlank()) this.slackChannelId = slackChannelId;
-        if (botToken != null && !botToken.isBlank()) this.botToken = botToken;
+        this.slackTeamId = resolveTeamId(slackTeamId);
+        this.slackChannelId = resolveChannelId(slackChannelId);
+        this.botToken = resolveBotToken(botToken);
+    }
+
+    /**
+     * null 또는 빈 문자열이 들어올 경우 기존 상태를 유지합니다.
+     */
+    public String resolveTeamId(String candidate) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : this.slackTeamId;
+    }
+    public String resolveChannelId(String candidate) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : this.slackChannelId;
+    }
+    public String resolveBotToken(String candidate) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : this.botToken;
     }
 }

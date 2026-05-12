@@ -101,7 +101,7 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
                     CommonErrorCode.CONFLICT,
                     "[SlackIntegrationServiceImpl#createSlackIntegration] Duplicate integration for team: "
                             + req.slackTeamId() + ", channel: " + req.slackChannelId(),
-                    "해당 Slack 채널은 이미 Workspace에 연동되어 있습니다."
+                    "해당 Slack 채널은 이미 등록되어 있습니다."
             );
         }
 
@@ -133,22 +133,25 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     public SlackIntegrationInfoRes updateSlackIntegration(Long workspaceId, Long integrationId, Long memberId, SlackIntegrationUpdateReq req) {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
-        SlackIntegration integration = slackIntegrationRepository.findById(integrationId)
+        SlackIntegration integration = slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
-                        "[SlackIntegrationServiceImpl#updateSlackIntegration] Integration not found for id: " + integrationId,
-                        "해당 Slack 연동 정보를 찾을 수 없습니다."
+                        "[SlackIntegrationServiceImpl#updateSlackIntegration] Integration not found for id: " + integrationId + " and workspaceId: " + workspaceId,
+                        "해당 Slack 연동 정보를 찾을 수 없거나 접근 권한이 없습니다."
                 ));
 
-        if (!integration.getWorkspaceId().equals(workspaceId)) {
+        String targetTeamId = integration.resolveTeamId(req.slackTeamId());
+        String targetChannelId = integration.resolveChannelId(req.slackChannelId());
+
+        if (slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelIdAndIdNot(targetTeamId, targetChannelId, integrationId)) {
             throw new ServiceException(
-                    CommonErrorCode.FORBIDDEN,
-                    "[SlackIntegrationServiceImpl#updateSlackIntegration] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + integration.getWorkspaceId(),
-                    "해당 워크스페이스의 연동 정보가 아닙니다."
+                    CommonErrorCode.CONFLICT,
+                    "[SlackIntegrationServiceImpl#updateSlackIntegration] Duplicate integration for team: "
+                            + targetTeamId + ", channel: " + targetChannelId,
+                    "해당 Slack 채널은 이미 등록되어 있습니다."
             );
         }
 
-        // TODO: [IT-9] 중복 체크 로직 추가 (사전 UX 개선 및 명확한 예외 처리 목적)
         integration.update(req.slackTeamId(), req.slackChannelId(), req.botToken());
 
         return SlackIntegrationInfoRes.from(integration);
@@ -159,20 +162,12 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
     public void deleteSlackIntegration(Long workspaceId, Long integrationId, Long memberId) {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
-        SlackIntegration integration = slackIntegrationRepository.findById(integrationId)
+        SlackIntegration integration = slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
-                        "[SlackIntegrationServiceImpl#deleteSlackIntegration] Integration not found for id: " + integrationId,
-                        "해당 Slack 연동 정보를 찾을 수 없습니다."
+                        "[SlackIntegrationServiceImpl#deleteSlackIntegration] Integration not found for id: " + integrationId + " and workspaceId: " + workspaceId,
+                        "해당 Slack 연동 정보를 찾을 수 없거나 접근 권한이 없습니다."
                 ));
-
-        if (!integration.getWorkspaceId().equals(workspaceId)) {
-            throw new ServiceException(
-                    CommonErrorCode.FORBIDDEN,
-                    "[SlackIntegrationServiceImpl#deleteSlackIntegration] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + integration.getWorkspaceId(),
-                    "해당 워크스페이스의 연동 정보가 아닙니다."
-            );
-        }
 
         slackIntegrationRepository.delete(integration);
     }

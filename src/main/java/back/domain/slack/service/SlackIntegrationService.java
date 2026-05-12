@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * Slack 외부 연동 정보에 대한 비즈니스 로직을 처리하는 서비스 인터페이스입니다.
  * <p>
- * Slack App 연결을 위한 봇 토큰 및 서명 비밀키의 등록, 조회, 수정, 삭제 등의 계약을 정의합니다.
+ * Slack App 연결을 위한 봇 토큰 및 채널 정보의 등록, 조회, 수정, 삭제 등의 계약을 정의합니다.
  *
  * @author minhee
  * @since 2026-04-30
@@ -35,6 +35,12 @@ public interface SlackIntegrationService {
 
     /**
      * Slack 채널과 Workspace 간의 연동 정보를 새롭게 등록합니다.
+     *
+     * @param workspaceId Workspace 식별자
+     * @param memberId    요청하는 사용자(ADMIN) 식별자
+     * @param req         등록할 Slack 팀, 채널, 토큰 정보
+     * @return 등록된 연동 정보
+     * @throws back.global.exception.ServiceException 동일한 팀/채널 조합이 이미 존재하는 경우 (CONFLICT)
      */
     SlackIntegrationInfoRes createSlackIntegration(Long workspaceId, Long memberId, SlackIntegrationCreateReq req);
 
@@ -58,6 +64,7 @@ public interface SlackIntegrationService {
      * @param memberId      요청하는 사용자(ADMIN) 식별자
      * @param req           수정할 필드를 담은 DTO
      * @return 수정된 연동 정보
+     * @throws back.global.exception.ServiceException 변경하려는 팀/채널 조합이 이미 다른 연동 정보로 존재하는 경우 (CONFLICT)
      */
     SlackIntegrationInfoRes updateSlackIntegration(Long workspaceId, Long integrationId, Long memberId, SlackIntegrationUpdateReq req);
 

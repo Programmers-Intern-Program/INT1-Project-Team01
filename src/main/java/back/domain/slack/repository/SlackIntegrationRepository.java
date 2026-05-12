@@ -15,4 +15,8 @@ public interface SlackIntegrationRepository extends JpaRepository<SlackIntegrati
     Optional<SlackIntegration> findFirstBySlackTeamIdAndSlackChannelId(String slackTeamId, String slackChannelId);
 
     List<SlackIntegration> findAllByWorkspaceId(Long workspaceId);
+
+    Optional<SlackIntegration> findByIdAndWorkspaceId(Long id, Long workspaceId);
+
+    boolean existsBySlackTeamIdAndSlackChannelIdAndIdNot(String slackTeamId, String slackChannelId, Long id);
 }
