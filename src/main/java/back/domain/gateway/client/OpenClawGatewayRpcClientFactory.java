@@ -11,17 +11,20 @@ public class OpenClawGatewayRpcClientFactory implements OpenClawGatewayClientFac
 
     private final Duration rpcTimeout;
     private final Path deviceIdentityDirectory;
+    private final Duration remoteConnectChallengeWait;
 
     public OpenClawGatewayRpcClientFactory(
             @Value("${openclaw.gateway.rpc-timeout:10s}") Duration rpcTimeout,
-            @Value("${openclaw.gateway.device-identity-dir:}") String deviceIdentityDirectory) {
+            @Value("${openclaw.gateway.device-identity-dir:}") String deviceIdentityDirectory,
+            @Value("${openclaw.gateway.remote-connect-challenge-wait:750ms}") Duration remoteConnectChallengeWait) {
         this.rpcTimeout = rpcTimeout;
         this.deviceIdentityDirectory = resolveDeviceIdentityDirectory(deviceIdentityDirectory);
+        this.remoteConnectChallengeWait = remoteConnectChallengeWait;
     }
 
     @Override
     public OpenClawGatewayClient create() {
-        return OpenClawGatewayRpcClient.webSocket(rpcTimeout, deviceIdentityDirectory);
+        return OpenClawGatewayRpcClient.webSocket(rpcTimeout, deviceIdentityDirectory, remoteConnectChallengeWait);
     }
 
     private Path resolveDeviceIdentityDirectory(String configuredDirectory) {
