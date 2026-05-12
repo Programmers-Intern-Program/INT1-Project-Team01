@@ -3,6 +3,7 @@ package back.domain.gateway.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.function.Consumer;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import back.domain.gateway.client.rpc.OpenClawPendingRequests;
 import back.domain.gateway.client.rpc.OpenClawGatewayEventHandler;
@@ -59,6 +61,75 @@ class OpenClawGatewayRpcClientTest {
                         "version", "1.0.0",
                         "platform", "java",
                         "mode", "backend"));
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("connect.challenge를 받으면 connect handshake에 device signature를 포함한다")
+    void connect_challengeEvent_includesDeviceAuth(@TempDir Path tempDir) {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.challengeOnConnect = Map.of("nonce", "nonce-1", "ts", 1234567890L);
+        OpenClawGatewayRpcClient client = newClient(
+                transport,
+                Duration.ofSeconds(1),
+                new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)));
+        OpenClawGatewayConnectionContext context =
+                new OpenClawGatewayConnectionContext("wss://gateway.example.test", "secret-token");
+
+        // when
+        client.connect(context);
+
+        // then
+        assertThat(transport.sentRequests).hasSize(1);
+        Map<String, Object> connectParams = transport.sentRequests.getFirst().params();
+        assertThat(connectParams).containsEntry("role", "operator");
+        assertThat(connectParams)
+                .containsEntry("scopes", List.of("operator.read", "operator.write", "operator.admin"));
+        assertThat(connectParams).containsKey("device");
+        assertThat(connectParams.get("device")).isInstanceOf(Map.class);
+        Map<?, ?> device = (Map<?, ?>) connectParams.get("device");
+        assertThat(device.containsKey("id")).isTrue();
+        assertThat(device.containsKey("publicKey")).isTrue();
+        assertThat(device.containsKey("signature")).isTrue();
+        assertThat(device.get("signedAt")).isEqualTo(1234567890L);
+        assertThat(device.get("nonce")).isEqualTo("nonce-1");
+
+        client.close();
+    }
+
+    @Test
+    @DisplayName("connect 요청 이후 challenge를 받으면 device signature로 connect를 재시도한다")
+    void connect_lateChallenge_retriesWithDeviceAuth(@TempDir Path tempDir) {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.autoRespondToConnect = false;
+        transport.onSend = request -> {
+            if (CONNECT_METHOD.equals(request.method()) && !request.params().containsKey("device")) {
+                transport.emit(OpenClawGatewayEvent.of(
+                        "connect.challenge",
+                        Map.of("nonce", "late-nonce", "ts", 1234567891L)));
+                return;
+            }
+            transport.respond(OpenClawRpcResponse.success(request.id(), Map.of()));
+        };
+        OpenClawGatewayRpcClient client = newClient(
+                transport,
+                Duration.ZERO,
+                new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)));
+
+        // when
+        client.connect(new OpenClawGatewayConnectionContext("wss://gateway.example.test", "secret-token"));
+
+        // then
+        assertThat(transport.sentRequests).hasSize(2);
+        assertThat(transport.sentRequests.getFirst().params()).doesNotContainKey("device");
+        Map<String, Object> retriedConnectParams = transport.sentRequests.getLast().params();
+        assertThat(retriedConnectParams).containsKey("device");
+        Map<?, ?> device = (Map<?, ?>) retriedConnectParams.get("device");
+        assertThat(device.get("signedAt")).isEqualTo(1234567891L);
+        assertThat(device.get("nonce")).isEqualTo("late-nonce");
 
         client.close();
     }
@@ -464,12 +535,25 @@ class OpenClawGatewayRpcClientTest {
     }
 
     private OpenClawGatewayRpcClient newClient(FakeGatewayTransport transport) {
+        return newClient(
+                transport,
+                Duration.ZERO,
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+    }
+
+    private OpenClawGatewayRpcClient newClient(
+            FakeGatewayTransport transport,
+            Duration connectChallengeWait,
+            OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
         AtomicInteger sequence = new AtomicInteger();
         return new OpenClawGatewayRpcClient(
                 transport,
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> "req-" + sequence.incrementAndGet(),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1),
+                connectChallengeWait,
+                deviceAuthenticator);
     }
 
     private List<OpenClawRpcRequest> businessRequests(FakeGatewayTransport transport) {
@@ -485,6 +569,7 @@ class OpenClawGatewayRpcClientTest {
         private OpenClawGatewayEventHandler eventHandler;
         private Consumer<OpenClawGatewayException> failureHandler;
         private final List<OpenClawRpcRequest> sentRequests = new ArrayList<>();
+        private Map<String, Object> challengeOnConnect = Map.of();
         private boolean autoRespondToConnect = true;
         private Consumer<OpenClawRpcRequest> onSend = request -> {};
 
@@ -498,6 +583,9 @@ class OpenClawGatewayRpcClientTest {
             this.responseHandler = responseHandler;
             this.eventHandler = eventHandler;
             this.failureHandler = failureHandler;
+            if (!challengeOnConnect.isEmpty()) {
+                emit(OpenClawGatewayEvent.of("connect.challenge", challengeOnConnect));
+            }
         }
 
         @Override
