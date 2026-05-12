@@ -21,8 +21,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
-// TODO: [IT-9] Exception 컨벤션 따라 수정 필요
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -134,10 +132,18 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         SlackIntegration integration = slackIntegrationRepository.findById(integrationId)
-                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Integration not found", "해당 Slack 연동 정보를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[SlackIntegrationServiceImpl#updateSlackIntegration] Integration not found for id: " + integrationId,
+                        "해당 Slack 연동 정보를 찾을 수 없습니다."
+                ));
 
         if (!integration.getWorkspaceId().equals(workspaceId)) {
-            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 연동 정보가 아닙니다.");
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[SlackIntegrationServiceImpl#updateSlackIntegration] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + integration.getWorkspaceId(),
+                    "해당 워크스페이스의 연동 정보가 아닙니다."
+            );
         }
 
         // TODO: [IT-9] 중복 체크 로직 추가 (사전 UX 개선 및 명확한 예외 처리 목적)
@@ -152,10 +158,18 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         SlackIntegration integration = slackIntegrationRepository.findById(integrationId)
-                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Integration not found", "해당 Slack 연동 정보를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[SlackIntegrationServiceImpl#deleteSlackIntegration] Integration not found for id: " + integrationId,
+                        "해당 Slack 연동 정보를 찾을 수 없습니다."
+                ));
 
         if (!integration.getWorkspaceId().equals(workspaceId)) {
-            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 연동 정보가 아닙니다.");
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[SlackIntegrationServiceImpl#deleteSlackIntegration] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + integration.getWorkspaceId(),
+                    "해당 워크스페이스의 연동 정보가 아닙니다."
+            );
         }
 
         slackIntegrationRepository.delete(integration);
