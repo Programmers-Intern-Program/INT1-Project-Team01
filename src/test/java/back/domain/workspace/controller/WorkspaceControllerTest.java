@@ -4,6 +4,7 @@ import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 import back.domain.workspace.enums.InviteEmailStatus;
 import back.domain.workspace.enums.WorkspaceInviteStatus;
@@ -88,14 +89,15 @@ class WorkspaceControllerTest {
     void listMine_success() throws Exception {
         // given
         WorkspaceSummaryInfoRes summary = new WorkspaceSummaryInfoRes(1L, "테스트", "설명",
-                WorkspaceMemberRole.ADMIN, 0, 0, LocalDateTime.now());
+                WorkspaceMemberRole.ADMIN, 0, 0, 0, LocalDateTime.now());
         given(workspaceService.listMyWorkspaces(anyLong())).willReturn(List.of(summary));
 
         // when & then
         mockMvc.perform(get("/api/v1/workspaces")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].name").value("테스트"));
+                .andExpect(jsonPath("$.data[0].name").value("테스트"))
+                .andExpect(jsonPath("$.data[0].completedTaskCount").value(0));
     }
 
     @Test
@@ -210,6 +212,33 @@ class WorkspaceControllerTest {
     void leaveWorkspace_noAuth_returns401() throws Exception {
         // when & then
         mockMvc.perform(delete("/api/v1/workspaces/1/members/me"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("워크스페이스 멤버 Task 통계 조회 성공")
+    void listMemberTaskStats_success() throws Exception {
+        // given
+        WorkspaceMemberTaskStatsRes response = new WorkspaceMemberTaskStatsRes(
+                1L, "홍길동", 1, 12, 8, 2, 1, 1, 88, 72, 67, 75);
+        given(workspaceService.listMemberTaskStats(anyLong(), anyLong())).willReturn(List.of(response));
+
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/1/members/task-stats")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].memberId").value(1L))
+                .andExpect(jsonPath("$.data[0].rank").value(1))
+                .andExpect(jsonPath("$.data[0].healthScore").value(88))
+                .andExpect(jsonPath("$.data[0].flowScore").value(72))
+                .andExpect(jsonPath("$.data[0].impactScore").value(67));
+    }
+
+    @Test
+    @DisplayName("워크스페이스 멤버 Task 통계 조회 - 인증 없을 때 401")
+    void listMemberTaskStats_noAuth_returns401() throws Exception {
+        // when & then
+        mockMvc.perform(get("/api/v1/workspaces/1/members/task-stats"))
                 .andExpect(status().isUnauthorized());
     }
 

@@ -4,6 +4,7 @@ import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
 import back.domain.member.repository.MemberRepository;
+import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.email.InviteEmailCommand;
 import back.domain.workspace.dto.request.CreateWorkspaceInviteReq;
@@ -16,6 +17,7 @@ import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.entity.WorkspaceInvite;
@@ -126,7 +128,11 @@ class WorkspaceServiceImplTest {
         given(workspaceMemberRepository.findAllByMemberIdWithWorkspace(1L)).willReturn(List.of(adminWorkspaceMember));
         given(agentRepository.countByWorkspaceIdsAndStatusNot(List.of(1L), AgentStatus.DISABLED))
                 .willReturn(List.of(agentCount(1L, 3L)));
-        given(taskRepository.countByWorkspaceIdsAndStatusIn(any(), any())).willReturn(List.of(taskCount(1L, 2L)));
+        given(taskRepository.countByWorkspaceIdsAndStatusIn(
+                        List.of(1L), List.of(TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.WAITING_USER)))
+                .willReturn(List.of(taskCount(1L, 2L)));
+        given(taskRepository.countByWorkspaceIdsAndStatusIn(List.of(1L), List.of(TaskStatus.COMPLETED)))
+                .willReturn(List.of(taskCount(1L, 5L)));
 
         // when
         List<WorkspaceSummaryInfoRes> result = workspaceService.listMyWorkspaces(1L);
@@ -135,6 +141,7 @@ class WorkspaceServiceImplTest {
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().agentCount()).isEqualTo(3);
         assertThat(result.getFirst().runningTaskCount()).isEqualTo(2);
+        assertThat(result.getFirst().completedTaskCount()).isEqualTo(5);
     }
 
     @Test
@@ -260,6 +267,47 @@ class WorkspaceServiceImplTest {
 
         // then
         assertThat(result).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("워크스페이스 멤버 Task 통계 조회 성공")
+    void listMemberTaskStats_success() {
+        // given
+        Member targetMember = Member.createUser("sub2", "target@test.com", "김철수");
+        ReflectionTestUtils.setField(targetMember, "id", 2L);
+        WorkspaceMember targetWorkspaceMember =
+                WorkspaceMember.create(workspace, targetMember, WorkspaceMemberRole.MEMBER);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceMemberRepository.findAllByWorkspaceIdWithMember(1L))
+                .willReturn(List.of(adminWorkspaceMember, targetWorkspaceMember));
+        given(taskRepository.countMemberTaskStatusesByWorkspaceId(1L)).willReturn(List.of(
+                memberTaskStatusCount(1L, TaskStatus.COMPLETED, 8L),
+                memberTaskStatusCount(1L, TaskStatus.ASSIGNED, 1L),
+                memberTaskStatusCount(1L, TaskStatus.IN_PROGRESS, 1L),
+                memberTaskStatusCount(1L, TaskStatus.FAILED, 1L),
+                memberTaskStatusCount(1L, TaskStatus.WAITING_USER, 1L)));
+
+        // when
+        List<WorkspaceMemberTaskStatsRes> result = workspaceService.listMemberTaskStats(1L, 1L);
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(result.getFirst().memberId()).isEqualTo(1L);
+        assertThat(result.getFirst().rank()).isEqualTo(1);
+        assertThat(result.getFirst().taskCount()).isEqualTo(12);
+        assertThat(result.getFirst().completedTaskCount()).isEqualTo(8);
+        assertThat(result.getFirst().runningTaskCount()).isEqualTo(2);
+        assertThat(result.getFirst().failedTaskCount()).isEqualTo(1);
+        assertThat(result.getFirst().waitingUserTaskCount()).isEqualTo(1);
+        assertThat(result.getFirst().healthScore()).isEqualTo(88);
+        assertThat(result.getFirst().flowScore()).isEqualTo(72);
+        assertThat(result.getFirst().impactScore()).isEqualTo(67);
+        assertThat(result.getFirst().totalScore()).isEqualTo(75);
+        assertThat(result.get(1).memberId()).isEqualTo(2L);
+        assertThat(result.get(1).taskCount()).isZero();
     }
 
     @Test
@@ -861,6 +909,25 @@ class WorkspaceServiceImplTest {
             @Override
             public Long getWorkspaceId() {
                 return workspaceId;
+            }
+
+            @Override
+            public long getCount() {
+                return count;
+            }
+        };
+    }
+
+    private TaskRepository.MemberTaskStatusCount memberTaskStatusCount(Long memberId, TaskStatus status, long count) {
+        return new TaskRepository.MemberTaskStatusCount() {
+            @Override
+            public Long getMemberId() {
+                return memberId;
+            }
+
+            @Override
+            public TaskStatus getStatus() {
+                return status;
             }
 
             @Override
