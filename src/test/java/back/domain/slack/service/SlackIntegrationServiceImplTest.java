@@ -97,6 +97,7 @@ class SlackIntegrationServiceImplTest {
         SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-token", team, webhook, null);
 
         given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
                 .willReturn(Optional.empty());
@@ -106,6 +107,7 @@ class SlackIntegrationServiceImplTest {
 
         // then
         verify(slackIntegrationRepository).save(any(SlackIntegration.class));
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
     }
 
     @Test
@@ -128,6 +130,7 @@ class SlackIntegrationServiceImplTest {
                 .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
 
         given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
                 .willReturn(Optional.of(existing));
@@ -137,6 +140,30 @@ class SlackIntegrationServiceImplTest {
 
         // then
         assertThat(existing.getBotToken()).isEqualTo("xoxb-newtoken");
+        verify(slackIntegrationRepository, Mockito.never()).save(any());
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
+    }
+
+    @Test
+    @DisplayName("OAuth 콜백 처리 시 요청자가 더 이상 관리자가 아니면 예외가 발생하고 슬랙 토큰 교환을 진행하지 않는다.")
+    void handleOAuthCallback_notAdmin_throwsException() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String code = "test-code";
+        String state = "mock.jwt.token";
+
+        OAuthStatePayload mockPayload = new OAuthStatePayload(workspaceId, memberId);
+        given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN, "Not an admin", "관리자 권한이 없습니다."));
+
+        // when & then
+        assertThatThrownBy(() -> slackIntegrationService.handleOAuthCallback(code, state))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("Not an admin");
+
+        verify(slackClient, Mockito.never()).exchangeToken(any(), any(), any(), any());
         verify(slackIntegrationRepository, Mockito.never()).save(any());
     }
 

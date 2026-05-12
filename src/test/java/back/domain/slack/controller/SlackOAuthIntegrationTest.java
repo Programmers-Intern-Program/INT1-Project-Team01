@@ -1,9 +1,16 @@
 package back.domain.slack.controller;
 
+import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberRepository;
 import back.domain.slack.client.SlackClient;
 import back.domain.slack.dto.response.SlackOAuthAccessRes;
 import back.domain.slack.entity.SlackIntegration;
 import back.domain.slack.repository.SlackIntegrationRepository;
+import back.domain.workspace.entity.Workspace;
+import back.domain.workspace.entity.WorkspaceMember;
+import back.domain.workspace.enums.WorkspaceMemberRole;
+import back.domain.workspace.repository.WorkspaceMemberRepository;
+import back.domain.workspace.repository.WorkspaceRepository;
 import back.global.security.OAuthStateTokenProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,6 +50,15 @@ class SlackOAuthIntegrationTest {
     @Autowired
     private SlackIntegrationRepository slackIntegrationRepository;
 
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
+
     @MockitoBean
     private SlackClient slackClient;
 
@@ -50,8 +66,20 @@ class SlackOAuthIntegrationTest {
     @DisplayName("정상적인 OAuth 콜백 요청이 오면, JWT를 검증하고 토큰을 교환한 뒤 DB에 연동 정보를 저장하고 프론트엔드로 리다이렉트한다.")
     void oauthCallbackFlow_success() throws Exception {
         // given
-        Long workspaceId = 1L;
-        Long memberId = 100L;
+        Member member = memberRepository.save(
+                Member.createAdmin("test-google-sub", "test@example.com", "Test User")
+        );
+
+        Workspace workspace = workspaceRepository.save(
+                Workspace.create("테스트 워크스페이스", "워크스페이스 설명", member)
+        );
+
+        workspaceMemberRepository.save(
+                WorkspaceMember.create(workspace, member, WorkspaceMemberRole.ADMIN)
+        );
+
+        Long workspaceId = workspace.getId();
+        Long memberId = member.getId();
         String validCode = "valid-auth-code";
 
         String validState = oauthStateTokenProvider.generateOAuthState(workspaceId, memberId);

@@ -63,6 +63,8 @@ public class SlackIntegrationServiceImpl implements SlackIntegrationService {
         Long workspaceId = payload.workspaceId();
         Long memberId = payload.memberId();
 
+        workspaceAccessValidator.requireAdmin(workspaceId, memberId);
+
         SlackOAuthAccessRes response = slackClient.exchangeToken(code, clientId, clientSecret, redirectUri);
 
         String teamId = response.team().id();
