@@ -11,6 +11,8 @@ import back.domain.workspace.entity.WorkspaceMember;
 import back.domain.workspace.service.WorkspaceAccessValidator;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import back.global.security.OAuthStateTokenProvider; // 💡 추가됨
+import back.global.security.OAuthStateTokenProvider.OAuthStatePayload; // 💡 추가됨
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,8 +22,6 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,6 +48,9 @@ class SlackIntegrationServiceImplTest {
     @Mock
     private SlackClient slackClient;
 
+    @Mock
+    private OAuthStateTokenProvider oauthStateTokenProvider;
+
     @InjectMocks
     private SlackIntegrationServiceImpl slackIntegrationService;
 
@@ -59,22 +62,22 @@ class SlackIntegrationServiceImplTest {
     }
 
     @Test
-    @DisplayName("OAuth 설치 URL을 생성할 때 state 값에 workspaceId와 memberId가 인코딩되어 포함된다.")
+    @DisplayName("OAuth 설치 URL을 생성할 때 state 값에 JWT 토큰이 포함된다.")
     void getOAuthInstallUrl_success() {
         // given
         Long workspaceId = 1L;
         Long memberId = 100L;
-        String payload = workspaceId + ":" + memberId;
-        String expectedState = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        String mockJwtState = "mock.jwt.token";
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+        given(oauthStateTokenProvider.generateOAuthState(workspaceId, memberId)).willReturn(mockJwtState);
 
         // when
         String url = slackIntegrationService.getOAuthInstallUrl(workspaceId, memberId);
 
         // then
         assertThat(url).contains("https://slack.com/oauth/v2/authorize");
-        assertThat(url).contains("state=" + expectedState);
+        assertThat(url).contains("state=" + mockJwtState);
         assertThat(url).contains("scope=chat:write,incoming-webhook");
     }
 
@@ -85,16 +88,18 @@ class SlackIntegrationServiceImplTest {
         Long workspaceId = 1L;
         Long memberId = 100L;
         String code = "test-code";
-        String payload = workspaceId + ":" + memberId;
-        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        String state = "mock.jwt.token";
+
+        OAuthStatePayload mockPayload = new OAuthStatePayload(workspaceId, memberId);
 
         SlackOAuthAccessRes.Team team = new SlackOAuthAccessRes.Team("T12345", "Test Team");
         SlackOAuthAccessRes.IncomingWebhook webhook = new SlackOAuthAccessRes.IncomingWebhook("C12345", "https://url");
         SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-token", team, webhook, null);
 
+        given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
-                .willReturn(Optional.empty()); // 신규
+                .willReturn(Optional.empty());
 
         // when
         slackIntegrationService.handleOAuthCallback(code, state);
@@ -110,8 +115,9 @@ class SlackIntegrationServiceImplTest {
         Long workspaceId = 1L;
         Long memberId = 100L;
         String code = "test-code";
-        String payload = workspaceId + ":" + memberId;
-        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        String state = "mock.jwt.token";
+
+        OAuthStatePayload mockPayload = new OAuthStatePayload(workspaceId, memberId);
 
         SlackOAuthAccessRes.Team team = new SlackOAuthAccessRes.Team("T12345", "Test Team");
         SlackOAuthAccessRes.IncomingWebhook webhook = new SlackOAuthAccessRes.IncomingWebhook("C12345", "https://url");
@@ -121,16 +127,17 @@ class SlackIntegrationServiceImplTest {
                 .workspaceId(workspaceId).slackTeamId("T12345").slackChannelId("C12345")
                 .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
 
+        given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
-                .willReturn(Optional.of(existing)); // 기존 존재
+                .willReturn(Optional.of(existing));
 
         // when
         slackIntegrationService.handleOAuthCallback(code, state);
 
         // then
         assertThat(existing.getBotToken()).isEqualTo("xoxb-newtoken");
-        verify(slackIntegrationRepository, Mockito.never()).save(any()); // save 호출 안 됨
+        verify(slackIntegrationRepository, Mockito.never()).save(any());
     }
 
     @Test
