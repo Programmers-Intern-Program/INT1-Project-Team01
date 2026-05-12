@@ -18,6 +18,7 @@ x-backend-common: &backend-common
     SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET}
     SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
     SLACK_REDIRECT_URI: ${SLACK_REDIRECT_URI}
+    SLACK_OAUTH_STATE_SECRET: ${SLACK_OAUTH_STATE_SECRET}
   depends_on:
     - postgres-prod
   expose:
