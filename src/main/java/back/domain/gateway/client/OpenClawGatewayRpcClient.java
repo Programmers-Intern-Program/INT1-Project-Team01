@@ -7,8 +7,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
@@ -32,6 +32,7 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
     private static final String CONNECT_METHOD = "connect";
+    private static final String CONNECT_CHALLENGE_EVENT = "connect.challenge";
     private static final String CHAT_SEND_METHOD = "chat.send";
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
     private static final int PROTOCOL_MIN = 3;
@@ -53,8 +54,10 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private final Supplier<String> requestIdSupplier;
     private final Duration rpcTimeout;
     private final Duration chatTimeout;
+    private final OpenClawGatewayDeviceAuthenticator deviceAuthenticator;
     private final ConcurrentHashMap<String, PendingChatStream> pendingChatsBySessionKey = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> pendingChatSessionKeyByRequestId = new ConcurrentHashMap<>();
+    private volatile CompletableFuture<Map<String, Object>> connectChallenge = new CompletableFuture<>();
 
     @SuppressFBWarnings(
             value = {"EI_EXPOSE_REP2", "CT_CONSTRUCTOR_THROW"},
@@ -64,7 +67,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             OpenClawPendingRequests pendingRequests,
             Supplier<String> requestIdSupplier,
             Duration rpcTimeout) {
-        this(transport, pendingRequests, requestIdSupplier, rpcTimeout, DEFAULT_CHAT_TIMEOUT);
+        this(
+                transport,
+                pendingRequests,
+                requestIdSupplier,
+                rpcTimeout,
+                DEFAULT_CHAT_TIMEOUT,
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
     }
 
     @SuppressFBWarnings(
@@ -76,15 +85,41 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             Supplier<String> requestIdSupplier,
             Duration rpcTimeout,
             Duration chatTimeout) {
+        this(
+                transport,
+                pendingRequests,
+                requestIdSupplier,
+                rpcTimeout,
+                chatTimeout,
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+    }
+
+    @SuppressFBWarnings(
+            value = {"EI_EXPOSE_REP2", "CT_CONSTRUCTOR_THROW"},
+            justification = "Gateway client validates constructor dependencies and has no finalizer.")
+    OpenClawGatewayRpcClient(
+            OpenClawGatewayTransport transport,
+            OpenClawPendingRequests pendingRequests,
+            Supplier<String> requestIdSupplier,
+            Duration rpcTimeout,
+            Duration chatTimeout,
+            OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
         this.transport = Objects.requireNonNull(transport);
         this.pendingRequests = Objects.requireNonNull(pendingRequests);
         this.requestIdSupplier = Objects.requireNonNull(requestIdSupplier);
         this.rpcTimeout = Objects.requireNonNull(rpcTimeout);
         this.chatTimeout = requirePositive(chatTimeout, "chatTimeout");
+        this.deviceAuthenticator = Objects.requireNonNull(deviceAuthenticator);
     }
 
     public static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout) {
+        return webSocket(rpcTimeout, OpenClawGatewayDeviceIdentityStore.defaultDirectory());
+    }
+
+    static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout, java.nio.file.Path deviceIdentityDirectory) {
         Duration timeout = Objects.requireNonNull(rpcTimeout);
+        OpenClawGatewayDeviceAuthenticator authenticator = new OpenClawGatewayDeviceAuthenticator(
+                new OpenClawGatewayDeviceIdentityStore(deviceIdentityDirectory));
         ObjectMapper objectMapper =
                 new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return new OpenClawGatewayRpcClient(
@@ -95,15 +130,18 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                         timeout),
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> UUID.randomUUID().toString(),
-                timeout);
+                timeout,
+                DEFAULT_CHAT_TIMEOUT,
+                authenticator);
     }
 
     @Override
     public void connect(OpenClawGatewayConnectionContext context) {
         OpenClawGatewayConnectionContext connectionContext = Objects.requireNonNull(context);
+        connectChallenge = new CompletableFuture<>();
         transport.connect(connectionContext, this::handleResponse, this::handleEvent, this::handleFailure);
         try {
-            sendConnect(connectionContext);
+            sendConnectHandshake(connectionContext);
         } catch (RuntimeException exception) {
             transport.close();
             throw exception;
@@ -234,28 +272,92 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
         }
     }
 
-    private void sendConnect(OpenClawGatewayConnectionContext context) {
-        sendRpc(CONNECT_METHOD, connectParams(context));
+    private void sendConnect(OpenClawGatewayConnectionContext context, Optional<Map<String, Object>> challenge) {
+        sendRpc(CONNECT_METHOD, connectParams(context, challenge));
     }
 
-    private Map<String, Object> connectParams(OpenClawGatewayConnectionContext context) {
-        return Map.of(
-                "minProtocol",
-                PROTOCOL_MIN,
-                "maxProtocol",
-                PROTOCOL_MAX,
+    private void sendConnectHandshake(OpenClawGatewayConnectionContext context) {
+        Optional<Map<String, Object>> earlyChallenge = completedConnectChallenge();
+        if (earlyChallenge.isPresent()) {
+            sendConnect(context, earlyChallenge);
+            return;
+        }
+        sendConnectAndRetryOnChallenge(context);
+    }
+
+    private void sendConnectAndRetryOnChallenge(OpenClawGatewayConnectionContext context) {
+        String requestId = requestIdSupplier.get();
+        var response = pendingRequests.register(requestId, CONNECT_METHOD, rpcTimeout);
+        try {
+            transport.send(OpenClawRpcRequest.of(requestId, CONNECT_METHOD, connectParams(context, Optional.empty())));
+            ConnectHandshakeSignal signal = awaitConnectResponseOrChallenge(response);
+            if (signal.challenge().isPresent()) {
+                pendingRequests.cancel(requestId);
+                sendConnect(context, signal.challenge());
+            }
+        } catch (CompletionException exception) {
+            pendingRequests.cancel(requestId);
+            if (exception.getCause() instanceof OpenClawGatewayException gatewayException) {
+                throw gatewayException;
+            }
+            throw OpenClawGatewayException.sendFailed(CONNECT_METHOD, requestId, exception);
+        } catch (OpenClawGatewayException exception) {
+            pendingRequests.cancel(requestId);
+            throw exception;
+        } catch (RuntimeException exception) {
+            pendingRequests.cancel(requestId);
+            throw OpenClawGatewayException.sendFailed(CONNECT_METHOD, requestId, exception);
+        }
+    }
+
+    private ConnectHandshakeSignal awaitConnectResponseOrChallenge(
+            CompletableFuture<Map<String, Object>> response) {
+        CompletableFuture<ConnectHandshakeSignal> responseSignal =
+                response.thenApply(ignored -> ConnectHandshakeSignal.connected());
+        CompletableFuture<ConnectHandshakeSignal> challengeSignal =
+                connectChallenge.thenApply(ConnectHandshakeSignal::challenge);
+        return CompletableFuture.anyOf(responseSignal, challengeSignal)
+                .thenApply(ConnectHandshakeSignal.class::cast)
+                .join();
+    }
+
+    private Map<String, Object> connectParams(
+            OpenClawGatewayConnectionContext context, Optional<Map<String, Object>> challenge) {
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("minProtocol", PROTOCOL_MIN);
+        params.put("maxProtocol", PROTOCOL_MAX);
+        params.put(
                 "client",
                 Map.of(
                         "id", CLIENT_ID,
                         "version", CLIENT_VERSION,
                         "platform", CLIENT_PLATFORM,
-                        "mode", CLIENT_MODE),
-                "role",
-                OPERATOR_ROLE,
-                "scopes",
-                OPERATOR_SCOPES,
-                "auth",
-                Map.of("token", context.token()));
+                        "mode", CLIENT_MODE));
+        params.put("role", OPERATOR_ROLE);
+        params.put("scopes", OPERATOR_SCOPES);
+        params.put("auth", Map.of("token", context.token()));
+        challenge.ifPresent(challengePayload -> params.put(
+                "device",
+                deviceAuthenticator.buildDeviceAuth(
+                        context.gatewayUrl(),
+                        context.token(),
+                        challengePayload,
+                        CLIENT_ID,
+                        CLIENT_MODE,
+                        OPERATOR_ROLE,
+                        OPERATOR_SCOPES)));
+        return Map.copyOf(params);
+    }
+
+    private Optional<Map<String, Object>> completedConnectChallenge() {
+        if (!connectChallenge.isDone()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(connectChallenge.join());
+        } catch (CompletionException exception) {
+            return Optional.empty();
+        }
     }
 
     private void handleResponse(OpenClawRpcResponse response) {
@@ -267,6 +369,10 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
     private void handleEvent(OpenClawGatewayEvent event) {
         if (event == null || event.event() == null) {
+            return;
+        }
+        if (CONNECT_CHALLENGE_EVENT.equalsIgnoreCase(event.event())) {
+            connectChallenge.complete(event.payload());
             return;
         }
         if ("agent".equalsIgnoreCase(event.event())) {
@@ -583,6 +689,17 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
 
         void fail(OpenClawGatewayException exception) {
             future.completeExceptionally(exception);
+        }
+    }
+
+    private record ConnectHandshakeSignal(Optional<Map<String, Object>> challenge) {
+
+        private static ConnectHandshakeSignal connected() {
+            return new ConnectHandshakeSignal(Optional.empty());
+        }
+
+        private static ConnectHandshakeSignal challenge(Map<String, Object> challenge) {
+            return new ConnectHandshakeSignal(Optional.of(challenge));
         }
     }
 }
