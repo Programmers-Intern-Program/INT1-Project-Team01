@@ -73,7 +73,6 @@ class OpenClawGatewayRpcClientTest {
         transport.challengeOnConnect = Map.of("nonce", "nonce-1", "ts", 1234567890L);
         OpenClawGatewayRpcClient client = newClient(
                 transport,
-                Duration.ofSeconds(1),
                 new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)));
         OpenClawGatewayConnectionContext context =
                 new OpenClawGatewayConnectionContext("wss://gateway.example.test", "secret-token");
@@ -116,7 +115,6 @@ class OpenClawGatewayRpcClientTest {
         };
         OpenClawGatewayRpcClient client = newClient(
                 transport,
-                Duration.ZERO,
                 new OpenClawGatewayDeviceAuthenticator(new OpenClawGatewayDeviceIdentityStore(tempDir)));
 
         // when
@@ -535,15 +533,11 @@ class OpenClawGatewayRpcClientTest {
     }
 
     private OpenClawGatewayRpcClient newClient(FakeGatewayTransport transport) {
-        return newClient(
-                transport,
-                Duration.ZERO,
-                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+        return newClient(transport, OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
     }
 
     private OpenClawGatewayRpcClient newClient(
             FakeGatewayTransport transport,
-            Duration connectChallengeWait,
             OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
         AtomicInteger sequence = new AtomicInteger();
         return new OpenClawGatewayRpcClient(
@@ -552,7 +546,6 @@ class OpenClawGatewayRpcClientTest {
                 () -> "req-" + sequence.incrementAndGet(),
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(1),
-                connectChallengeWait,
                 deviceAuthenticator);
     }
 

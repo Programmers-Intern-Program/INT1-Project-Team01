@@ -10,7 +10,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
@@ -36,7 +35,6 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private static final String CONNECT_CHALLENGE_EVENT = "connect.challenge";
     private static final String CHAT_SEND_METHOD = "chat.send";
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
-    private static final Duration DEFAULT_CONNECT_CHALLENGE_WAIT = Duration.ofMillis(750);
     private static final int PROTOCOL_MIN = 3;
     private static final int PROTOCOL_MAX = 3;
     private static final String CLIENT_ID = "gateway-client";
@@ -56,7 +54,6 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private final Supplier<String> requestIdSupplier;
     private final Duration rpcTimeout;
     private final Duration chatTimeout;
-    private final Duration connectChallengeWait;
     private final OpenClawGatewayDeviceAuthenticator deviceAuthenticator;
     private final ConcurrentHashMap<String, PendingChatStream> pendingChatsBySessionKey = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> pendingChatSessionKeyByRequestId = new ConcurrentHashMap<>();
@@ -76,7 +73,6 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 requestIdSupplier,
                 rpcTimeout,
                 DEFAULT_CHAT_TIMEOUT,
-                Duration.ZERO,
                 OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
     }
 
@@ -95,7 +91,6 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 requestIdSupplier,
                 rpcTimeout,
                 chatTimeout,
-                Duration.ZERO,
                 OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
     }
 
@@ -108,19 +103,23 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             Supplier<String> requestIdSupplier,
             Duration rpcTimeout,
             Duration chatTimeout,
-            Duration connectChallengeWait,
             OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
         this.transport = Objects.requireNonNull(transport);
         this.pendingRequests = Objects.requireNonNull(pendingRequests);
         this.requestIdSupplier = Objects.requireNonNull(requestIdSupplier);
         this.rpcTimeout = Objects.requireNonNull(rpcTimeout);
         this.chatTimeout = requirePositive(chatTimeout, "chatTimeout");
-        this.connectChallengeWait = requireNonNegative(connectChallengeWait, "connectChallengeWait");
         this.deviceAuthenticator = Objects.requireNonNull(deviceAuthenticator);
     }
 
     public static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout) {
+        return webSocket(rpcTimeout, OpenClawGatewayDeviceIdentityStore.defaultDirectory());
+    }
+
+    static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout, java.nio.file.Path deviceIdentityDirectory) {
         Duration timeout = Objects.requireNonNull(rpcTimeout);
+        OpenClawGatewayDeviceAuthenticator authenticator = new OpenClawGatewayDeviceAuthenticator(
+                new OpenClawGatewayDeviceIdentityStore(deviceIdentityDirectory));
         ObjectMapper objectMapper =
                 new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return new OpenClawGatewayRpcClient(
@@ -133,8 +132,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 () -> UUID.randomUUID().toString(),
                 timeout,
                 DEFAULT_CHAT_TIMEOUT,
-                DEFAULT_CONNECT_CHALLENGE_WAIT,
-                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+                authenticator);
     }
 
     @Override
@@ -279,7 +277,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     private void sendConnectHandshake(OpenClawGatewayConnectionContext context) {
-        Optional<Map<String, Object>> earlyChallenge = awaitConnectChallenge();
+        Optional<Map<String, Object>> earlyChallenge = completedConnectChallenge();
         if (earlyChallenge.isPresent()) {
             sendConnect(context, earlyChallenge);
             return;
@@ -351,18 +349,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
         return Map.copyOf(params);
     }
 
-    private Optional<Map<String, Object>> awaitConnectChallenge() {
-        if (connectChallengeWait.isZero()) {
+    private Optional<Map<String, Object>> completedConnectChallenge() {
+        if (!connectChallenge.isDone()) {
             return Optional.empty();
         }
         try {
-            return Optional.of(connectChallenge.get(connectChallengeWait.toMillis(), TimeUnit.MILLISECONDS));
-        } catch (TimeoutException exception) {
-            return Optional.empty();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return Optional.empty();
-        } catch (ExecutionException exception) {
+            return Optional.of(connectChallenge.join());
+        } catch (CompletionException exception) {
             return Optional.empty();
         }
     }
@@ -639,13 +632,6 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private static Duration requirePositive(Duration timeout, String fieldName) {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException(fieldName + " must be positive");
-        }
-        return timeout;
-    }
-
-    private static Duration requireNonNegative(Duration timeout, String fieldName) {
-        if (timeout == null || timeout.isNegative()) {
-            throw new IllegalArgumentException(fieldName + " must not be negative");
         }
         return timeout;
     }
