@@ -64,7 +64,7 @@ public class MemberProfileServiceImpl implements MemberProfileService {
     }
 
     private Member getMemberOrThrow(long memberId) {
-        return memberRepository.findById(memberId)
+        return memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(() -> new ServiceException(
                         CommonErrorCode.NOT_FOUND,
                         "[MemberProfileServiceImpl#getMemberOrThrow] member not found. memberId=" + memberId,
