@@ -1,5 +1,6 @@
 package back.domain.gateway.client;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +37,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private static final String CONNECT_CHALLENGE_EVENT = "connect.challenge";
     private static final String CHAT_SEND_METHOD = "chat.send";
     private static final Duration DEFAULT_CHAT_TIMEOUT = Duration.ofMinutes(3);
+    private static final Duration DEFAULT_REMOTE_CONNECT_CHALLENGE_WAIT = Duration.ofMillis(750);
     private static final int PROTOCOL_MIN = 3;
     private static final int PROTOCOL_MAX = 3;
     private static final String CLIENT_ID = "gateway-client";
@@ -54,6 +57,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private final Supplier<String> requestIdSupplier;
     private final Duration rpcTimeout;
     private final Duration chatTimeout;
+    private final Duration remoteConnectChallengeWait;
     private final OpenClawGatewayDeviceAuthenticator deviceAuthenticator;
     private final ConcurrentHashMap<String, PendingChatStream> pendingChatsBySessionKey = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> pendingChatSessionKeyByRequestId = new ConcurrentHashMap<>();
@@ -73,7 +77,8 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 requestIdSupplier,
                 rpcTimeout,
                 DEFAULT_CHAT_TIMEOUT,
-                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator(),
+                Duration.ZERO);
     }
 
     @SuppressFBWarnings(
@@ -91,7 +96,8 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 requestIdSupplier,
                 rpcTimeout,
                 chatTimeout,
-                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator());
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator(),
+                Duration.ZERO);
     }
 
     @SuppressFBWarnings(
@@ -104,12 +110,34 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             Duration rpcTimeout,
             Duration chatTimeout,
             OpenClawGatewayDeviceAuthenticator deviceAuthenticator) {
+        this(
+                transport,
+                pendingRequests,
+                requestIdSupplier,
+                rpcTimeout,
+                chatTimeout,
+                deviceAuthenticator,
+                Duration.ZERO);
+    }
+
+    @SuppressFBWarnings(
+            value = {"EI_EXPOSE_REP2", "CT_CONSTRUCTOR_THROW"},
+            justification = "Gateway client validates constructor dependencies and has no finalizer.")
+    OpenClawGatewayRpcClient(
+            OpenClawGatewayTransport transport,
+            OpenClawPendingRequests pendingRequests,
+            Supplier<String> requestIdSupplier,
+            Duration rpcTimeout,
+            Duration chatTimeout,
+            OpenClawGatewayDeviceAuthenticator deviceAuthenticator,
+            Duration remoteConnectChallengeWait) {
         this.transport = Objects.requireNonNull(transport);
         this.pendingRequests = Objects.requireNonNull(pendingRequests);
         this.requestIdSupplier = Objects.requireNonNull(requestIdSupplier);
         this.rpcTimeout = Objects.requireNonNull(rpcTimeout);
         this.chatTimeout = requirePositive(chatTimeout, "chatTimeout");
         this.deviceAuthenticator = Objects.requireNonNull(deviceAuthenticator);
+        this.remoteConnectChallengeWait = requireNonNegative(remoteConnectChallengeWait, "remoteConnectChallengeWait");
     }
 
     public static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout) {
@@ -117,6 +145,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     static OpenClawGatewayRpcClient webSocket(Duration rpcTimeout, java.nio.file.Path deviceIdentityDirectory) {
+        return webSocket(rpcTimeout, deviceIdentityDirectory, DEFAULT_REMOTE_CONNECT_CHALLENGE_WAIT);
+    }
+
+    static OpenClawGatewayRpcClient webSocket(
+            Duration rpcTimeout,
+            java.nio.file.Path deviceIdentityDirectory,
+            Duration remoteConnectChallengeWait) {
         Duration timeout = Objects.requireNonNull(rpcTimeout);
         OpenClawGatewayDeviceAuthenticator authenticator = new OpenClawGatewayDeviceAuthenticator(
                 new OpenClawGatewayDeviceIdentityStore(deviceIdentityDirectory));
@@ -132,7 +167,8 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 () -> UUID.randomUUID().toString(),
                 timeout,
                 DEFAULT_CHAT_TIMEOUT,
-                authenticator);
+                authenticator,
+                remoteConnectChallengeWait);
     }
 
     @Override
@@ -277,12 +313,45 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     }
 
     private void sendConnectHandshake(OpenClawGatewayConnectionContext context) {
-        Optional<Map<String, Object>> earlyChallenge = completedConnectChallenge();
+        Optional<Map<String, Object>> earlyChallenge = awaitConnectChallenge(context);
         if (earlyChallenge.isPresent()) {
             sendConnect(context, earlyChallenge);
             return;
         }
         sendConnectAndRetryOnChallenge(context);
+    }
+
+    private Optional<Map<String, Object>> awaitConnectChallenge(OpenClawGatewayConnectionContext context) {
+        Optional<Map<String, Object>> completedChallenge = completedConnectChallenge();
+        if (completedChallenge.isPresent() || !shouldWaitForConnectChallenge(context.gatewayUrl())) {
+            return completedChallenge;
+        }
+        try {
+            return Optional.of(connectChallenge.get(remoteConnectChallengeWait.toMillis(), TimeUnit.MILLISECONDS));
+        } catch (TimeoutException exception) {
+            return Optional.empty();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (ExecutionException exception) {
+            throw OpenClawGatewayException.sendFailed(CONNECT_CHALLENGE_EVENT, null, exception);
+        }
+    }
+
+    private boolean shouldWaitForConnectChallenge(String gatewayUrl) {
+        return !remoteConnectChallengeWait.isZero() && !isLoopbackGateway(gatewayUrl);
+    }
+
+    private boolean isLoopbackGateway(String gatewayUrl) {
+        try {
+            String host = URI.create(gatewayUrl).getHost();
+            return "localhost".equalsIgnoreCase(host)
+                    || "127.0.0.1".equals(host)
+                    || "::1".equals(host)
+                    || "0:0:0:0:0:0:0:1".equals(host);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     private void sendConnectAndRetryOnChallenge(OpenClawGatewayConnectionContext context) {
@@ -632,6 +701,13 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
     private static Duration requirePositive(Duration timeout, String fieldName) {
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException(fieldName + " must be positive");
+        }
+        return timeout;
+    }
+
+    private static Duration requireNonNegative(Duration timeout, String fieldName) {
+        if (timeout == null || timeout.isNegative()) {
+            throw new IllegalArgumentException(fieldName + " must be zero or positive");
         }
         return timeout;
     }
