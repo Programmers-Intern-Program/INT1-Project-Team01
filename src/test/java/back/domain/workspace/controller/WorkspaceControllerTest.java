@@ -1,5 +1,7 @@
 package back.domain.workspace.controller;
 
+import back.domain.member.dto.response.MemberAvatarColorsRes;
+import back.domain.member.dto.response.MemberProfileSummaryRes;
 import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
@@ -136,15 +138,21 @@ class WorkspaceControllerTest {
     @DisplayName("워크스페이스 멤버 목록 조회 성공")
     void listMembers_success() throws Exception {
         // given
+        MemberProfileSummaryRes profile = new MemberProfileSummaryRes(
+                "길동",
+                "mira",
+                new MemberAvatarColorsRes("#f8d4b0", "#1a1a1a", "#2a3a4a"));
         WorkspaceMemberInfoRes memberInfo = new WorkspaceMemberInfoRes(1L, "홍길동", "test@test.com",
-                WorkspaceMemberRole.ADMIN, LocalDateTime.now());
+                WorkspaceMemberRole.ADMIN, LocalDateTime.now(), profile);
         given(workspaceService.listMembers(anyLong(), anyLong())).willReturn(List.of(memberInfo));
 
         // when & then
         mockMvc.perform(get("/api/v1/workspaces/1/members")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].name").value("홍길동"));
+                .andExpect(jsonPath("$.data[0].name").value("홍길동"))
+                .andExpect(jsonPath("$.data[0].profile.displayName").value("길동"))
+                .andExpect(jsonPath("$.data[0].profile.avatarColors.skin").value("#f8d4b0"));
     }
 
     @Test

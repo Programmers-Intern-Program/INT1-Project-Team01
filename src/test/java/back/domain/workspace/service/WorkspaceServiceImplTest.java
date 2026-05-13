@@ -3,6 +3,7 @@ package back.domain.workspace.service;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
+import back.domain.member.repository.MemberProfileRepository;
 import back.domain.member.repository.MemberRepository;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.TaskRepository;
@@ -60,6 +61,7 @@ class WorkspaceServiceImplTest {
     @Mock private InviteEmailService inviteEmailService;
     @Mock private AgentRepository agentRepository;
     @Mock private TaskRepository taskRepository;
+    @Mock private MemberProfileRepository memberProfileRepository;
 
     private WorkspaceServiceImpl workspaceService;
     private WorkspaceAccessValidator workspaceAccessValidator;
@@ -87,7 +89,8 @@ class WorkspaceServiceImplTest {
                 inviteEmailService,
                 workspaceAccessValidator,
                 agentRepository,
-                taskRepository);
+                taskRepository,
+                memberProfileRepository);
         ReflectionTestUtils.setField(workspaceService, "inviteBaseUrl", "http://localhost:8080/api/v1/invites");
     }
 
@@ -260,13 +263,15 @@ class WorkspaceServiceImplTest {
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
                 .willReturn(Optional.of(adminWorkspaceMember));
-        given(workspaceMemberRepository.findAllByWorkspaceId(1L)).willReturn(List.of(adminWorkspaceMember));
+        given(workspaceMemberRepository.findAllByWorkspaceIdWithMember(1L)).willReturn(List.of(adminWorkspaceMember));
+        given(memberProfileRepository.findByMemberIdIn(List.of(1L))).willReturn(List.of());
 
         // when
         List<WorkspaceMemberInfoRes> result = workspaceService.listMembers(1L, 1L);
 
         // then
         assertThat(result).hasSize(1);
+        assertThat(result.getFirst().profile().displayName()).isEqualTo("홍길동");
     }
 
     @Test
@@ -316,7 +321,8 @@ class WorkspaceServiceImplTest {
         // given
         Member targetMember = Member.createUser("sub2", "target@test.com", "대상유저");
         ReflectionTestUtils.setField(targetMember, "id", 2L);
-        WorkspaceMember targetWorkspaceMember = WorkspaceMember.create(workspace, targetMember, WorkspaceMemberRole.MEMBER);
+        WorkspaceMember targetWorkspaceMember =
+                WorkspaceMember.create(workspace, targetMember, WorkspaceMemberRole.MEMBER);
         UpdateWorkspaceRoleReq request = new UpdateWorkspaceRoleReq(WorkspaceMemberRole.ADMIN);
 
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
@@ -352,7 +358,8 @@ class WorkspaceServiceImplTest {
         // given
         Member targetMember = Member.createUser("sub2", "target@test.com", "대상유저");
         ReflectionTestUtils.setField(targetMember, "id", 2L);
-        WorkspaceMember targetWorkspaceMember = WorkspaceMember.create(workspace, targetMember, WorkspaceMemberRole.MEMBER);
+        WorkspaceMember targetWorkspaceMember =
+                WorkspaceMember.create(workspace, targetMember, WorkspaceMemberRole.MEMBER);
 
         given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
         given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
