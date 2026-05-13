@@ -52,7 +52,8 @@ custom:
       - http://localhost:3000
       - http://localhost:5173
       - https://int-1-project-team01-fe.vercel.app
-      - https://wwww.int-1-project-team01-fe.vercel.app
+      - https://www.kimhss.site
+      - https://kimhss.site
   invite:
     base-url: ${CUSTOM_INVITE_BASE_URL:http://localhost:3000/invites}
     email:
