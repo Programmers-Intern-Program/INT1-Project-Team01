@@ -44,7 +44,7 @@ class MemberProfileServiceImplTest {
     void getMyProfile_createsDefaultProfile() {
         // given
         MemberProfile defaultProfile = MemberProfile.createDefault(member);
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(memberProfileRepository.findByMemberId(1L)).willReturn(Optional.empty());
         given(memberProfileRepository.save(any(MemberProfile.class))).willReturn(defaultProfile);
 
@@ -67,7 +67,7 @@ class MemberProfileServiceImplTest {
                 "길동",
                 "mira",
                 new MemberAvatarColorsReq("#111111", "#222222", "#333333"));
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(memberProfileRepository.findByMemberId(1L)).willReturn(Optional.of(profile));
 
         // when
@@ -89,7 +89,7 @@ class MemberProfileServiceImplTest {
                 "길동",
                 "mira",
                 new MemberAvatarColorsReq("red", null, null));
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(memberProfileRepository.findByMemberId(1L)).willReturn(Optional.of(profile));
 
         // when & then
