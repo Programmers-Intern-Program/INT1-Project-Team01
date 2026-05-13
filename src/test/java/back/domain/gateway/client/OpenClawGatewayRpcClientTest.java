@@ -647,10 +647,12 @@ class OpenClawGatewayRpcClientTest {
                         Thread.sleep(delay.toMillis());
                     } catch (InterruptedException exception) {
                         Thread.currentThread().interrupt();
+                        return;
                     }
                     transport.emit(OpenClawGatewayEvent.of("connect.challenge", challengePayload));
                 },
                 "fake-openclaw-connect-challenge");
+        emitter.setDaemon(true);
         emitter.start();
     }
 
