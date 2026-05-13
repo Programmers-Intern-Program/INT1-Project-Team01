@@ -20,7 +20,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
+import back.domain.member.entity.MemberProfile;
+import back.domain.member.repository.MemberProfileRepository;
 import back.domain.member.repository.MemberRepository;
+import back.domain.member.service.MemberProfileMapper;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.email.InviteEmailCommand;
@@ -68,6 +71,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceAccessValidator workspaceAccessValidator;
     private final AgentRepository agentRepository;
     private final TaskRepository taskRepository;
+    private final MemberProfileRepository memberProfileRepository;
 
     @Value("${custom.invite.base-url}")
     private String inviteBaseUrl;
@@ -136,9 +140,14 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     public List<WorkspaceMemberInfoRes> listMembers(long workspaceId, long memberId) {
         workspaceAccessValidator.requireMember(workspaceId, memberId);
-        return workspaceMemberRepository.findAllByWorkspaceId(workspaceId).stream()
+        List<WorkspaceMember> workspaceMembers = workspaceMemberRepository.findAllByWorkspaceIdWithMember(workspaceId)
+                .stream()
                 .sorted(Comparator.comparing(workspaceMember -> workspaceMember.getMember().getId()))
-                .map(this::toWorkspaceMemberResponse)
+                .toList();
+        Map<Long, MemberProfile> profilesByMemberId = getProfilesByMemberId(workspaceMembers);
+
+        return workspaceMembers.stream()
+                .map(workspaceMember -> toWorkspaceMemberResponse(workspaceMember, profilesByMemberId))
                 .toList();
     }
 
@@ -436,14 +445,29 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     }
 
     // WorkspaceMember 엔티티를 WorkspaceMemberInfoRes DTO로 변환한다
-    private WorkspaceMemberInfoRes toWorkspaceMemberResponse(WorkspaceMember workspaceMember) {
+    private Map<Long, MemberProfile> getProfilesByMemberId(List<WorkspaceMember> workspaceMembers) {
+        List<Long> memberIds = workspaceMembers.stream()
+                .map(workspaceMember -> workspaceMember.getMember().getId())
+                .toList();
+        if (memberIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return memberProfileRepository.findByMemberIdIn(memberIds).stream()
+                .collect(Collectors.toMap(MemberProfile::getMemberId, profile -> profile));
+    }
+
+    private WorkspaceMemberInfoRes toWorkspaceMemberResponse(
+            WorkspaceMember workspaceMember,
+            Map<Long, MemberProfile> profilesByMemberId) {
         Member member = workspaceMember.getMember();
         return new WorkspaceMemberInfoRes(
                 member.getId(),
                 member.getName(),
                 member.getEmail(),
                 workspaceMember.getRole(),
-                workspaceMember.getJoinedAt());
+                workspaceMember.getJoinedAt(),
+                MemberProfileMapper.toSummary(member, profilesByMemberId.get(member.getId())));
     }
 
     private UnrankedMemberTaskStats toUnrankedMemberTaskStats(

@@ -359,14 +359,32 @@ public interface WorkspaceControllerDocs {
                           "name": "홍길동",
                           "email": "user101@example.com",
                           "role": "ADMIN",
-                          "joinedAt": "2025-01-01T09:00:00"
+                          "joinedAt": "2025-01-01T09:00:00",
+                          "profile": {
+                            "displayName": "길동",
+                            "avatarKind": "mira",
+                            "avatarColors": {
+                              "skin": "#f8d4b0",
+                              "hair": "#1a1a1a",
+                              "shirt": "#2a3a4a"
+                            }
+                          }
                         },
                         {
                           "memberId": 102,
                           "name": "김철수",
                           "email": "user102@example.com",
                           "role": "MEMBER",
-                          "joinedAt": "2025-01-02T10:00:00"
+                          "joinedAt": "2025-01-02T10:00:00",
+                          "profile": {
+                            "displayName": "철수",
+                            "avatarKind": "mira",
+                            "avatarColors": {
+                              "skin": "#f8d4b0",
+                              "hair": "#1a1a1a",
+                              "shirt": "#2a3a4a"
+                            }
+                          }
                         }
                       ],
                       "message": "워크스페이스 멤버 목록 조회 성공"
