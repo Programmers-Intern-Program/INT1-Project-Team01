@@ -508,7 +508,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .thenComparing(Comparator.comparingInt(UnrankedMemberTaskStats::completedTaskCount).reversed())
                 .thenComparing(Comparator.comparingInt(UnrankedMemberTaskStats::runningTaskCount).reversed())
                 .thenComparingInt(UnrankedMemberTaskStats::failedTaskCount)
-                .thenComparing(UnrankedMemberTaskStats::memberName, Comparator.nullsLast(String::compareTo));
+                .thenComparing(UnrankedMemberTaskStats::memberName, Comparator.nullsLast(String::compareTo))
+                .thenComparing(UnrankedMemberTaskStats::memberId);
     }
 
     private int percentage(int numerator, int denominator) {
