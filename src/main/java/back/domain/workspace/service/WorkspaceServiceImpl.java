@@ -2,11 +2,14 @@ package back.domain.workspace.service;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,7 +20,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.member.entity.Member;
+import back.domain.member.entity.MemberProfile;
+import back.domain.member.repository.MemberProfileRepository;
 import back.domain.member.repository.MemberRepository;
+import back.domain.member.service.MemberProfileMapper;
 import back.domain.task.entity.TaskStatus;
 import back.domain.task.repository.TaskRepository;
 import back.domain.workspace.email.InviteEmailCommand;
@@ -31,6 +37,7 @@ import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 import back.domain.workspace.entity.Workspace;
 import back.domain.workspace.entity.WorkspaceInvite;
@@ -50,6 +57,11 @@ import lombok.RequiredArgsConstructor;
 public class WorkspaceServiceImpl implements WorkspaceService {
     private static final int DEFAULT_INVITE_EXPIRES_IN_DAYS = 7;
     private static final int MAX_TOKEN_GENERATION_ATTEMPTS = 5;
+    private static final int FLOW_SCORE_PER_RUNNING_TASK = 36;
+    private static final int WAITING_USER_PENALTY_WEIGHT = 50;
+    private static final float HEALTH_SCORE_WEIGHT = 0.35f;
+    private static final float FLOW_SCORE_WEIGHT = 0.2f;
+    private static final float IMPACT_SCORE_WEIGHT = 0.45f;
 
     private final MemberRepository memberRepository;
     private final WorkspaceRepository workspaceRepository;
@@ -59,6 +71,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceAccessValidator workspaceAccessValidator;
     private final AgentRepository agentRepository;
     private final TaskRepository taskRepository;
+    private final MemberProfileRepository memberProfileRepository;
 
     @Value("${custom.invite.base-url}")
     private String inviteBaseUrl;
@@ -89,9 +102,11 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .toList();
         Map<Long, Long> agentCounts = getAgentCounts(workspaceIds);
         Map<Long, Long> runningTaskCounts = getRunningTaskCounts(workspaceIds);
+        Map<Long, Long> completedTaskCounts = getCompletedTaskCounts(workspaceIds);
 
         return workspaceMembers.stream()
-                .map(workspaceMember -> toWorkspaceSummaryResponse(workspaceMember, agentCounts, runningTaskCounts))
+                .map(workspaceMember -> toWorkspaceSummaryResponse(
+                        workspaceMember, agentCounts, runningTaskCounts, completedTaskCounts))
                 .toList();
     }
 
@@ -125,9 +140,32 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     public List<WorkspaceMemberInfoRes> listMembers(long workspaceId, long memberId) {
         workspaceAccessValidator.requireMember(workspaceId, memberId);
-        return workspaceMemberRepository.findAllByWorkspaceId(workspaceId).stream()
+        List<WorkspaceMember> workspaceMembers = workspaceMemberRepository.findAllByWorkspaceIdWithMember(workspaceId)
+                .stream()
                 .sorted(Comparator.comparing(workspaceMember -> workspaceMember.getMember().getId()))
-                .map(this::toWorkspaceMemberResponse)
+                .toList();
+        Map<Long, MemberProfile> profilesByMemberId = getProfilesByMemberId(workspaceMembers);
+
+        return workspaceMembers.stream()
+                .map(workspaceMember -> toWorkspaceMemberResponse(workspaceMember, profilesByMemberId))
+                .toList();
+    }
+
+    // Workspace 멤버별 담당 Task 통계 조회
+    @Override
+    public List<WorkspaceMemberTaskStatsRes> listMemberTaskStats(long workspaceId, long memberId) {
+        workspaceAccessValidator.requireMember(workspaceId, memberId);
+        List<WorkspaceMember> workspaceMembers =
+                workspaceMemberRepository.findAllByWorkspaceIdWithMember(workspaceId);
+        Map<Long, EnumMap<TaskStatus, Long>> countsByMember = getMemberTaskStatusCounts(workspaceId);
+
+        List<UnrankedMemberTaskStats> stats = workspaceMembers.stream()
+                .map(workspaceMember -> toUnrankedMemberTaskStats(workspaceMember, countsByMember))
+                .sorted(memberTaskStatsComparator())
+                .toList();
+
+        return IntStream.range(0, stats.size())
+                .mapToObj(index -> stats.get(index).toResponse(index + 1))
                 .toList();
     }
 
@@ -339,7 +377,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private WorkspaceSummaryInfoRes toWorkspaceSummaryResponse(
             WorkspaceMember workspaceMember,
             Map<Long, Long> agentCounts,
-            Map<Long, Long> runningTaskCounts) {
+            Map<Long, Long> runningTaskCounts,
+            Map<Long, Long> completedTaskCounts) {
         Workspace workspace = workspaceMember.getWorkspace();
         Long workspaceId = workspace.getId();
         return new WorkspaceSummaryInfoRes(
@@ -349,6 +388,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 workspaceMember.getRole(),
                 toIntCount(agentCounts.getOrDefault(workspaceId, 0L)),
                 toIntCount(runningTaskCounts.getOrDefault(workspaceId, 0L)),
+                toIntCount(completedTaskCounts.getOrDefault(workspaceId, 0L)),
                 workspace.getCreatedAt());
     }
 
@@ -374,6 +414,25 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                         TaskRepository.WorkspaceCount::getCount));
     }
 
+    private Map<Long, Long> getCompletedTaskCounts(List<Long> workspaceIds) {
+        if (workspaceIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return taskRepository.countByWorkspaceIdsAndStatusIn(workspaceIds, List.of(TaskStatus.COMPLETED)).stream()
+                .collect(Collectors.toMap(
+                        TaskRepository.WorkspaceCount::getWorkspaceId,
+                        TaskRepository.WorkspaceCount::getCount));
+    }
+
+    private Map<Long, EnumMap<TaskStatus, Long>> getMemberTaskStatusCounts(long workspaceId) {
+        Map<Long, EnumMap<TaskStatus, Long>> countsByMember = new HashMap<>();
+        taskRepository.countMemberTaskStatusesByWorkspaceId(workspaceId).forEach(count -> countsByMember
+                .computeIfAbsent(count.getMemberId(), ignored -> new EnumMap<>(TaskStatus.class))
+                .put(count.getStatus(), count.getCount()));
+        return countsByMember;
+    }
+
     private List<TaskStatus> runningTaskStatuses() {
         return List.of(TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.WAITING_USER);
     }
@@ -386,14 +445,116 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     }
 
     // WorkspaceMember 엔티티를 WorkspaceMemberInfoRes DTO로 변환한다
-    private WorkspaceMemberInfoRes toWorkspaceMemberResponse(WorkspaceMember workspaceMember) {
+    private Map<Long, MemberProfile> getProfilesByMemberId(List<WorkspaceMember> workspaceMembers) {
+        List<Long> memberIds = workspaceMembers.stream()
+                .map(workspaceMember -> workspaceMember.getMember().getId())
+                .toList();
+        if (memberIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return memberProfileRepository.findByMemberIdIn(memberIds).stream()
+                .collect(Collectors.toMap(MemberProfile::getMemberId, profile -> profile));
+    }
+
+    private WorkspaceMemberInfoRes toWorkspaceMemberResponse(
+            WorkspaceMember workspaceMember,
+            Map<Long, MemberProfile> profilesByMemberId) {
         Member member = workspaceMember.getMember();
         return new WorkspaceMemberInfoRes(
                 member.getId(),
                 member.getName(),
                 member.getEmail(),
                 workspaceMember.getRole(),
-                workspaceMember.getJoinedAt());
+                workspaceMember.getJoinedAt(),
+                MemberProfileMapper.toSummary(member, profilesByMemberId.get(member.getId())));
+    }
+
+    private UnrankedMemberTaskStats toUnrankedMemberTaskStats(
+            WorkspaceMember workspaceMember,
+            Map<Long, EnumMap<TaskStatus, Long>> countsByMember) {
+        Member member = workspaceMember.getMember();
+        EnumMap<TaskStatus, Long> counts =
+                countsByMember.getOrDefault(member.getId(), new EnumMap<>(TaskStatus.class));
+        int completedTaskCount = toIntCount(counts.getOrDefault(TaskStatus.COMPLETED, 0L));
+        int runningTaskCount = toIntCount(
+                counts.getOrDefault(TaskStatus.ASSIGNED, 0L) + counts.getOrDefault(TaskStatus.IN_PROGRESS, 0L));
+        int failedTaskCount = toIntCount(counts.getOrDefault(TaskStatus.FAILED, 0L));
+        int waitingUserTaskCount = toIntCount(counts.getOrDefault(TaskStatus.WAITING_USER, 0L));
+        int taskCount = toIntCount(counts.values().stream().mapToLong(Long::longValue).sum());
+        int impactScore = percentage(completedTaskCount, taskCount);
+        int flowScore = clampScore(runningTaskCount * FLOW_SCORE_PER_RUNNING_TASK);
+        int healthScore = calculateHealthScore(failedTaskCount, waitingUserTaskCount, taskCount);
+        int totalScore = Math.round(healthScore * HEALTH_SCORE_WEIGHT
+                + flowScore * FLOW_SCORE_WEIGHT
+                + impactScore * IMPACT_SCORE_WEIGHT);
+
+        return new UnrankedMemberTaskStats(
+                member.getId(),
+                member.getName(),
+                taskCount,
+                completedTaskCount,
+                runningTaskCount,
+                failedTaskCount,
+                waitingUserTaskCount,
+                healthScore,
+                flowScore,
+                impactScore,
+                totalScore);
+    }
+
+    private Comparator<UnrankedMemberTaskStats> memberTaskStatsComparator() {
+        return Comparator.comparingInt(UnrankedMemberTaskStats::totalScore).reversed()
+                .thenComparing(Comparator.comparingInt(UnrankedMemberTaskStats::completedTaskCount).reversed())
+                .thenComparing(Comparator.comparingInt(UnrankedMemberTaskStats::runningTaskCount).reversed())
+                .thenComparingInt(UnrankedMemberTaskStats::failedTaskCount)
+                .thenComparing(UnrankedMemberTaskStats::memberName, Comparator.nullsLast(String::compareTo))
+                .thenComparing(UnrankedMemberTaskStats::memberId);
+    }
+
+    private int percentage(int numerator, int denominator) {
+        return Math.round(numerator * 100f / Math.max(denominator, 1));
+    }
+
+    private int calculateHealthScore(int failedTaskCount, int waitingUserTaskCount, int taskCount) {
+        int failurePenalty = Math.round(failedTaskCount * 100f / Math.max(taskCount, 1));
+        int waitingUserPenalty = Math.round(
+                waitingUserTaskCount * WAITING_USER_PENALTY_WEIGHT / (float) Math.max(taskCount, 1));
+        return clampScore(100 - failurePenalty - waitingUserPenalty);
+    }
+
+    private int clampScore(int score) {
+        return Math.max(0, Math.min(100, score));
+    }
+
+    private record UnrankedMemberTaskStats(
+            Long memberId,
+            String memberName,
+            int taskCount,
+            int completedTaskCount,
+            int runningTaskCount,
+            int failedTaskCount,
+            int waitingUserTaskCount,
+            int healthScore,
+            int flowScore,
+            int impactScore,
+            int totalScore) {
+
+        private WorkspaceMemberTaskStatsRes toResponse(int rank) {
+            return new WorkspaceMemberTaskStatsRes(
+                    memberId,
+                    memberName,
+                    rank,
+                    taskCount,
+                    completedTaskCount,
+                    runningTaskCount,
+                    failedTaskCount,
+                    waitingUserTaskCount,
+                    healthScore,
+                    flowScore,
+                    impactScore,
+                    totalScore);
+        }
     }
 
     // WorkspaceInvite 엔티티를 초대 관리 응답 DTO로 변환한다

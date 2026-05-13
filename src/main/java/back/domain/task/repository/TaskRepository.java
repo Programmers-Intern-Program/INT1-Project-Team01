@@ -34,10 +34,28 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
             @Param("workspaceIds") Collection<Long> workspaceIds,
             @Param("statuses") Collection<TaskStatus> statuses);
 
+    @Query("""
+            SELECT a.createdByMemberId AS memberId, t.status AS status, COUNT(t) AS count
+            FROM Task t
+            JOIN Agent a ON a.id = t.assignedAgentId
+            WHERE t.workspaceId = :workspaceId
+              AND a.workspace.id = :workspaceId
+            GROUP BY a.createdByMemberId, t.status
+            """)
+    List<MemberTaskStatusCount> countMemberTaskStatusesByWorkspaceId(@Param("workspaceId") Long workspaceId);
+
     Optional<Task> findByIdAndWorkspaceId(Long taskId, Long workspaceId);
 
     interface WorkspaceCount {
         Long getWorkspaceId();
+
+        long getCount();
+    }
+
+    interface MemberTaskStatusCount {
+        Long getMemberId();
+
+        TaskStatus getStatus();
 
         long getCount();
     }

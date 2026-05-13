@@ -2,6 +2,7 @@ package back.domain.workspace.dto.response;
 
 import java.time.LocalDateTime;
 
+import back.domain.member.dto.response.MemberProfileSummaryRes;
 import back.domain.workspace.enums.WorkspaceMemberRole;
 
 public record WorkspaceMemberInfoRes(
@@ -9,6 +10,7 @@ public record WorkspaceMemberInfoRes(
         String name,
         String email,
         WorkspaceMemberRole role,
-        LocalDateTime joinedAt
+        LocalDateTime joinedAt,
+        MemberProfileSummaryRes profile
 ) {
 }

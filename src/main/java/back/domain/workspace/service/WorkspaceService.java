@@ -11,6 +11,7 @@ import back.domain.workspace.dto.response.WorkspaceInviteInfoRes;
 import back.domain.workspace.dto.response.WorkspaceInviteManagementRes;
 import back.domain.workspace.dto.response.WorkspaceInvitePreviewRes;
 import back.domain.workspace.dto.response.WorkspaceMemberInfoRes;
+import back.domain.workspace.dto.response.WorkspaceMemberTaskStatsRes;
 import back.domain.workspace.dto.response.WorkspaceInfoRes;
 import back.domain.workspace.dto.response.WorkspaceSummaryInfoRes;
 
@@ -78,6 +79,17 @@ public interface WorkspaceService {
      * @throws ServiceException 요청자가 해당 워크스페이스의 멤버가 아닌 경우 (FORBIDDEN)
      */
     List<WorkspaceMemberInfoRes> listMembers(long workspaceId, long memberId);
+
+    /**
+     * 워크스페이스 멤버별 담당 Task 통계와 프로필 점수를 반환합니다.
+     *
+     * @param workspaceId 조회할 워크스페이스 ID
+     * @param memberId    요청자의 회원 ID
+     * @return 멤버별 Task 통계 목록 (점수/완료/진행/실패/이름 기준 정렬)
+     * @throws ServiceException 워크스페이스가 존재하지 않는 경우 (NOT_FOUND)
+     * @throws ServiceException 요청자가 해당 워크스페이스의 멤버가 아닌 경우 (FORBIDDEN)
+     */
+    List<WorkspaceMemberTaskStatsRes> listMemberTaskStats(long workspaceId, long memberId);
 
     /**
      * 워크스페이스 멤버의 역할을 변경합니다.
