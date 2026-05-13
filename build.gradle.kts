@@ -78,6 +78,11 @@ dependencies {
 
 	// --- Security / Crypto ---
 	implementation("com.google.crypto.tink:tink:1.12.0")
+
+	// --- actuator ---
+	implementation ("org.springframework.boot:spring-boot-starter-actuator")
+	testImplementation ("org.springframework.boot:spring-boot-starter-actuator-test")
+	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 }
 
 tasks.withType<Test> {

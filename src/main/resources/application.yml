@@ -93,3 +93,17 @@ app:
 logging:
   level:
     back: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:                          # histogram-buckets
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

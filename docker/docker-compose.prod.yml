@@ -72,3 +72,4 @@ volumes:
 networks:
   team01-prod-network:
     driver: bridge
+    name: team01-prod-network
