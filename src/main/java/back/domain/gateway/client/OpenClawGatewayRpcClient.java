@@ -334,7 +334,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             Thread.currentThread().interrupt();
             return Optional.empty();
         } catch (ExecutionException exception) {
-            return Optional.empty();
+            throw OpenClawGatewayException.sendFailed(CONNECT_CHALLENGE_EVENT, null, exception);
         }
     }
 
