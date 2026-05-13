@@ -1,12 +1,12 @@
 package back.global.config;
 
-import java.util.concurrent.Executor;
-import java.util.concurrent.ThreadPoolExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+import java.util.concurrent.Executor;
 
 /**
  * 애플리케이션의 비동기 처리(@Async)를 위한 Thread Pool 전역 설정입니다.
@@ -35,13 +35,13 @@ public class AsyncConfig {
     }
 
     /**
-     * Slack 이벤트 처리를 전담하는 커스텀 스레드 풀을 생성합니다.
+     * Slack 이벤트는 best-effort 모델이다.
+     *
+     * 큐 포화 시:
+     * - 이벤트는 drop될 수 있음
+     * - 하지만 예외를 던지지 않아야 트랜잭션 롤백을 방지함
+     * - DB에는 RECEIVED 로그가 정상 저장되어야 함
      */
-
-    // TODO: [IT-9] Slack Async Queue 포화 시 이벤트 유실 방지 처리 필요
-    // 현재 큐(capacity=50) 초과 시 이벤트가 RECEIVED 상태로 고착됨
-    // 대안 1: FAILED 상태 로그 주기적 재처리 스케줄러 구현
-    // 대안 2: Redis/RabbitMQ 외부 큐 도입
     @Bean(name = "slackEventTaskExecutor")
     public Executor slackEventTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -49,10 +49,17 @@ public class AsyncConfig {
         executor.setMaxPoolSize(20);    // 트래픽 급증 시 최대 확장 범위
         executor.setQueueCapacity(50);  // 순간 burst 흡수 버퍼. 초과 시 rejection handler에서 로그 남김
         executor.setThreadNamePrefix("SlackEvent-Async-");
-
-        executor.setRejectedExecutionHandler((Runnable r, ThreadPoolExecutor exec) -> {
-            log.error("[Critical] Slack Async Queue가 꽉 찼습니다. 이벤트를 처리할 수 없어 유실됩니다. 모니터링 확인 요망.");
-        });
+        executor.setRejectedExecutionHandler((r, exec) ->
+                log.error(
+                        "[AsyncConfig#slackEventTaskExecutor] Slack async queue full. " +
+                                "activeCount={}, poolSize={}, queueSize={}",
+                        exec.getActiveCount(),
+                        exec.getPoolSize(),
+                        exec.getQueue().size()
+                )
+        );
+        // 큐 포화로 drop된 이벤트는 DB에 RECEIVED 상태로 잔류함.
+        // 트래픽 급증 시 유실 허용 범위를 초과한다면 RECEIVED 상태 기반 재처리 스케줄러 도입을 고려할 것.
 
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);

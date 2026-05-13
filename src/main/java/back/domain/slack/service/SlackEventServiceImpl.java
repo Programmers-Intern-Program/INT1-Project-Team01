@@ -79,10 +79,19 @@ public class SlackEventServiceImpl implements SlackEventService {
         boolean isSaved = trySaveEventLog(eventLog, request.eventId());
         if (!isSaved) return;
 
-        eventPublisher.publishEvent(new SlackEventReceivedEvent(eventLog.getId()));
-        log.info(
-                "Slack 이벤트 수신 및 로그 저장 완료 (RECEIVED). event_id: {}",
-                request.eventId());
+        try {
+            eventPublisher.publishEvent(
+                    new SlackEventReceivedEvent(eventLog.getId())
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Slack 이벤트 발행에 실패했습니다. event_id: {}",
+                    request.eventId(),
+                    e
+            );
+        }
+
+        log.debug("Slack event processed. event_id={}", request.eventId());
     }
 
     /**

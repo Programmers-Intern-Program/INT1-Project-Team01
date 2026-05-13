@@ -120,7 +120,6 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 				"**.entity.*",             // Member 등 엔티티
 				"**.util.*",               // Ut.Json 등 유틸
 				"**.event.*Event",         // Event 객체 제외 (이벤트 관련 DTO)
-				"**.controller.TestTriggerController*" // TODO: [IT-9] 테스트 임시. 삭제 필요
 			)
 			limit {
 				counter = "LINE"

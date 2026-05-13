@@ -21,6 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -97,6 +98,7 @@ class SlackIntegrationServiceImplTest {
         SlackOAuthAccessRes oauthRes = new SlackOAuthAccessRes(true, "xoxb-token", team, webhook, null);
 
         given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
                 .willReturn(Optional.empty());
@@ -106,6 +108,7 @@ class SlackIntegrationServiceImplTest {
 
         // then
         verify(slackIntegrationRepository).save(any(SlackIntegration.class));
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
     }
 
     @Test
@@ -128,6 +131,7 @@ class SlackIntegrationServiceImplTest {
                 .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
 
         given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
         given(slackClient.exchangeToken(eq(code), any(), any(), any())).willReturn(oauthRes);
         given(slackIntegrationRepository.findFirstBySlackTeamIdAndSlackChannelId("T12345", "C12345"))
                 .willReturn(Optional.of(existing));
@@ -137,6 +141,30 @@ class SlackIntegrationServiceImplTest {
 
         // then
         assertThat(existing.getBotToken()).isEqualTo("xoxb-newtoken");
+        verify(slackIntegrationRepository, Mockito.never()).save(any());
+        verify(workspaceAccessValidator).requireAdmin(workspaceId, memberId);
+    }
+
+    @Test
+    @DisplayName("OAuth 콜백 처리 시 요청자가 더 이상 관리자가 아니면 예외가 발생하고 슬랙 토큰 교환을 진행하지 않는다.")
+    void handleOAuthCallback_notAdmin_throwsException() {
+        // given
+        Long workspaceId = 1L;
+        Long memberId = 100L;
+        String code = "test-code";
+        String state = "mock.jwt.token";
+
+        OAuthStatePayload mockPayload = new OAuthStatePayload(workspaceId, memberId);
+        given(oauthStateTokenProvider.parseOAuthState(state)).willReturn(mockPayload);
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN, "Not an admin", "관리자 권한이 없습니다."));
+
+        // when & then
+        assertThatThrownBy(() -> slackIntegrationService.handleOAuthCallback(code, state))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("Not an admin");
+
+        verify(slackClient, Mockito.never()).exchangeToken(any(), any(), any(), any());
         verify(slackIntegrationRepository, Mockito.never()).save(any());
     }
 
@@ -236,9 +264,13 @@ class SlackIntegrationServiceImplTest {
         SlackIntegration integration = SlackIntegration.builder()
                 .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
                 .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
+        ReflectionTestUtils.setField(integration, "id", integrationId);
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
-        given(slackIntegrationRepository.findById(integrationId)).willReturn(Optional.of(integration));
+        given(slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId))
+                .willReturn(Optional.of(integration));
+        given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelIdAndIdNot("T1", "C999", integrationId))
+                .willReturn(false);
 
         SlackIntegrationInfoRes res = slackIntegrationService.updateSlackIntegration(workspaceId, integrationId, memberId, req);
 
@@ -249,23 +281,71 @@ class SlackIntegrationServiceImplTest {
     }
 
     @Test
-    @DisplayName("다른 워크스페이스의 연동 정보를 수정하려고 하면 예외가 발생한다.")
-    void updateSlackIntegration_workspaceMismatch_throwsException() {
+    @DisplayName("자신의 팀/채널 정보를 그대로 둔 채 봇 토큰만 수정할 때는 중복 검증을 통과한다.")
+    void updateSlackIntegration_sameTeamChannel_success() {
+        Long workspaceId = 1L;
+        Long integrationId = 10L;
+        Long memberId = 100L;
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq("T1", "C1", "xoxb-newtoken");
+
+        SlackIntegration currentIntegration = SlackIntegration.builder()
+                .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
+                .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
+        ReflectionTestUtils.setField(currentIntegration, "id", integrationId);
+
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+        given(slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId))
+                .willReturn(Optional.of(currentIntegration));
+
+        given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelIdAndIdNot("T1", "C1", integrationId))
+                .willReturn(false);
+
+        SlackIntegrationInfoRes res = slackIntegrationService.updateSlackIntegration(workspaceId, integrationId, memberId, req);
+
+        assertThat(currentIntegration.getBotToken()).isEqualTo("xoxb-newtoken");
+        assertThat(res.slackTeamId()).isEqualTo("T1");
+    }
+
+    @Test
+    @DisplayName("수정하려는 슬랙 팀과 채널 조합이 이미 다른 연동 정보로 존재하면 ServiceException(CONFLICT)이 발생한다.")
+    void updateSlackIntegration_duplicate_throwsException() {
+        Long workspaceId = 1L;
+        Long integrationId = 10L;
+        Long memberId = 100L;
+        SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq("T2", "C2", null);
+
+        SlackIntegration currentIntegration = SlackIntegration.builder()
+                .workspaceId(workspaceId).slackTeamId("T1").slackChannelId("C1")
+                .botToken("xoxb-oldtoken").createdByMemberId(memberId).build();
+        ReflectionTestUtils.setField(currentIntegration, "id", integrationId);
+
+        given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
+        given(slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId))
+                .willReturn(Optional.of(currentIntegration));
+
+        given(slackIntegrationRepository.existsBySlackTeamIdAndSlackChannelIdAndIdNot("T2", "C2", integrationId))
+                .willReturn(true);
+
+        assertThatThrownBy(() -> slackIntegrationService.updateSlackIntegration(workspaceId, integrationId, memberId, req))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("Duplicate integration");
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 다른 워크스페이스의 연동 정보 수정 시 예외가 발생한다. (findByIdAndWorkspaceId로 두 케이스가 NOT_FOUND로 통합됨)")
+    void updateSlackIntegration_notFoundOrForbidden_throwsException() {
         Long workspaceId = 1L;
         Long integrationId = 10L;
         Long memberId = 100L;
         SlackIntegrationUpdateReq req = new SlackIntegrationUpdateReq(null, "C999", null);
 
-        SlackIntegration integration = SlackIntegration.builder()
-                .workspaceId(999L).slackTeamId("T1").slackChannelId("C1")
-                .botToken("token").createdByMemberId(memberId).build();
-
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
-        given(slackIntegrationRepository.findById(integrationId)).willReturn(Optional.of(integration));
+        given(slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> slackIntegrationService.updateSlackIntegration(workspaceId, integrationId, memberId, req))
                 .isInstanceOf(ServiceException.class)
-                .hasMessageContaining("Workspace mismatch");
+                .hasMessageContaining("Integration not found for id");
     }
 
     @Test
@@ -274,10 +354,13 @@ class SlackIntegrationServiceImplTest {
         Long workspaceId = 1L;
         Long integrationId = 10L;
         Long memberId = 100L;
+
         SlackIntegration integration = SlackIntegration.builder().workspaceId(workspaceId).build();
+        ReflectionTestUtils.setField(integration, "id", integrationId);
 
         given(workspaceAccessValidator.requireAdmin(workspaceId, memberId)).willReturn(workspaceMember);
-        given(slackIntegrationRepository.findById(integrationId)).willReturn(Optional.of(integration));
+        given(slackIntegrationRepository.findByIdAndWorkspaceId(integrationId, workspaceId))
+                .willReturn(Optional.of(integration));
 
         slackIntegrationService.deleteSlackIntegration(workspaceId, integrationId, memberId);
 

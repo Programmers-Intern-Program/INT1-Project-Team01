@@ -73,10 +73,18 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         GithubCredential credential = githubCredentialRepository.findById(credentialId)
-                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Credential not found", "해당 GitHub 자격 증명을 찾을 수 없습니다."));
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[GithubCredentialServiceImpl#updateGithubCredential] Credential not found for id: " + credentialId,
+                        "해당 GitHub 자격 증명을 찾을 수 없습니다."
+                ));
 
         if (!credential.getWorkspace().getId().equals(workspaceId)) {
-            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 자격 증명이 아닙니다.");
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[GithubCredentialServiceImpl#updateGithubCredential] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + credential.getWorkspace().getId(),
+                    "해당 워크스페이스의 자격 증명이 아닙니다."
+            );
         }
 
         credential.update(req.displayName(), req.token());
@@ -90,10 +98,18 @@ public class GithubCredentialServiceImpl implements GithubCredentialService {
         workspaceAccessValidator.requireAdmin(workspaceId, memberId);
 
         GithubCredential credential = githubCredentialRepository.findById(credentialId)
-                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND, "Credential not found", "해당 GitHub 자격 증명을 찾을 수 없습니다."));
+                .orElseThrow(() -> new ServiceException(
+                        CommonErrorCode.NOT_FOUND,
+                        "[GithubCredentialServiceImpl#deleteGithubCredential] Credential not found for id: " + credentialId,
+                        "해당 GitHub 자격 증명을 찾을 수 없습니다."
+                ));
 
         if (!credential.getWorkspace().getId().equals(workspaceId)) {
-            throw new ServiceException(CommonErrorCode.FORBIDDEN, "Workspace mismatch", "해당 워크스페이스의 자격 증명이 아닙니다.");
+            throw new ServiceException(
+                    CommonErrorCode.FORBIDDEN,
+                    "[GithubCredentialServiceImpl#deleteGithubCredential] Workspace mismatch. Expected workspaceId: " + workspaceId + ", Actual: " + credential.getWorkspace().getId(),
+                    "해당 워크스페이스의 자격 증명이 아닙니다."
+            );
         }
 
         githubCredentialRepository.delete(credential);

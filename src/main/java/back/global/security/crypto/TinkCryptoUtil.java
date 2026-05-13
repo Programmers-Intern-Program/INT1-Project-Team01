@@ -35,7 +35,6 @@ import java.util.Base64;
  * @since 2026-04-30
  */
 
-// TODO: 보안을 위한 OCI Vault 고려 [IT-9]
 @Component
 public final class TinkCryptoUtil {
 
