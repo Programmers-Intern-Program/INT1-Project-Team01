@@ -316,6 +316,36 @@ class WorkspaceServiceImplTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 멤버 Task 통계 순위는 동점과 동명이인에서도 memberId로 안정 정렬한다")
+    void listMemberTaskStats_tieBreaksByMemberId() {
+        // given
+        Member firstMember = Member.createUser("sub2", "first@test.com", "동명이인");
+        ReflectionTestUtils.setField(firstMember, "id", 2L);
+        WorkspaceMember firstWorkspaceMember =
+                WorkspaceMember.create(workspace, firstMember, WorkspaceMemberRole.MEMBER);
+        Member secondMember = Member.createUser("sub3", "second@test.com", "동명이인");
+        ReflectionTestUtils.setField(secondMember, "id", 3L);
+        WorkspaceMember secondWorkspaceMember =
+                WorkspaceMember.create(workspace, secondMember, WorkspaceMemberRole.MEMBER);
+
+        given(workspaceRepository.findById(1L)).willReturn(Optional.of(workspace));
+        given(workspaceMemberRepository.findByWorkspaceIdAndMemberId(1L, 1L))
+                .willReturn(Optional.of(adminWorkspaceMember));
+        given(workspaceMemberRepository.findAllByWorkspaceIdWithMember(1L))
+                .willReturn(List.of(secondWorkspaceMember, firstWorkspaceMember));
+        given(taskRepository.countMemberTaskStatusesByWorkspaceId(1L)).willReturn(List.of());
+
+        // when
+        List<WorkspaceMemberTaskStatsRes> result = workspaceService.listMemberTaskStats(1L, 1L);
+
+        // then
+        assertThat(result).extracting(WorkspaceMemberTaskStatsRes::memberId)
+                .containsExactly(2L, 3L);
+        assertThat(result).extracting(WorkspaceMemberTaskStatsRes::rank)
+                .containsExactly(1, 2);
+    }
+
+    @Test
     @DisplayName("멤버 역할 변경 성공")
     void changeMemberRole_success() {
         // given
