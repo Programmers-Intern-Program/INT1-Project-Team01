@@ -207,7 +207,7 @@ class OrchestrationPlanRunnerImplTest {
                 List.of());
         given(agentExecutionResultParser.parse("backend final")).willReturn(backendResult);
         given(agentExecutionResultParser.parse("frontend final")).willReturn(frontendResult);
-        given(workspaceArtifactStorage.storeFilesFromWorkspace(
+        given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
                         1L, Path.of("~/.openclaw/backend-workspace"), backendResult.files()))
                 .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
 
