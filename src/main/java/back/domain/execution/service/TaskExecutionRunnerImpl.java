@@ -3,6 +3,7 @@ package back.domain.execution.service;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
 import back.domain.execution.entity.TaskExecution;
@@ -38,12 +39,18 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
     private final TaskExecutionResultRecorder taskExecutionResultRecorder;
+    private final AgentWorkspaceExecutionLock agentWorkspaceExecutionLock;
 
     @Override
     public TaskExecutionRunResult run(TaskExecutionRunCommand command) {
         Objects.requireNonNull(command);
         TaskExecution execution =
                 requireTransactionResult(transactionOperations.execute(status -> createQueuedExecution(command)));
+        return agentWorkspaceExecutionLock.execute(
+                execution.getWorkdirPath(), () -> runWithLockedWorkspace(command, execution));
+    }
+
+    private TaskExecutionRunResult runWithLockedWorkspace(TaskExecutionRunCommand command, TaskExecution execution) {
         OpenClawGatewayConnectionContext context;
         try {
             context = workspaceGatewayBindingService.getConnectionContext(command.workspaceId());

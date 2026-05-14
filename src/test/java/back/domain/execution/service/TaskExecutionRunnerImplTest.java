@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
@@ -70,6 +72,9 @@ class TaskExecutionRunnerImplTest {
 
     @Mock
     private TaskExecutionResultRecorder taskExecutionResultRecorder;
+
+    @Spy
+    private AgentWorkspaceExecutionLock agentWorkspaceExecutionLock = new AgentWorkspaceExecutionLock();
 
     @InjectMocks
     private TaskExecutionRunnerImpl taskExecutionRunner;
