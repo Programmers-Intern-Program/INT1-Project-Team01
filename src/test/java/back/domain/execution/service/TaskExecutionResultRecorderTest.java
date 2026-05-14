@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
@@ -73,7 +74,8 @@ class TaskExecutionResultRecorderTest {
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
         given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
                         1L, Path.of("/tmp/agent-workspace"), List.of(file)))
-                .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
+                .willReturn(new ArtifactFileStorageResult(
+                        List.of(new StoredArtifactFile("src/main/java/App.java", 12)), 1));
 
         // when
         recorder.recordResult(execution, result);
@@ -100,7 +102,7 @@ class TaskExecutionResultRecorderTest {
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
         given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
                         1L, Path.of("/tmp/agent-workspace"), List.of(file)))
-                .willReturn(List.of());
+                .willReturn(new ArtifactFileStorageResult(List.of(), 1));
 
         // when
         recorder.recordResult(execution, result);

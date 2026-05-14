@@ -1,5 +1,6 @@
 package back.domain.execution.service;
 
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
@@ -137,12 +138,12 @@ public class TaskExecutionResultRecorder {
             return new ArtifactMergeResult(artifacts, null);
         }
         try {
-            List<StoredArtifactFile> storedFiles = workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
+            ArtifactFileStorageResult storageResult = workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
                     execution.getWorkspaceId(), Path.of(execution.getWorkdirPath()), result.files());
-            storedFiles.stream()
+            storageResult.storedFiles().stream()
                     .map(this::toFileArtifact)
                     .forEach(artifacts::add);
-            return new ArtifactMergeResult(artifacts, resolvePartialStorageWarningMessage(result.files(), storedFiles));
+            return new ArtifactMergeResult(artifacts, storageResult.warningMessage());
         } catch (RuntimeException exception) {
             log.warn(
                     "Agent file artifact storage failed. taskExecutionId={}, workspaceId={}",
@@ -155,17 +156,6 @@ public class TaskExecutionResultRecorder {
 
     private TaskArtifactSaveRequest toFileArtifact(StoredArtifactFile file) {
         return new TaskArtifactSaveRequest("FILE_PATH", file.relativePath(), file.relativePath());
-    }
-
-    private String resolvePartialStorageWarningMessage(
-            List<?> requestedFiles, List<StoredArtifactFile> storedFiles) {
-        if (storedFiles.size() == requestedFiles.size()) {
-            return null;
-        }
-        if (storedFiles.isEmpty()) {
-            return "보고된 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.";
-        }
-        return "일부 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.";
     }
 
     private String resolveStorageWarningMessage(RuntimeException exception) {

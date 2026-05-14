@@ -30,6 +30,7 @@ import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.chat.entity.ChatMessage;
@@ -209,7 +210,8 @@ class OrchestrationPlanRunnerImplTest {
         given(agentExecutionResultParser.parse("frontend final")).willReturn(frontendResult);
         given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
                         1L, Path.of("~/.openclaw/backend-workspace"), backendResult.files()))
-                .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
+                .willReturn(new ArtifactFileStorageResult(
+                        List.of(new StoredArtifactFile("src/main/java/App.java", 12)), 1));
 
         // when
         orchestrationPlanRunner.run(1L, 500L);

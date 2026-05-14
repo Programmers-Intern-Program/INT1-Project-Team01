@@ -5,6 +5,7 @@ import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.service.AgentWorkspaceExecutionLock;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.chat.entity.ChatMessage;
@@ -234,12 +235,13 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             return new StoredFilesResult(List.of(), null);
         }
         try {
-            List<String> filePaths = workspaceArtifactStorage
-                    .storeAvailableFilesFromWorkspace(stepContext.workspaceId(), Path.of(workspacePath), result.files())
-                    .stream()
+            ArtifactFileStorageResult storageResult = workspaceArtifactStorage
+                    .storeAvailableFilesFromWorkspace(
+                            stepContext.workspaceId(), Path.of(workspacePath), result.files());
+            List<String> filePaths = storageResult.storedFiles().stream()
                     .map(StoredArtifactFile::relativePath)
                     .toList();
-            return new StoredFilesResult(filePaths, resolvePartialStorageWarningMessage(result.files(), filePaths));
+            return new StoredFilesResult(filePaths, storageResult.warningMessage());
         } catch (RuntimeException exception) {
             log.warn(
                     "Orchestration step file storage failed. workspaceId={}, planId={}, stepId={}",
@@ -249,16 +251,6 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                     exception);
             return new StoredFilesResult(List.of(), resolveFailureReason(exception));
         }
-    }
-
-    private String resolvePartialStorageWarningMessage(List<?> requestedFiles, List<String> storedFilePaths) {
-        if (storedFilePaths.size() == requestedFiles.size()) {
-            return null;
-        }
-        if (storedFilePaths.isEmpty()) {
-            return "보고된 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.";
-        }
-        return "일부 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.";
     }
 
     private StepExecutionSummary failStep(

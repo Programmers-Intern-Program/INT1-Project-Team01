@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 import back.domain.artifact.dto.ArtifactFileContent;
 import back.domain.artifact.dto.ArtifactFileReference;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.ArtifactTree;
 import back.domain.artifact.dto.ArtifactTreeNode;
 import back.domain.artifact.dto.ArtifactTreeNodeType;
@@ -107,18 +108,21 @@ public class WorkspaceArtifactStorage {
         return writeFiles(plans);
     }
 
-    public List<StoredArtifactFile> storeAvailableFilesFromWorkspace(
+    public ArtifactFileStorageResult storeAvailableFilesFromWorkspace(
             Long workspaceId, Path sourceRoot, List<ArtifactFileSaveCommand> files) {
         if (files == null || files.isEmpty()) {
-            return List.of();
+            return new ArtifactFileStorageResult(List.of(), 0);
         }
         requireWorkspaceId(workspaceId);
+        validateFileCount(files);
+        Path projectRoot = resolveProjectRoot(workspaceId);
         Path normalizedSourceRoot = normalizeWorkspaceRoot(sourceRoot);
         validateReadableSourceRoot(normalizedSourceRoot);
-        List<StoredArtifactFile> storedFiles = new ArrayList<>();
-        for (ArtifactFileSaveCommand file : uniqueFilesWithinLimit(files)) {
+        List<ArtifactFileSaveCommand> uniqueFiles = uniqueFiles(files);
+        List<FileWritePlan> plans = new ArrayList<>();
+        for (ArtifactFileSaveCommand file : uniqueFiles) {
             try {
-                storedFiles.addAll(storeFilesFromWorkspace(workspaceId, normalizedSourceRoot, List.of(file)));
+                plans.add(toWorkspaceFileWritePlan(projectRoot, normalizedSourceRoot, file));
             } catch (RuntimeException exception) {
                 log.warn(
                         "Skipping unavailable workspace artifact file. workspaceId={}, path={}",
@@ -127,7 +131,11 @@ public class WorkspaceArtifactStorage {
                         exception);
             }
         }
-        return List.copyOf(storedFiles);
+        if (plans.isEmpty()) {
+            return new ArtifactFileStorageResult(List.of(), uniqueFiles.size());
+        }
+        createDirectories(projectRoot, projectRoot.toString());
+        return new ArtifactFileStorageResult(writeFiles(plans), uniqueFiles.size());
     }
 
     public Path resolveProjectRoot(Long workspaceId) {
@@ -506,15 +514,11 @@ public class WorkspaceArtifactStorage {
         }
     }
 
-    private List<ArtifactFileSaveCommand> uniqueFilesWithinLimit(List<ArtifactFileSaveCommand> files) {
+    private List<ArtifactFileSaveCommand> uniqueFiles(List<ArtifactFileSaveCommand> files) {
         Map<String, ArtifactFileSaveCommand> uniqueFiles = new LinkedHashMap<>();
-        int limit = normalizedMaxFilesPerResult();
         for (ArtifactFileSaveCommand file : files) {
             if (file == null || uniqueFiles.containsKey(file.path())) {
                 continue;
-            }
-            if (uniqueFiles.size() >= limit) {
-                break;
             }
             uniqueFiles.put(file.path(), file);
         }
