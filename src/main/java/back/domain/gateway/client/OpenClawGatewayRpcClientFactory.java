@@ -10,21 +10,28 @@ import org.springframework.stereotype.Component;
 public class OpenClawGatewayRpcClientFactory implements OpenClawGatewayClientFactory {
 
     private final Duration rpcTimeout;
+    private final Duration chatTimeout;
     private final Path deviceIdentityDirectory;
     private final Duration remoteConnectChallengeWait;
 
     public OpenClawGatewayRpcClientFactory(
             @Value("${openclaw.gateway.rpc-timeout:10s}") Duration rpcTimeout,
+            @Value("${openclaw.gateway.chat-timeout:10m}") Duration chatTimeout,
             @Value("${openclaw.gateway.device-identity-dir:}") String deviceIdentityDirectory,
             @Value("${openclaw.gateway.remote-connect-challenge-wait:750ms}") Duration remoteConnectChallengeWait) {
         this.rpcTimeout = rpcTimeout;
+        this.chatTimeout = chatTimeout;
         this.deviceIdentityDirectory = resolveDeviceIdentityDirectory(deviceIdentityDirectory);
         this.remoteConnectChallengeWait = remoteConnectChallengeWait;
     }
 
     @Override
     public OpenClawGatewayClient create() {
-        return OpenClawGatewayRpcClient.webSocket(rpcTimeout, deviceIdentityDirectory, remoteConnectChallengeWait);
+        return OpenClawGatewayRpcClient.webSocket(
+                rpcTimeout,
+                deviceIdentityDirectory,
+                remoteConnectChallengeWait,
+                chatTimeout);
     }
 
     private Path resolveDeviceIdentityDirectory(String configuredDirectory) {

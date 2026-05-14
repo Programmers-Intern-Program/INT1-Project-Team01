@@ -20,6 +20,7 @@ import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
 import back.domain.gateway.exception.OpenClawGatewayException;
+import back.domain.gateway.service.GatewayConnectionFailureResolver;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.orchestrator.entity.OrchestrationPlan;
 import back.domain.orchestrator.entity.OrchestrationPlanStep;
@@ -151,7 +152,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             saveStepResult(stepContext.id(), summary);
             return summary;
         } catch (OpenClawGatewayException exception) {
-            return failStep(stepContext, exception.getClientMessage(), null);
+            return failStep(stepContext, resolveGatewayFailureReason(exception), null);
         } catch (RuntimeException exception) {
             return failStep(stepContext, resolveFailureReason(exception), null);
         }
@@ -563,6 +564,14 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             return serviceException.getClientMessage();
         }
         return "Worker Agent 실행 중 오류가 발생했습니다.";
+    }
+
+    private String resolveGatewayFailureReason(OpenClawGatewayException exception) {
+        if ("gateway_rpc_timeout".equalsIgnoreCase(exception.gatewayErrorCode())) {
+            return "Worker Agent 응답 시간이 초과되었습니다. OpenClaw에서 작업이 계속 실행 중인지 확인하고, "
+                    + "필요하면 OPENCLAW_GATEWAY_CHAT_TIMEOUT 값을 늘려 주세요.";
+        }
+        return GatewayConnectionFailureResolver.resolveClientMessage(exception);
     }
 
     private ServiceException executionError(String clientMessage) {

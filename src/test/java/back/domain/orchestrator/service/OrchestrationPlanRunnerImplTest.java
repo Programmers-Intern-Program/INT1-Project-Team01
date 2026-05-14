@@ -44,6 +44,7 @@ import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.gateway.client.OpenClawGatewayClient;
 import back.domain.gateway.client.OpenClawGatewayClientFactory;
 import back.domain.gateway.client.OpenClawGatewayConnectionContext;
+import back.domain.gateway.exception.OpenClawGatewayException;
 import back.domain.gateway.service.WorkspaceGatewayBindingService;
 import back.domain.member.entity.Member;
 import back.domain.orchestrator.entity.OrchestrationPlan;
@@ -308,6 +309,39 @@ class OrchestrationPlanRunnerImplTest {
         verify(chatMessageRepository).save(messageCaptor.capture());
         assertThat(messageCaptor.getValue().getContent())
                 .contains("Orchestration 실행이 실패했습니다.", "- 실패 step: backend-1", "- 사유: 테스트 실패");
+        verify(openClawGatewayClient).close();
+    }
+
+    @Test
+    @DisplayName("Worker Agent chat.send timeout은 실행 단계에 맞는 실패 사유로 저장한다")
+    void run_workerChatTimeout_marksFailedWithWorkerMessage() {
+        // given
+        stubPlanAndSteps();
+        given(workspaceGatewayBindingService.getConnectionContext(1L))
+                .willReturn(new OpenClawGatewayConnectionContext("ws://localhost:18789", "gateway-token"));
+        given(openClawGatewayClientFactory.create()).willReturn(openClawGatewayClient);
+        given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
+                        1L, AgentCategory.BACKEND, AgentStatus.READY))
+                .willReturn(Optional.of(backendAgent));
+        given(workspaceArtifactStorage.resolveProjectRoot(1L))
+                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
+        given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
+                .willThrow(OpenClawGatewayException.rpcTimeout("chat.send", "req-1"));
+
+        // when
+        orchestrationPlanRunner.run(1L, 500L);
+
+        // then
+        assertThat(plan.getStatus()).isEqualTo(OrchestrationPlanStatus.FAILED);
+        assertThat(backendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.FAILED);
+        assertThat(backendStep.getFailureReason())
+                .contains("Worker Agent 응답 시간이 초과되었습니다.", "OPENCLAW_GATEWAY_CHAT_TIMEOUT");
+        assertThat(frontendStep.getStatus()).isEqualTo(OrchestrationPlanStepStatus.PENDING);
+
+        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getContent())
+                .contains("- 실패 step: backend-1", "Worker Agent 응답 시간이 초과되었습니다.");
         verify(openClawGatewayClient).close();
     }
 
