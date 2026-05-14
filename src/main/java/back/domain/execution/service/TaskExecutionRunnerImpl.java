@@ -21,7 +21,6 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -32,8 +31,6 @@ import org.springframework.transaction.support.TransactionOperations;
         justification = "Spring injects service collaborators managed by the application context.")
 public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
 
-    private static final String DEFAULT_WORKDIR_ROOT = "/data/aioffice/workspaces";
-
     private final TransactionOperations transactionOperations;
     private final WorkspaceRepository workspaceRepository;
     private final AgentRepository agentRepository;
@@ -41,9 +38,6 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
     private final WorkspaceGatewayBindingService workspaceGatewayBindingService;
     private final OpenClawGatewayClientFactory openClawGatewayClientFactory;
     private final TaskExecutionResultRecorder taskExecutionResultRecorder;
-
-    @Value("${task-execution.workdir-root:/data/aioffice/workspaces}")
-    private String workdirRoot;
 
     @Override
     public TaskExecutionRunResult run(TaskExecutionRunCommand command) {
@@ -91,7 +85,7 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 agent.getOpenClawAgentId(),
                 command.repositoryId(),
                 resolveBranchName(command)));
-        execution.assignRuntimeContext(resolveWorkdirPath(execution), resolveSessionKey(execution, command));
+        execution.assignRuntimeContext(resolveWorkdirPath(agent), resolveSessionKey(execution, command));
         return taskExecutionRepository.save(execution);
     }
 
@@ -205,11 +199,8 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
         return "ai/workspace-" + command.workspaceId() + "/task-" + command.taskId();
     }
 
-    private String resolveWorkdirPath(TaskExecution execution) {
-        return normalizedWorkdirRoot()
-                + "/" + execution.getWorkspaceId()
-                + "/executions/" + execution.getId()
-                + "/repo";
+    private String resolveWorkdirPath(Agent agent) {
+        return agent.getWorkspacePath();
     }
 
     private String resolveSessionKey(TaskExecution execution, TaskExecutionRunCommand command) {
@@ -217,17 +208,6 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
             return command.openClawSessionKeyOverride();
         }
         return "workspace-" + execution.getWorkspaceId() + "-execution-" + execution.getId();
-    }
-
-    private String normalizedWorkdirRoot() {
-        if (workdirRoot == null || workdirRoot.isBlank()) {
-            return DEFAULT_WORKDIR_ROOT;
-        }
-        String normalized = workdirRoot.trim();
-        while (normalized.endsWith("/") && normalized.length() > 1) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized;
     }
 
     private <T> T requireTransactionResult(T result) {
