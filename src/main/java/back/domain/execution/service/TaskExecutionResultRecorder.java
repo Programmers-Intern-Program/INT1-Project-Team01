@@ -14,6 +14,7 @@ import back.domain.task.entity.TaskMessage;
 import back.domain.task.repository.TaskMessageRepository;
 import back.global.exception.ServiceException;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -136,7 +137,10 @@ public class TaskExecutionResultRecorder {
             return new ArtifactMergeResult(artifacts, null);
         }
         try {
-            workspaceArtifactStorage.storeFiles(execution.getWorkspaceId(), result.files()).stream()
+            workspaceArtifactStorage
+                    .storeFilesFromWorkspace(
+                            execution.getWorkspaceId(), Path.of(execution.getWorkdirPath()), result.files())
+                    .stream()
                     .map(this::toFileArtifact)
                     .forEach(artifacts::add);
             return new ArtifactMergeResult(artifacts, null);

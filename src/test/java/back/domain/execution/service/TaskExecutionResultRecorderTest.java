@@ -22,6 +22,7 @@ import back.domain.task.entity.TaskMessageRole;
 import back.domain.task.repository.TaskMessageRepository;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +61,7 @@ class TaskExecutionResultRecorderTest {
     void setUp() {
         execution = TaskExecution.queued(1L, 2L, 3L, "openclaw-agent-1", null, "ai/task-2");
         ReflectionTestUtils.setField(execution, "id", 10L);
+        execution.assignRuntimeContext("/tmp/agent-workspace", "workspace-1-execution-10");
     }
 
     @Test
@@ -71,7 +73,7 @@ class TaskExecutionResultRecorderTest {
         ArtifactFileSaveCommand file =
                 new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}");
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
-        given(workspaceArtifactStorage.storeFiles(1L, List.of(file)))
+        given(workspaceArtifactStorage.storeFilesFromWorkspace(1L, Path.of("/tmp/agent-workspace"), List.of(file)))
                 .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
 
         // when
@@ -97,7 +99,7 @@ class TaskExecutionResultRecorderTest {
                 new AgentReportSaveRequest("COMPLETED", "파일 생성 완료", "상세 내용", null);
         ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("../secret.txt", "secret");
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
-        given(workspaceArtifactStorage.storeFiles(1L, List.of(file)))
+        given(workspaceArtifactStorage.storeFilesFromWorkspace(1L, Path.of("/tmp/agent-workspace"), List.of(file)))
                 .willThrow(new ServiceException(
                         CommonErrorCode.BAD_REQUEST,
                         "invalid artifact path",
