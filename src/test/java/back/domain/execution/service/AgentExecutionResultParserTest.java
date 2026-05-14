@@ -72,6 +72,33 @@ class AgentExecutionResultParserTest {
     }
 
     @Test
+    @DisplayName("Agent final report JSON의 files 배열은 content 없이 path만으로도 파싱한다")
+    void parse_jsonReportFiles_pathOnly_success() {
+        // given
+        String finalText = """
+                {
+                  "status": "COMPLETED",
+                  "summary": "파일 생성 완료",
+                  "detail": "작업 파일을 생성했습니다.",
+                  "files": [
+                    {
+                      "path": "board-backend/src/app.js"
+                    }
+                  ]
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.files())
+                .extracting(ArtifactFileSaveCommand::path)
+                .containsExactly("board-backend/src/app.js");
+        assertThat(result.files().getFirst().content()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Agent final report JSON의 risks와 nextActions 배열을 파싱한다")
     void parse_jsonReportRiskAndNextActions_success() {
         // given

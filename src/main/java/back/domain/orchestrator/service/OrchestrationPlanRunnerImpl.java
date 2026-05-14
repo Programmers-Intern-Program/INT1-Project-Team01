@@ -31,6 +31,7 @@ import back.domain.slack.event.SlackReplyRequestedEvent;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -166,7 +167,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                 buildWorkerMessage(planContext, stepContext, completedSteps, agent),
                 UUID.randomUUID().toString()));
         AgentExecutionResult result = agentExecutionResultParser.parse(chatResult.finalText());
-        StepExecutionSummary summary = toStepExecutionSummary(stepContext, result, chatResult.finalText());
+        StepExecutionSummary summary = toStepExecutionSummary(stepContext, result, chatResult.finalText(), agent);
         saveStepResult(stepContext.id(), summary);
         return summary;
     }
@@ -207,8 +208,9 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private StepExecutionSummary toStepExecutionSummary(
             StepExecutionContext stepContext,
             AgentExecutionResult result,
-            String finalText) {
-        StoredFilesResult storedFiles = storeFiles(stepContext, result);
+            String finalText,
+            Agent agent) {
+        StoredFilesResult storedFiles = storeFiles(stepContext, result, agent.getWorkspacePath());
         String detail = appendStorageWarning(result.report().detail(), storedFiles.warningMessage());
         if (result.status() == AgentExecutionStatus.COMPLETED) {
             return StepExecutionSummary.completed(
@@ -226,13 +228,14 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         return StepExecutionSummary.failed(resolveFailureReason(result), finalText);
     }
 
-    private StoredFilesResult storeFiles(StepExecutionContext stepContext, AgentExecutionResult result) {
+    private StoredFilesResult storeFiles(
+            StepExecutionContext stepContext, AgentExecutionResult result, String workspacePath) {
         if (result.files().isEmpty()) {
             return new StoredFilesResult(List.of(), null);
         }
         try {
             List<String> filePaths = workspaceArtifactStorage
-                    .storeFiles(stepContext.workspaceId(), result.files())
+                    .storeFilesFromWorkspace(stepContext.workspaceId(), Path.of(workspacePath), result.files())
                     .stream()
                     .map(StoredArtifactFile::relativePath)
                     .toList();
@@ -522,7 +525,8 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                 "Final report must be a JSON object.",
                 "Required fields: status, summary, detail, recommendedAction.",
                 "Allowed status values: COMPLETED, FAILED, CANCELED.",
-                "Optional fields: files [{ path, content }], risks [string], nextActions [string].",
+                "Optional fields: files [{ path }], risks [string], nextActions [string].",
+                "Do not include file contents. The server reads files from projectRoot and saves artifact snapshots.",
                 "Do not expose GitHub PAT, Slack token, Gateway token, or any credential value.");
     }
 

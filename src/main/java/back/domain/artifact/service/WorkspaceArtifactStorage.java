@@ -87,6 +87,23 @@ public class WorkspaceArtifactStorage {
         return writeFiles(plans);
     }
 
+    public List<StoredArtifactFile> storeFilesFromWorkspace(
+            Long workspaceId, Path sourceRoot, List<ArtifactFileSaveCommand> files) {
+        if (files == null || files.isEmpty()) {
+            return List.of();
+        }
+        requireWorkspaceId(workspaceId);
+        validateFileCount(files);
+        Path projectRoot = resolveProjectRoot(workspaceId);
+        Path normalizedSourceRoot = normalizeWorkspaceRoot(sourceRoot);
+        validateReadableSourceRoot(normalizedSourceRoot);
+        List<FileWritePlan> plans = files.stream()
+                .map(file -> toWorkspaceFileWritePlan(projectRoot, normalizedSourceRoot, file))
+                .toList();
+        createDirectories(projectRoot, projectRoot.toString());
+        return writeFiles(plans);
+    }
+
     public Path resolveProjectRoot(Long workspaceId) {
         requireWorkspaceId(workspaceId);
         return normalizedBasePath()
@@ -158,6 +175,18 @@ public class WorkspaceArtifactStorage {
         return new FileWritePlan(relativePath, target, file.content(), sizeBytes, file.path());
     }
 
+    private FileWritePlan toWorkspaceFileWritePlan(
+            Path projectRoot, Path sourceRoot, ArtifactFileSaveCommand file) {
+        Path relativePath = normalizeRelativePath(file.path());
+        validateExtension(relativePath);
+        Path source = resolveWithinRoot(sourceRoot, relativePath, file.path());
+        validateReadableSourceFile(sourceRoot, relativePath, source, file.path());
+        long sizeBytes = fileSize(source);
+        validateFileSize(relativePath, sizeBytes);
+        Path target = resolveWithinProjectRoot(projectRoot, relativePath, file.path());
+        return new FileWritePlan(relativePath, target, readString(source), sizeBytes, file.path());
+    }
+
     private List<StoredArtifactFile> writeFiles(List<FileWritePlan> plans) {
         List<WriteSnapshot> snapshots = new ArrayList<>();
         try {
@@ -199,8 +228,12 @@ public class WorkspaceArtifactStorage {
     }
 
     private Path resolveWithinProjectRoot(Path projectRoot, Path relativePath, String originalPath) {
-        Path target = projectRoot.resolve(relativePath).normalize();
-        if (!target.startsWith(projectRoot)) {
+        return resolveWithinRoot(projectRoot, relativePath, originalPath);
+    }
+
+    private Path resolveWithinRoot(Path root, Path relativePath, String originalPath) {
+        Path target = root.resolve(relativePath).normalize();
+        if (!target.startsWith(root)) {
             throw invalidPath(originalPath);
         }
         return target;
@@ -244,6 +277,36 @@ public class WorkspaceArtifactStorage {
         validateRealPath(projectRoot, target, originalPath);
     }
 
+    private void validateReadableSourceRoot(Path sourceRoot) {
+        validateNoSymlinkSegmentsWithin(sourceRoot, sourceRoot, sourceRoot.toString());
+        if (!Files.exists(sourceRoot, LinkOption.NOFOLLOW_LINKS)) {
+            throw new ServiceException(
+                    CommonErrorCode.NOT_FOUND,
+                    "[WorkspaceArtifactStorage#validateReadableSourceRoot] source root not found. path="
+                            + sourceRoot,
+                    "Agent 작업 디렉터리를 찾을 수 없습니다.");
+        }
+        if (!Files.isDirectory(sourceRoot, LinkOption.NOFOLLOW_LINKS)) {
+            throw invalidPath(sourceRoot.toString());
+        }
+    }
+
+    private void validateReadableSourceFile(
+            Path sourceRoot, Path relativePath, Path target, String originalPath) {
+        validateNoSymlinkSegmentsWithin(sourceRoot, target, originalPath);
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+            throw new ServiceException(
+                    CommonErrorCode.NOT_FOUND,
+                    "[WorkspaceArtifactStorage#validateReadableSourceFile] source file not found. path=" + target,
+                    "Agent 작업 파일을 찾을 수 없습니다.");
+        }
+        if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+            throw invalidPath(originalPath);
+        }
+        validateExtension(relativePath);
+        validateRealPath(sourceRoot, target, originalPath);
+    }
+
     private void validateWritableTarget(FileWritePlan plan) {
         validateNoSymlinkSegments(plan.target(), plan.originalPath());
         if (Files.exists(plan.target(), LinkOption.NOFOLLOW_LINKS)
@@ -253,14 +316,18 @@ public class WorkspaceArtifactStorage {
     }
 
     private void validateNoSymlinkSegments(Path target, String originalPath) {
-        Path base = normalizedBasePath();
+        validateNoSymlinkSegmentsWithin(normalizedBasePath(), target, originalPath);
+    }
+
+    private void validateNoSymlinkSegmentsWithin(Path base, Path target, String originalPath) {
+        Path normalizedBase = base.toAbsolutePath().normalize();
         Path normalizedTarget = target.toAbsolutePath().normalize();
-        if (!normalizedTarget.startsWith(base)) {
+        if (!normalizedTarget.startsWith(normalizedBase)) {
             throw invalidPath(originalPath);
         }
-        rejectIfSymlink(base, originalPath);
-        Path current = base;
-        for (Path segment : base.relativize(normalizedTarget)) {
+        rejectIfSymlink(normalizedBase, originalPath);
+        Path current = normalizedBase;
+        for (Path segment : normalizedBase.relativize(normalizedTarget)) {
             current = current.resolve(segment);
             rejectIfSymlink(current, originalPath);
         }
@@ -415,6 +482,17 @@ public class WorkspaceArtifactStorage {
 
     private Path normalizedBasePath() {
         String value = basePath == null || basePath.isBlank() ? DEFAULT_BASE_PATH : basePath.trim();
+        return Path.of(value).toAbsolutePath().normalize();
+    }
+
+    private Path normalizeWorkspaceRoot(Path sourceRoot) {
+        if (sourceRoot == null) {
+            throw new IllegalArgumentException("sourceRoot must not be null");
+        }
+        String value = sourceRoot.toString();
+        if ("~".equals(value) || value.startsWith("~/")) {
+            value = System.getProperty("user.home") + value.substring(1);
+        }
         return Path.of(value).toAbsolutePath().normalize();
     }
 

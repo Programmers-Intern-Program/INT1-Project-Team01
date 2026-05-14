@@ -46,6 +46,65 @@ class WorkspaceArtifactStorageTest {
     }
 
     @Test
+    @DisplayName("Agent workspace의 실제 파일 내용을 workspace project root에 복사한다")
+    void storeFilesFromWorkspace_readsSourceFileContent() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path sourceRoot = tempDir.resolve("agent-workspace");
+        Path sourceFile = sourceRoot.resolve("board-backend/src/app.js");
+        Files.createDirectories(sourceFile.getParent());
+        Files.writeString(sourceFile, "const app = express();\n", StandardCharsets.UTF_8);
+        ArtifactFileSaveCommand file =
+                new ArtifactFileSaveCommand("board-backend/src/app.js", "summary must not be stored");
+
+        // when
+        List<StoredArtifactFile> stored = storage.storeFilesFromWorkspace(1L, sourceRoot, List.of(file));
+
+        // then
+        Path savedPath = tempDir.resolve("workspaces/1/project/board-backend/src/app.js");
+        assertThat(Files.readString(savedPath)).isEqualTo("const app = express();\n");
+        assertThat(stored).extracting(StoredArtifactFile::relativePath).containsExactly("board-backend/src/app.js");
+    }
+
+    @Test
+    @DisplayName("Agent workspace에 실제 파일이 없으면 산출물을 저장하지 않는다")
+    void storeFilesFromWorkspace_missingSourceFile_throwsException() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path sourceRoot = tempDir.resolve("agent-workspace");
+        Files.createDirectories(sourceRoot);
+        ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("src/main/java/App.java", "");
+
+        // when & then
+        assertThatThrownBy(() -> storage.storeFilesFromWorkspace(1L, sourceRoot, List.of(file)))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.NOT_FOUND);
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/src/main/java/App.java")))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("Agent workspace source가 symlink이면 외부 파일을 복사하지 않는다")
+    void storeFilesFromWorkspace_symlinkSource_throwsException() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path sourceRoot = tempDir.resolve("agent-workspace");
+        Path outsideFile = tempDir.resolve("outside.txt");
+        Files.createDirectories(sourceRoot);
+        Files.writeString(outsideFile, "outside", StandardCharsets.UTF_8);
+        Files.createSymbolicLink(sourceRoot.resolve("result.txt"), outsideFile);
+        ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("result.txt", "");
+
+        // when & then
+        assertThatThrownBy(() -> storage.storeFilesFromWorkspace(1L, sourceRoot, List.of(file)))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BAD_REQUEST);
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/result.txt"))).isFalse();
+    }
+
+    @Test
     @DisplayName("workspace project root 파일 트리를 디렉터리 우선으로 조회한다")
     void listProjectTree_success() {
         // given

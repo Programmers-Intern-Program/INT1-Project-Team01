@@ -198,7 +198,8 @@ public class TaskExecutionRunnerImpl implements TaskExecutionRunner {
                 "Required fields: status, summary, detail, recommendedAction.",
                 "Allowed status values: COMPLETED, FAILED, CANCELED.",
                 "Optional field: artifacts [{ artifactType, name, url }].",
-                "Optional field: files [{ path, content }] for files to save under workspace project root.",
+                "Optional field: files [{ path }] for changed files. Do not include file contents.",
+                "The server reads files from workdirPath and saves artifact snapshots.",
                 "Do not expose GitHub PAT, Slack token, Gateway token, or any credential value.");
     }
 
