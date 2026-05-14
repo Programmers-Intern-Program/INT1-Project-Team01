@@ -99,6 +99,86 @@ class AgentExecutionResultParserTest {
     }
 
     @Test
+    @DisplayName("Agent final report JSON의 files 문자열 배열도 파일 저장 명령으로 파싱한다")
+    void parse_jsonReportFiles_stringArray_success() {
+        // given
+        String finalText = """
+                {
+                  "status": "COMPLETED",
+                  "summary": "파일 생성 완료",
+                  "detail": "작업 파일을 생성했습니다.",
+                  "files": [
+                    "board-backend/src/app.js",
+                    "README.md"
+                  ]
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.files())
+                .extracting(ArtifactFileSaveCommand::path)
+                .containsExactly("board-backend/src/app.js", "README.md");
+    }
+
+    @Test
+    @DisplayName("FILE_PATH artifact도 실제 파일 저장 대상으로 파싱한다")
+    void parse_filePathArtifactAsFile_success() {
+        // given
+        String finalText = """
+                {
+                  "status": "COMPLETED",
+                  "summary": "파일 생성 완료",
+                  "detail": "작업 파일을 생성했습니다.",
+                  "artifacts": [
+                    {
+                      "artifactType": "FILE_PATH",
+                      "name": "board-backend/src/app.js",
+                      "url": "board-backend/src/app.js"
+                    }
+                  ]
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.artifacts()).hasSize(1);
+        assertThat(result.files())
+                .extracting(ArtifactFileSaveCommand::path)
+                .containsExactly("board-backend/src/app.js");
+    }
+
+    @Test
+    @DisplayName("changedFiles alias도 파일 저장 명령으로 파싱한다")
+    void parse_changedFilesAlias_success() {
+        // given
+        String finalText = """
+                {
+                  "status": "COMPLETED",
+                  "summary": "파일 수정 완료",
+                  "detail": "작업 파일을 수정했습니다.",
+                  "changedFiles": [
+                    {
+                      "path": "src/main/java/App.java"
+                    }
+                  ]
+                }
+                """;
+
+        // when
+        AgentExecutionResult result = parser.parse(finalText);
+
+        // then
+        assertThat(result.files())
+                .extracting(ArtifactFileSaveCommand::path)
+                .containsExactly("src/main/java/App.java");
+    }
+
+    @Test
     @DisplayName("Agent final report JSON의 risks와 nextActions 배열을 파싱한다")
     void parse_jsonReportRiskAndNextActions_success() {
         // given

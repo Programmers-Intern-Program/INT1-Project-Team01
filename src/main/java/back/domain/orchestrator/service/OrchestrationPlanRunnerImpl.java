@@ -5,6 +5,7 @@ import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
 import back.domain.agent.service.AgentWorkspaceExecutionLock;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.chat.entity.ChatMessage;
@@ -234,12 +235,13 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             return new StoredFilesResult(List.of(), null);
         }
         try {
-            List<String> filePaths = workspaceArtifactStorage
-                    .storeFilesFromWorkspace(stepContext.workspaceId(), Path.of(workspacePath), result.files())
-                    .stream()
+            ArtifactFileStorageResult storageResult = workspaceArtifactStorage
+                    .storeAvailableFilesFromWorkspace(
+                            stepContext.workspaceId(), Path.of(workspacePath), result.files());
+            List<String> filePaths = storageResult.storedFiles().stream()
                     .map(StoredArtifactFile::relativePath)
                     .toList();
-            return new StoredFilesResult(filePaths, null);
+            return new StoredFilesResult(filePaths, storageResult.warningMessage());
         } catch (RuntimeException exception) {
             log.warn(
                     "Orchestration step file storage failed. workspaceId={}, planId={}, stepId={}",

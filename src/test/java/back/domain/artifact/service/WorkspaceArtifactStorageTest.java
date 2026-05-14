@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import back.domain.artifact.dto.ArtifactFileContent;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.ArtifactTree;
 import back.domain.artifact.dto.ArtifactTreeNode;
 import back.domain.artifact.dto.ArtifactTreeNodeType;
@@ -81,6 +82,34 @@ class WorkspaceArtifactStorageTest {
                 .extracting("errorCode")
                 .isEqualTo(CommonErrorCode.NOT_FOUND);
         assertThat(Files.exists(tempDir.resolve("workspaces/1/project/src/main/java/App.java")))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("Agent workspace 파일 중 읽을 수 있는 파일만 산출물로 저장한다")
+    void storeAvailableFilesFromWorkspace_skipsMissingFiles() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path sourceRoot = tempDir.resolve("agent-workspace");
+        Path sourceFile = sourceRoot.resolve("README.md");
+        Files.createDirectories(sourceRoot);
+        Files.writeString(sourceFile, "# Result\n", StandardCharsets.UTF_8);
+
+        // when
+        ArtifactFileStorageResult result = storage.storeAvailableFilesFromWorkspace(
+                1L,
+                sourceRoot,
+                List.of(
+                        new ArtifactFileSaveCommand("README.md", ""),
+                        new ArtifactFileSaveCommand("src/main/java/Missing.java", "")));
+
+        // then
+        assertThat(result.storedFiles()).extracting(StoredArtifactFile::relativePath).containsExactly("README.md");
+        assertThat(result.warningMessage())
+                .isEqualTo("일부 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.");
+        assertThat(Files.readString(tempDir.resolve("workspaces/1/project/README.md")))
+                .isEqualTo("# Result\n");
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/src/main/java/Missing.java")))
                 .isFalse();
     }
 

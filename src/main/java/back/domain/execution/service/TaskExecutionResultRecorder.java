@@ -1,5 +1,6 @@
 package back.domain.execution.service;
 
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
@@ -137,13 +138,12 @@ public class TaskExecutionResultRecorder {
             return new ArtifactMergeResult(artifacts, null);
         }
         try {
-            workspaceArtifactStorage
-                    .storeFilesFromWorkspace(
-                            execution.getWorkspaceId(), Path.of(execution.getWorkdirPath()), result.files())
-                    .stream()
+            ArtifactFileStorageResult storageResult = workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
+                    execution.getWorkspaceId(), Path.of(execution.getWorkdirPath()), result.files());
+            storageResult.storedFiles().stream()
                     .map(this::toFileArtifact)
                     .forEach(artifacts::add);
-            return new ArtifactMergeResult(artifacts, null);
+            return new ArtifactMergeResult(artifacts, storageResult.warningMessage());
         } catch (RuntimeException exception) {
             log.warn(
                     "Agent file artifact storage failed. taskExecutionId={}, workspaceId={}",

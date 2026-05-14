@@ -7,8 +7,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -83,8 +86,23 @@ public class AgentExecutionResultParser {
     }
 
     private List<ArtifactFileSaveCommand> parseFiles(JsonNode root, JsonNode reportNode) {
-        JsonNode filesNode = root.path("files").isArray() ? root.path("files") : reportNode.path("files");
-        if (!filesNode.isArray()) {
+        Map<String, ArtifactFileSaveCommand> files = new LinkedHashMap<>();
+        parseDeclaredFiles(root, reportNode).forEach(file -> files.putIfAbsent(file.path(), file));
+        parseFileArtifacts(root, reportNode).forEach(file -> files.putIfAbsent(file.path(), file));
+        return List.copyOf(files.values());
+    }
+
+    private List<ArtifactFileSaveCommand> parseDeclaredFiles(JsonNode root, JsonNode reportNode) {
+        JsonNode filesNode = firstArray(root, "files", "changedFiles", "changed_files", "filePaths", "file_paths")
+                .orElseGet(() -> firstArray(
+                                reportNode,
+                                "files",
+                                "changedFiles",
+                                "changed_files",
+                                "filePaths",
+                                "file_paths")
+                        .orElse(null));
+        if (filesNode == null || !filesNode.isArray()) {
             return List.of();
         }
         List<ArtifactFileSaveCommand> files = new ArrayList<>();
@@ -93,6 +111,10 @@ public class AgentExecutionResultParser {
     }
 
     private Optional<ArtifactFileSaveCommand> parseFile(JsonNode fileNode) {
+        if (fileNode.isTextual()) {
+            String path = fileNode.asText().trim();
+            return path.isBlank() ? Optional.empty() : Optional.of(new ArtifactFileSaveCommand(path, ""));
+        }
         if (!fileNode.isObject()) {
             return Optional.empty();
         }
@@ -102,6 +124,35 @@ public class AgentExecutionResultParser {
         }
         String content = nullableText(fileNode, "content", "body", "text").orElse("");
         return Optional.of(new ArtifactFileSaveCommand(path.get(), content));
+    }
+
+    private List<ArtifactFileSaveCommand> parseFileArtifacts(JsonNode root, JsonNode reportNode) {
+        JsonNode artifactsNode = root.path("artifacts").isArray()
+                ? root.path("artifacts")
+                : reportNode.path("artifacts");
+        if (!artifactsNode.isArray()) {
+            return List.of();
+        }
+        List<ArtifactFileSaveCommand> files = new ArrayList<>();
+        artifactsNode.forEach(artifactNode -> parseFileArtifact(artifactNode).ifPresent(files::add));
+        return files;
+    }
+
+    private Optional<ArtifactFileSaveCommand> parseFileArtifact(JsonNode artifactNode) {
+        if (!artifactNode.isObject()) {
+            return Optional.empty();
+        }
+        Optional<String> artifactType = firstText(artifactNode, "artifactType", "type");
+        if (artifactType.isEmpty() || !isFileArtifactType(artifactType.get())) {
+            return Optional.empty();
+        }
+        Optional<String> path = firstText(artifactNode, "path", "url", "value", "name");
+        return path.map(value -> new ArtifactFileSaveCommand(value, ""));
+    }
+
+    private boolean isFileArtifactType(String artifactType) {
+        String normalized = artifactType.trim().toUpperCase(Locale.ROOT);
+        return Set.of("FILE_PATH", "RESULT_FILE", "LOG_FILE").contains(normalized);
     }
 
     private List<String> parseStringArray(JsonNode root, JsonNode reportNode, String... keys) {

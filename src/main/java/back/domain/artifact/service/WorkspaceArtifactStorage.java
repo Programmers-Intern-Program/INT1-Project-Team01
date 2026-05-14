@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,13 +23,16 @@ import org.springframework.stereotype.Component;
 import back.domain.artifact.dto.ArtifactFileContent;
 import back.domain.artifact.dto.ArtifactFileReference;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
+import back.domain.artifact.dto.ArtifactFileStorageResult;
 import back.domain.artifact.dto.ArtifactTree;
 import back.domain.artifact.dto.ArtifactTreeNode;
 import back.domain.artifact.dto.ArtifactTreeNodeType;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Component
 public class WorkspaceArtifactStorage {
 
@@ -102,6 +106,36 @@ public class WorkspaceArtifactStorage {
                 .toList();
         createDirectories(projectRoot, projectRoot.toString());
         return writeFiles(plans);
+    }
+
+    public ArtifactFileStorageResult storeAvailableFilesFromWorkspace(
+            Long workspaceId, Path sourceRoot, List<ArtifactFileSaveCommand> files) {
+        if (files == null || files.isEmpty()) {
+            return new ArtifactFileStorageResult(List.of(), 0);
+        }
+        requireWorkspaceId(workspaceId);
+        validateFileCount(files);
+        Path projectRoot = resolveProjectRoot(workspaceId);
+        Path normalizedSourceRoot = normalizeWorkspaceRoot(sourceRoot);
+        validateReadableSourceRoot(normalizedSourceRoot);
+        List<ArtifactFileSaveCommand> uniqueFiles = uniqueFiles(files);
+        List<FileWritePlan> plans = new ArrayList<>();
+        for (ArtifactFileSaveCommand file : uniqueFiles) {
+            try {
+                plans.add(toWorkspaceFileWritePlan(projectRoot, normalizedSourceRoot, file));
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Skipping unavailable workspace artifact file. workspaceId={}, path={}",
+                        workspaceId,
+                        file.path(),
+                        exception);
+            }
+        }
+        if (plans.isEmpty()) {
+            return new ArtifactFileStorageResult(List.of(), uniqueFiles.size());
+        }
+        createDirectories(projectRoot, projectRoot.toString());
+        return new ArtifactFileStorageResult(writeFiles(plans), uniqueFiles.size());
     }
 
     public Path resolveProjectRoot(Long workspaceId) {
@@ -478,6 +512,17 @@ public class WorkspaceArtifactStorage {
                             + limit,
                     "한 번에 저장할 수 있는 산출물 파일 수를 초과했습니다.");
         }
+    }
+
+    private List<ArtifactFileSaveCommand> uniqueFiles(List<ArtifactFileSaveCommand> files) {
+        Map<String, ArtifactFileSaveCommand> uniqueFiles = new LinkedHashMap<>();
+        for (ArtifactFileSaveCommand file : files) {
+            if (file == null || uniqueFiles.containsKey(file.path())) {
+                continue;
+            }
+            uniqueFiles.put(file.path(), file);
+        }
+        return List.copyOf(uniqueFiles.values());
     }
 
     private Path normalizedBasePath() {
