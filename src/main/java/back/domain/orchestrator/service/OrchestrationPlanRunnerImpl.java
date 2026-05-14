@@ -145,7 +145,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
             OpenClawChatResult chatResult = client.sendChat(new OpenClawChatCommand(
                     agent.getOpenClawAgentId(),
                     resolveSessionKey(planContext, stepContext),
-                    buildWorkerMessage(planContext, stepContext, completedSteps),
+                    buildWorkerMessage(planContext, stepContext, completedSteps, agent),
                     UUID.randomUUID().toString()));
             AgentExecutionResult result = agentExecutionResultParser.parse(chatResult.finalText());
             StepExecutionSummary summary = toStepExecutionSummary(stepContext, result, chatResult.finalText());
@@ -487,7 +487,8 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private String buildWorkerMessage(
             PlanExecutionContext planContext,
             StepExecutionContext stepContext,
-            Map<String, StepExecutionSummary> completedSteps) {
+            Map<String, StepExecutionSummary> completedSteps,
+            Agent agent) {
         return String.join(
                 System.lineSeparator(),
                 "Orchestration Worker Context",
@@ -497,7 +498,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                 "- stepId: " + stepContext.id(),
                 "- stepKey: " + stepContext.stepKey(),
                 "- stepTitle: " + stepContext.title(),
-                "- projectRoot: " + workspaceArtifactStorage.resolveProjectRoot(planContext.workspaceId()),
+                "- projectRoot: " + agent.getWorkspacePath(),
                 "",
                 "Completed dependency results",
                 formatCompletedSteps(completedSteps),

@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -179,8 +178,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY))
                 .willReturn(Optional.of(frontendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
                         new OpenClawChatResult("backend-session", "backend final"),
@@ -218,7 +215,10 @@ class OrchestrationPlanRunnerImplTest {
         assertThat(commandCaptor.getAllValues())
                 .extracting(OpenClawChatCommand::openClawAgentId)
                 .containsExactly("openclaw-backend", "openclaw-frontend");
+        assertThat(commandCaptor.getAllValues().getFirst().message())
+                .contains("projectRoot: ~/.openclaw/workspace-1");
         assertThat(commandCaptor.getAllValues().getLast().message())
+                .contains("projectRoot: ~/.openclaw/workspace-1")
                 .contains("backend-1: 백엔드 완료 files=src/main/java/App.java");
         ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
         verify(chatMessageRepository).save(messageCaptor.capture());
@@ -246,8 +246,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY))
                 .willReturn(Optional.of(frontendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
                         new OpenClawChatResult("backend-session", "backend final"),
@@ -284,8 +282,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(new OpenClawChatResult("backend-session", "backend final"));
         given(agentExecutionResultParser.parse("backend final"))
@@ -323,8 +319,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willThrow(OpenClawGatewayException.rpcTimeout("chat.send", "req-1"));
 
@@ -356,8 +350,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(new OpenClawChatResult("backend-session", "backend final"));
         given(agentExecutionResultParser.parse("backend final"))
