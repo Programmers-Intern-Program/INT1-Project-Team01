@@ -85,6 +85,32 @@ class WorkspaceArtifactStorageTest {
     }
 
     @Test
+    @DisplayName("Agent workspace 파일 중 읽을 수 있는 파일만 산출물로 저장한다")
+    void storeAvailableFilesFromWorkspace_skipsMissingFiles() throws Exception {
+        // given
+        ReflectionTestUtils.setField(storage, "basePath", tempDir.toString());
+        Path sourceRoot = tempDir.resolve("agent-workspace");
+        Path sourceFile = sourceRoot.resolve("README.md");
+        Files.createDirectories(sourceRoot);
+        Files.writeString(sourceFile, "# Result\n", StandardCharsets.UTF_8);
+
+        // when
+        List<StoredArtifactFile> stored = storage.storeAvailableFilesFromWorkspace(
+                1L,
+                sourceRoot,
+                List.of(
+                        new ArtifactFileSaveCommand("README.md", ""),
+                        new ArtifactFileSaveCommand("src/main/java/Missing.java", "")));
+
+        // then
+        assertThat(stored).extracting(StoredArtifactFile::relativePath).containsExactly("README.md");
+        assertThat(Files.readString(tempDir.resolve("workspaces/1/project/README.md")))
+                .isEqualTo("# Result\n");
+        assertThat(Files.exists(tempDir.resolve("workspaces/1/project/src/main/java/Missing.java")))
+                .isFalse();
+    }
+
+    @Test
     @DisplayName("Agent workspace source가 symlink이면 외부 파일을 복사하지 않는다")
     void storeFilesFromWorkspace_symlinkSource_throwsException() throws Exception {
         // given

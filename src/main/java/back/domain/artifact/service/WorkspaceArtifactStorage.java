@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,7 +29,9 @@ import back.domain.artifact.dto.ArtifactTreeNodeType;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.global.exception.CommonErrorCode;
 import back.global.exception.ServiceException;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Component
 public class WorkspaceArtifactStorage {
 
@@ -102,6 +105,29 @@ public class WorkspaceArtifactStorage {
                 .toList();
         createDirectories(projectRoot, projectRoot.toString());
         return writeFiles(plans);
+    }
+
+    public List<StoredArtifactFile> storeAvailableFilesFromWorkspace(
+            Long workspaceId, Path sourceRoot, List<ArtifactFileSaveCommand> files) {
+        if (files == null || files.isEmpty()) {
+            return List.of();
+        }
+        requireWorkspaceId(workspaceId);
+        Path normalizedSourceRoot = normalizeWorkspaceRoot(sourceRoot);
+        validateReadableSourceRoot(normalizedSourceRoot);
+        List<StoredArtifactFile> storedFiles = new ArrayList<>();
+        for (ArtifactFileSaveCommand file : uniqueFilesWithinLimit(files)) {
+            try {
+                storedFiles.addAll(storeFilesFromWorkspace(workspaceId, normalizedSourceRoot, List.of(file)));
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Skipping unavailable workspace artifact file. workspaceId={}, path={}",
+                        workspaceId,
+                        file.path(),
+                        exception);
+            }
+        }
+        return List.copyOf(storedFiles);
     }
 
     public Path resolveProjectRoot(Long workspaceId) {
@@ -478,6 +504,21 @@ public class WorkspaceArtifactStorage {
                             + limit,
                     "한 번에 저장할 수 있는 산출물 파일 수를 초과했습니다.");
         }
+    }
+
+    private List<ArtifactFileSaveCommand> uniqueFilesWithinLimit(List<ArtifactFileSaveCommand> files) {
+        Map<String, ArtifactFileSaveCommand> uniqueFiles = new LinkedHashMap<>();
+        int limit = normalizedMaxFilesPerResult();
+        for (ArtifactFileSaveCommand file : files) {
+            if (file == null || uniqueFiles.containsKey(file.path())) {
+                continue;
+            }
+            if (uniqueFiles.size() >= limit) {
+                break;
+            }
+            uniqueFiles.put(file.path(), file);
+        }
+        return List.copyOf(uniqueFiles.values());
     }
 
     private Path normalizedBasePath() {
