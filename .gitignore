@@ -40,6 +40,7 @@ out/
 test.mv.db
 test.trace.db
 runtime-workspaces/
+perf/results/
 
 ### env ###
 .env
