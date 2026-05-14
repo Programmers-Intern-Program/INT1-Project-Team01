@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.execution.dto.request.AgentReportSaveRequest;
 import back.domain.execution.dto.request.TaskExecutionRunCommand;
 import back.domain.execution.dto.response.TaskExecutionRunResult;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
@@ -71,6 +73,9 @@ class TaskExecutionRunnerImplTest {
     @Mock
     private TaskExecutionResultRecorder taskExecutionResultRecorder;
 
+    @Spy
+    private AgentWorkspaceExecutionLock agentWorkspaceExecutionLock = new AgentWorkspaceExecutionLock();
+
     @InjectMocks
     private TaskExecutionRunnerImpl taskExecutionRunner;
 
@@ -90,7 +95,6 @@ class TaskExecutionRunnerImplTest {
         readyAgent.markOpenClawCreated("openclaw-agent-1");
         readyAgent.markReady();
         gatewayContext = new OpenClawGatewayConnectionContext("ws://localhost:34115", "gateway-secret-token");
-        ReflectionTestUtils.setField(taskExecutionRunner, "workdirRoot", "/tmp/aioffice/workspaces/");
 
         given(transactionOperations.execute(any())).willAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
@@ -132,7 +136,7 @@ class TaskExecutionRunnerImplTest {
         assertThat(result.taskExecutionId()).isEqualTo(200L);
         assertThat(result.status()).isEqualTo(TaskExecutionStatus.SUCCEEDED);
         assertThat(result.agentId()).isEqualTo(100L);
-        assertThat(result.workdirPath()).isEqualTo("/tmp/aioffice/workspaces/1/executions/200/repo");
+        assertThat(result.workdirPath()).isEqualTo("~/.openclaw/workspace-1");
         assertThat(result.openClawSessionKey()).isEqualTo("workspace-1-execution-200");
         assertThat(result.finalText()).isEqualTo("작업을 완료했습니다.");
 
@@ -146,7 +150,7 @@ class TaskExecutionRunnerImplTest {
                 .isEqualTo("agent:openclaw-agent-1:workspace-1-execution-200");
         assertThat(commandCaptor.getValue().message())
                 .contains("taskExecutionId: 200")
-                .contains("workdirPath: /tmp/aioffice/workspaces/1/executions/200/repo")
+                .contains("workdirPath: ~/.openclaw/workspace-1")
                 .contains("createPr: true")
                 .contains("Final report must be a JSON object.")
                 .contains("Allowed status values: COMPLETED, FAILED, CANCELED.")

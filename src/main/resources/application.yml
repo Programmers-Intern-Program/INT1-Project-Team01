@@ -79,9 +79,6 @@ security:
   slack:
     replay-timeout-seconds: 300
 
-task-execution:
-  workdir-root: ${TASK_EXECUTION_WORKDIR_ROOT:/data/aioffice/workspaces}
-
 app:
   artifact:
     base-path: ${APP_ARTIFACT_BASE_PATH:runtime-workspaces}

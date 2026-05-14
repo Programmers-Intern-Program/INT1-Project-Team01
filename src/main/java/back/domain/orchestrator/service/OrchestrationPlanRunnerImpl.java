@@ -4,6 +4,7 @@ import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
 import back.domain.chat.entity.ChatMessage;
@@ -67,6 +68,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final AgentWorkspaceExecutionLock agentWorkspaceExecutionLock;
 
     @Override
     public void run(Long workspaceId, Long planId) {
@@ -141,21 +143,32 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
         Agent agent;
         try {
             agent = resolveAgent(planContext.workspaceId(), stepContext);
-            markStepRunning(stepContext.id(), agent.getId());
-            OpenClawChatResult chatResult = client.sendChat(new OpenClawChatCommand(
-                    agent.getOpenClawAgentId(),
-                    resolveSessionKey(planContext, stepContext),
-                    buildWorkerMessage(planContext, stepContext, completedSteps),
-                    UUID.randomUUID().toString()));
-            AgentExecutionResult result = agentExecutionResultParser.parse(chatResult.finalText());
-            StepExecutionSummary summary = toStepExecutionSummary(stepContext, result, chatResult.finalText());
-            saveStepResult(stepContext.id(), summary);
-            return summary;
+            return agentWorkspaceExecutionLock.execute(
+                    agent.getWorkspacePath(),
+                    () -> runStepWithLockedWorkspace(client, planContext, stepContext, completedSteps, agent));
         } catch (OpenClawGatewayException exception) {
             return failStep(stepContext, resolveGatewayFailureReason(exception), null);
         } catch (RuntimeException exception) {
             return failStep(stepContext, resolveFailureReason(exception), null);
         }
+    }
+
+    private StepExecutionSummary runStepWithLockedWorkspace(
+            OpenClawGatewayClient client,
+            PlanExecutionContext planContext,
+            StepExecutionContext stepContext,
+            Map<String, StepExecutionSummary> completedSteps,
+            Agent agent) {
+        markStepRunning(stepContext.id(), agent.getId());
+        OpenClawChatResult chatResult = client.sendChat(new OpenClawChatCommand(
+                agent.getOpenClawAgentId(),
+                resolveSessionKey(planContext, stepContext),
+                buildWorkerMessage(planContext, stepContext, completedSteps, agent),
+                UUID.randomUUID().toString()));
+        AgentExecutionResult result = agentExecutionResultParser.parse(chatResult.finalText());
+        StepExecutionSummary summary = toStepExecutionSummary(stepContext, result, chatResult.finalText());
+        saveStepResult(stepContext.id(), summary);
+        return summary;
     }
 
     private Agent resolveAgent(Long workspaceId, StepExecutionContext stepContext) {
@@ -487,7 +500,8 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
     private String buildWorkerMessage(
             PlanExecutionContext planContext,
             StepExecutionContext stepContext,
-            Map<String, StepExecutionSummary> completedSteps) {
+            Map<String, StepExecutionSummary> completedSteps,
+            Agent agent) {
         return String.join(
                 System.lineSeparator(),
                 "Orchestration Worker Context",
@@ -497,7 +511,7 @@ public class OrchestrationPlanRunnerImpl implements OrchestrationPlanRunner {
                 "- stepId: " + stepContext.id(),
                 "- stepKey: " + stepContext.stepKey(),
                 "- stepTitle: " + stepContext.title(),
-                "- projectRoot: " + workspaceArtifactStorage.resolveProjectRoot(planContext.workspaceId()),
+                "- projectRoot: " + agent.getWorkspacePath(),
                 "",
                 "Completed dependency results",
                 formatCompletedSteps(completedSteps),

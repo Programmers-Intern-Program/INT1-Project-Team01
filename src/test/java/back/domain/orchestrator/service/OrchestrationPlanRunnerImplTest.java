@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +27,7 @@ import back.domain.agent.entity.Agent;
 import back.domain.agent.entity.AgentCategory;
 import back.domain.agent.entity.AgentStatus;
 import back.domain.agent.repository.AgentRepository;
+import back.domain.agent.service.AgentWorkspaceExecutionLock;
 import back.domain.artifact.dto.ArtifactFileSaveCommand;
 import back.domain.artifact.dto.StoredArtifactFile;
 import back.domain.artifact.service.WorkspaceArtifactStorage;
@@ -116,7 +116,8 @@ class OrchestrationPlanRunnerImplTest {
                 workspaceArtifactStorage,
                 chatSessionRepository,
                 chatMessageRepository,
-                eventPublisher);
+                eventPublisher,
+                new AgentWorkspaceExecutionLock());
         given(transactionOperations.execute(any())).willAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
@@ -150,9 +151,20 @@ class OrchestrationPlanRunnerImplTest {
         ReflectionTestUtils.setField(frontendStep, "id", 2001L);
 
         Workspace workspace = createWorkspace();
-        backendAgent = createReadyAgent(workspace, 101L, "backend-agent", AgentCategory.BACKEND, "openclaw-backend");
+        backendAgent = createReadyAgent(
+                workspace,
+                101L,
+                "backend-agent",
+                AgentCategory.BACKEND,
+                "~/.openclaw/backend-workspace",
+                "openclaw-backend");
         frontendAgent = createReadyAgent(
-                workspace, 102L, "frontend-agent", AgentCategory.FRONTEND, "openclaw-frontend");
+                workspace,
+                102L,
+                "frontend-agent",
+                AgentCategory.FRONTEND,
+                "~/.openclaw/frontend-workspace",
+                "openclaw-frontend");
 
         lenient().when(orchestrationPlanRepository.save(any(OrchestrationPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -179,8 +191,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY))
                 .willReturn(Optional.of(frontendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
                         new OpenClawChatResult("backend-session", "backend final"),
@@ -218,7 +228,10 @@ class OrchestrationPlanRunnerImplTest {
         assertThat(commandCaptor.getAllValues())
                 .extracting(OpenClawChatCommand::openClawAgentId)
                 .containsExactly("openclaw-backend", "openclaw-frontend");
+        assertThat(commandCaptor.getAllValues().getFirst().message())
+                .contains("projectRoot: ~/.openclaw/backend-workspace");
         assertThat(commandCaptor.getAllValues().getLast().message())
+                .contains("projectRoot: ~/.openclaw/frontend-workspace")
                 .contains("backend-1: 백엔드 완료 files=src/main/java/App.java");
         ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
         verify(chatMessageRepository).save(messageCaptor.capture());
@@ -246,8 +259,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.FRONTEND, AgentStatus.READY))
                 .willReturn(Optional.of(frontendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(
                         new OpenClawChatResult("backend-session", "backend final"),
@@ -284,8 +295,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(new OpenClawChatResult("backend-session", "backend final"));
         given(agentExecutionResultParser.parse("backend final"))
@@ -323,8 +332,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willThrow(OpenClawGatewayException.rpcTimeout("chat.send", "req-1"));
 
@@ -356,8 +363,6 @@ class OrchestrationPlanRunnerImplTest {
         given(agentRepository.findFirstByWorkspaceIdAndCategoryAndStatusAndOpenClawAgentIdIsNotNullOrderByIdAsc(
                         1L, AgentCategory.BACKEND, AgentStatus.READY))
                 .willReturn(Optional.of(backendAgent));
-        given(workspaceArtifactStorage.resolveProjectRoot(1L))
-                .willReturn(Path.of("/tmp/ai-office/workspaces/1/project"));
         given(openClawGatewayClient.sendChat(any(OpenClawChatCommand.class)))
                 .willReturn(new OpenClawChatResult("backend-session", "backend final"));
         given(agentExecutionResultParser.parse("backend final"))
@@ -432,8 +437,9 @@ class OrchestrationPlanRunnerImplTest {
             Long agentId,
             String name,
             AgentCategory category,
+            String workspacePath,
             String openClawAgentId) {
-        Agent agent = Agent.create(workspace, name, category, "~/.openclaw/workspace-1", 10L);
+        Agent agent = Agent.create(workspace, name, category, workspacePath, 10L);
         ReflectionTestUtils.setField(agent, "id", agentId);
         agent.markOpenClawCreated(openClawAgentId);
         agent.markReady();
