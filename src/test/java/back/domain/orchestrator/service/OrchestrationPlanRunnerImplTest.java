@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -206,7 +207,8 @@ class OrchestrationPlanRunnerImplTest {
                 List.of());
         given(agentExecutionResultParser.parse("backend final")).willReturn(backendResult);
         given(agentExecutionResultParser.parse("frontend final")).willReturn(frontendResult);
-        given(workspaceArtifactStorage.storeFiles(1L, backendResult.files()))
+        given(workspaceArtifactStorage.storeFilesFromWorkspace(
+                        1L, Path.of("~/.openclaw/backend-workspace"), backendResult.files()))
                 .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
 
         // when
