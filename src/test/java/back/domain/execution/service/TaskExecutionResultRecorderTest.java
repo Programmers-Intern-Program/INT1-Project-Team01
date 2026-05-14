@@ -20,8 +20,6 @@ import back.domain.gateway.client.OpenClawChatResult;
 import back.domain.task.entity.TaskMessage;
 import back.domain.task.entity.TaskMessageRole;
 import back.domain.task.repository.TaskMessageRepository;
-import back.global.exception.CommonErrorCode;
-import back.global.exception.ServiceException;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +71,8 @@ class TaskExecutionResultRecorderTest {
         ArtifactFileSaveCommand file =
                 new ArtifactFileSaveCommand("src/main/java/App.java", "class App {}");
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
-        given(workspaceArtifactStorage.storeFilesFromWorkspace(1L, Path.of("/tmp/agent-workspace"), List.of(file)))
+        given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
+                        1L, Path.of("/tmp/agent-workspace"), List.of(file)))
                 .willReturn(List.of(new StoredArtifactFile("src/main/java/App.java", 12)));
 
         // when
@@ -99,11 +98,9 @@ class TaskExecutionResultRecorderTest {
                 new AgentReportSaveRequest("COMPLETED", "파일 생성 완료", "상세 내용", null);
         ArtifactFileSaveCommand file = new ArtifactFileSaveCommand("../secret.txt", "secret");
         AgentExecutionResult result = new AgentExecutionResult(report, List.of(), List.of(file));
-        given(workspaceArtifactStorage.storeFilesFromWorkspace(1L, Path.of("/tmp/agent-workspace"), List.of(file)))
-                .willThrow(new ServiceException(
-                        CommonErrorCode.BAD_REQUEST,
-                        "invalid artifact path",
-                        "산출물 파일 경로가 올바르지 않습니다."));
+        given(workspaceArtifactStorage.storeAvailableFilesFromWorkspace(
+                        1L, Path.of("/tmp/agent-workspace"), List.of(file)))
+                .willReturn(List.of());
 
         // when
         recorder.recordResult(execution, result);
@@ -116,7 +113,9 @@ class TaskExecutionResultRecorderTest {
         verify(taskMessageRepository).save(messageCaptor.capture());
         assertThat(reportCaptor.getValue().getSummary()).isEqualTo("파일 생성 완료");
         assertThat(messageCaptor.getValue().getContent())
-                .contains("파일 생성 완료", "산출물 저장 경고: 산출물 파일 경로가 올바르지 않습니다.");
+                .contains(
+                        "파일 생성 완료",
+                        "산출물 저장 경고: 보고된 파일 산출물을 실제 Agent 작업 디렉터리에서 찾지 못해 저장하지 못했습니다.");
     }
 
     @Test
