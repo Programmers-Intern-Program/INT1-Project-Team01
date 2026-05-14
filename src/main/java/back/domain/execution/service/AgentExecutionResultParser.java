@@ -97,11 +97,11 @@ public class AgentExecutionResultParser {
             return Optional.empty();
         }
         Optional<String> path = firstText(fileNode, "path", "relativePath", "filePath", "name");
-        Optional<String> content = nullableText(fileNode, "content", "body", "text");
-        if (path.isEmpty() || content.isEmpty()) {
+        if (path.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new ArtifactFileSaveCommand(path.get(), content.get()));
+        String content = nullableText(fileNode, "content", "body", "text").orElse("");
+        return Optional.of(new ArtifactFileSaveCommand(path.get(), content));
     }
 
     private List<String> parseStringArray(JsonNode root, JsonNode reportNode, String... keys) {
