@@ -510,6 +510,31 @@ class OpenClawGatewayRpcClientTest {
     }
 
     @Test
+    @DisplayName("chat.send는 설정된 chat timeout 안에 final 이벤트가 없으면 timeout 처리한다")
+    void sendChat_customChatTimeout_timesOut() {
+        // given
+        FakeGatewayTransport transport = new FakeGatewayTransport();
+        transport.onSend = request -> transport.respond(OpenClawRpcResponse.success(
+                request.id(),
+                Map.of("chat", Map.of("sessionKey", request.params().get("sessionKey")))));
+        OpenClawGatewayRpcClient client = newClient(
+                transport,
+                OpenClawGatewayDeviceAuthenticator.defaultAuthenticator(),
+                Duration.ZERO,
+                Duration.ofMillis(25));
+        client.connect(new OpenClawGatewayConnectionContext("ws://localhost:3999", "secret-token"));
+
+        // when & then
+        assertThatThrownBy(() -> client.sendChat(new OpenClawChatCommand(
+                        "openclaw-agent-1", "workspace-1-execution-10", "회원가입 API를 리뷰해줘", "idem-1")))
+                .isInstanceOf(OpenClawGatewayException.class)
+                .extracting("gatewayErrorCode")
+                .isEqualTo("gateway_rpc_timeout");
+
+        client.close();
+    }
+
+    @Test
     @DisplayName("chat.send는 동일 sessionKey pending 중복 등록을 거부한다")
     void sendChat_duplicatePendingSession_rejectsSecondRequest() {
         // given
@@ -616,13 +641,25 @@ class OpenClawGatewayRpcClientTest {
             FakeGatewayTransport transport,
             OpenClawGatewayDeviceAuthenticator deviceAuthenticator,
             Duration remoteConnectChallengeWait) {
+        return newClient(
+                transport,
+                deviceAuthenticator,
+                remoteConnectChallengeWait,
+                Duration.ofSeconds(1));
+    }
+
+    private OpenClawGatewayRpcClient newClient(
+            FakeGatewayTransport transport,
+            OpenClawGatewayDeviceAuthenticator deviceAuthenticator,
+            Duration remoteConnectChallengeWait,
+            Duration chatTimeout) {
         AtomicInteger sequence = new AtomicInteger();
         return new OpenClawGatewayRpcClient(
                 transport,
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> "req-" + sequence.incrementAndGet(),
                 Duration.ofSeconds(1),
-                Duration.ofSeconds(1),
+                chatTimeout,
                 deviceAuthenticator,
                 remoteConnectChallengeWait);
     }

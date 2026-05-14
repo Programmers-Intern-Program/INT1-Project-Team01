@@ -107,3 +107,10 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+
+openclaw:
+  gateway:
+    rpc-timeout: ${OPENCLAW_GATEWAY_RPC_TIMEOUT:10s}
+    chat-timeout: ${OPENCLAW_GATEWAY_CHAT_TIMEOUT:10m}
+    remote-connect-challenge-wait: ${OPENCLAW_GATEWAY_REMOTE_CONNECT_CHALLENGE_WAIT:750ms}
+    device-identity-dir: ${OPENCLAW_GATEWAY_DEVICE_IDENTITY_DIR:}

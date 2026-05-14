@@ -152,6 +152,14 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
             Duration rpcTimeout,
             java.nio.file.Path deviceIdentityDirectory,
             Duration remoteConnectChallengeWait) {
+        return webSocket(rpcTimeout, deviceIdentityDirectory, remoteConnectChallengeWait, DEFAULT_CHAT_TIMEOUT);
+    }
+
+    static OpenClawGatewayRpcClient webSocket(
+            Duration rpcTimeout,
+            java.nio.file.Path deviceIdentityDirectory,
+            Duration remoteConnectChallengeWait,
+            Duration chatTimeout) {
         Duration timeout = Objects.requireNonNull(rpcTimeout);
         OpenClawGatewayDeviceAuthenticator authenticator = new OpenClawGatewayDeviceAuthenticator(
                 new OpenClawGatewayDeviceIdentityStore(deviceIdentityDirectory));
@@ -166,7 +174,7 @@ public class OpenClawGatewayRpcClient implements OpenClawGatewayClient {
                 new OpenClawPendingRequests(Executors.newSingleThreadScheduledExecutor()),
                 () -> UUID.randomUUID().toString(),
                 timeout,
-                DEFAULT_CHAT_TIMEOUT,
+                chatTimeout,
                 authenticator,
                 remoteConnectChallengeWait);
     }
